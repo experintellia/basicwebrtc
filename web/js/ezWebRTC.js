@@ -151,6 +151,14 @@ function initEzWebRTC(initiator, config) {
         pc.removeTrack(trackSenders[track.id])
     }
 
+    this.replaceTrack = function (oldTrack, newTrack) { //Swap a sent track without renegotiation
+        var sender = trackSenders[oldTrack.id];
+        if (!sender) return;
+        delete trackSenders[oldTrack.id];
+        trackSenders[newTrack.id] = sender;
+        sender.replaceTrack(newTrack);
+    }
+
     this.addTransceiver = function (kind, init) {
         if (initiator) {
             try {
