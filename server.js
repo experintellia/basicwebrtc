@@ -9,7 +9,7 @@ const HTTP_PORT = parseInt(process.env.listen_port) > 0 ? parseInt(process.env.l
 const HTTP_IP = process.env.listen_ip ? process.env.listen_ip : "0.0.0.0";
 
 //Define API Version
-const API_VERSION = 1.2;
+const API_VERSION = 1.3;
 
 //Get dummy cert files for https
 var fs = require('fs');
@@ -61,7 +61,6 @@ ioServer.sockets.on('connection', function (socket) {
     socket.emit('API_VERSION', API_VERSION);
 
     let roomOfUser = null;
-    let nameOfUser = "NA";
     let MY_UUID = null;
     console.log("NEW USER!");
 
@@ -94,27 +93,10 @@ ioServer.sockets.on('connection', function (socket) {
     socket.on("joinRoom", function (content) {
         if (!content || typeof content != "object" || roomOfUser !== null) return; // one room per connection
         roomOfUser = socket.data.room = String(content["roomname"] || "").slice(0, 64);
-        nameOfUser = String(content["username"] || "").slice(0, 64);
         socket.to(roomOfUser).emit('userJoined', { UUID: MY_UUID });
         console.log("joinRoom", roomOfUser, MY_UUID);
         socket.join(roomOfUser);
     })
-
-    socket.on("sendMsg", function (msg) {
-        if (typeof (msg) == "string") {
-            if (msg != "") {
-                if (nameOfUser != "" && nameOfUser != "NA") {
-                    msg = nameOfUser + ': ' + msg;
-                }
-                socket.to(roomOfUser).emit('msg', msg);
-                socket.emit('msg', msg);
-            }
-        }
-    });
-
-    socket.on("currentAudioLvl", function (currentAudioLvl) {
-        socket.to(roomOfUser).emit('currentAudioLvl', { currentAudioLvl: currentAudioLvl, fromUUID: MY_UUID });
-    });
 
     socket.on("signaling", function (content) {
         if (!content || typeof content != "object" || roomOfUser === null) return;
@@ -122,7 +104,7 @@ ioServer.sockets.on('connection', function (socket) {
         var signalingData = content.signalingData;
         if (ioServer.sockets.sockets.get(destSocketId)?.data.room !== roomOfUser) return; // same room only
 
-        ioServer.to(destSocketId).emit('signaling', { signalingData: signalingData, fromUUID: MY_UUID, username: nameOfUser });
+        ioServer.to(destSocketId).emit('signaling', { signalingData: signalingData, fromUUID: MY_UUID }); // chat, names etc. go peer-to-peer
     });
 
     //Return the current iceServers

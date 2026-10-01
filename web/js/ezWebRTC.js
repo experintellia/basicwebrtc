@@ -26,6 +26,12 @@ function initEzWebRTC(initiator, config) {
     //Make new peer
     var pc = new wrtc.RTCPeerConnection({ iceServers: rtcConfig.iceServers });
 
+    // Peer-to-peer data (DTLS encrypted end to end). Negotiated: both sides create it, no extra offer.
+    var dc = pc.createDataChannel("data", { negotiated: true, id: 0 });
+    dc.onopen = () => _this.emitEvent("open");
+    dc.onmessage = e => { try { var msg = JSON.parse(e.data) } catch (err) { return } _this.emitEvent("message", msg) };
+    this.send = obj => dc.readyState == "open" && (dc.send(JSON.stringify(obj)), true); // false: not open (yet)
+
     pc.onsignalingstatechange = function (event) {
         _this.emitEvent("onsignalingstatechange", event);
     }

@@ -31,14 +31,14 @@ async function client(uuid, key = uuid + '-key') {
   clients.push(c);
   await new Promise(r => c.on('connect', r));
   const [err, already] = await new Promise(r => c.emit('registerUUID', { UUID: uuid, UUID_KEY: key }, (...a) => r(a)));
-  return { c, err, already };
+  return { c, err, already, uuid, key };
 }
-async function join(cl, roomname, username = 'u') {
-  const joined = nextEvent(cl.c, 'msg'); // a socket's events are handled in order: the echo means the join is done
-  cl.c.emit('joinRoom', { roomname, username });
-  cl.c.emit('sendMsg', 'joined');
-  await joined;
+async function join(cl, roomname) {
+  cl.c.emit('joinRoom', { roomname });
+  await sync(cl);
 }
+// A socket's events are handled in order: the ack of a repeated registerUUID means all earlier ones are done.
+const sync = cl => new Promise(r => cl.c.emit('registerUUID', { UUID: cl.uuid, UUID_KEY: cl.key }, r));
 const nextEvent = (c, ev, ms = 1000) => new Promise((res, rej) => {
   const t = setTimeout(() => rej(new Error(`no '${ev}' within ${ms}ms`)), ms);
   c.once(ev, d => { clearTimeout(t); res(d); });
@@ -105,13 +105,23 @@ test('malformed payloads are ignored and signaling keeps working', async () => {
   a.c.emit('registerUUID', null);
   a.c.emit('registerUUID', null, () => { });
   a.c.emit('registerUUID', { UUID: 'M9', UUID_KEY: 'k' }); // no ack callback
-  a.c.emit('currentAudioLvl', null);
-  await join(a, 'room-m', { evil: 1 }); await join(b, 'room-m');
+  a.c.emit('joinRoom', { roomname: { evil: 1 } });
+  await sync(a); await join(b, '[object Object]');
   const got = nextEvent(b.c, 'signaling');
   a.c.emit('signaling', { destUUID: 'M2', signalingData: 'hi' });
-  const d = await got;
-  assert.strictEqual(d.fromUUID, 'M1');
-  assert.strictEqual(typeof d.username, 'string');
+  assert.strictEqual((await got).fromUUID, 'M1');
+});
+
+test('chat, mic levels and usernames do not go through the server (#11)', async () => {
+  const a = await client('P1'), b = await client('P2');
+  await join(a, 'room-p'); await join(b, 'room-p');
+  const seen = [];
+  b.c.onAny(ev => seen.push(ev));
+  a.c.emit('sendMsg', 'secret'); a.c.emit('currentAudioLvl', 2);
+  const got = nextEvent(b.c, 'signaling');
+  a.c.emit('signaling', { destUUID: 'P2', signalingData: 'hi' });
+  assert.ok(!('username' in await got), 'no username in signaling');
+  assert.deepStrictEqual(seen, ['signaling']);
 });
 
 test('only well-formed UUIDs are accepted, one per socket', async () => {
@@ -133,14 +143,10 @@ test('signaling is not routed across rooms', async () => {
 test('a second joinRoom cannot switch rooms', async () => {
   const a = await client('W1'), spy = await client('W2');
   await join(a, 'room-w1'); await join(spy, 'room-w2');
-  const seen = [];
-  spy.c.on('msg', m => seen.push(m));
-  a.c.emit('joinRoom', { roomname: 'room-w2', username: 'mallory' });
-  const echo = nextEvent(a.c, 'msg');
-  a.c.emit('sendMsg', 'leak');
-  assert.strictEqual(await echo, 'u: leak', 'name unchanged');
-  await new Promise(r => setTimeout(r, 200)); // nothing to wait for: asserting something does not arrive
-  assert.deepStrictEqual(seen, []);
+  a.c.emit('joinRoom', { roomname: 'room-w2' });
+  const got = nextEvent(spy.c, 'signaling', 300);
+  a.c.emit('signaling', { destUUID: 'W2', signalingData: 'leak' });
+  await assert.rejects(got);
 });
 
 test('an empty room name still allows signaling', async () => {

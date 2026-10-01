@@ -197,7 +197,10 @@ test('signaling socket reconnect keeps the call working', async () => {
   await new Promise(r => setTimeout(r, 1000));
   assert.strictEqual(await a.evaluate(() => socket.listeners('signaling').length), 1, 'signaling handler registered once');
   // A chat line sent once must arrive once.
-  await b.evaluate(() => socket.emit('sendMsg', 'ping'));
+  await b.click('#addRemoveChatBtn');
+  await b.fill('#chatInputText', 'ping');
+  await b.press('#chatInputText', 'Enter');
+  await waitFor(() => a.locator('#chatText div', { hasText: 'ping' }).count(), 'chat on alice');
   await new Promise(r => setTimeout(r, 500));
   assert.strictEqual(await a.locator('#chatText div', { hasText: 'ping' }).count(), 1, 'chat delivered once');
   // After the blip alice must still be able to renegotiate (turn on cam) and chat.
@@ -259,6 +262,26 @@ test('remote username is shown as text', async () => {
   await new Promise(r => setTimeout(r, 300));
   assert.strictEqual(await b.evaluate(() => window.__xss), undefined, 'no script execution');
   assert.ok(await b.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('<img src=x')), 'name shown literally');
+  await a.context().close(); await b.context().close();
+});
+
+test('chat, mute state and username reach the peer without the server (#11)', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(a)) === 1 && (await connectedPeers(b)) === 1, 'ICE connected');
+  await a.evaluate(() => { socket.emit = () => { }; }); // alice can no longer reach the server
+  await a.click('#addRemoveChatBtn');
+  await a.fill('#chatInputText', 'hi via p2p');
+  await a.press('#chatInputText', 'Enter');
+  await waitFor(() => b.evaluate(() => document.querySelector('#chatText').textContent == 'alice: hi via p2p'), 'chat on bob');
+  assert.strictEqual(await a.evaluate(() => document.querySelector('#chatText').textContent), 'alice: hi via p2p', 'shown locally');
+  await a.click('#muteUnmuteMicBtn');
+  await waitFor(() => b.locator('.audioMuted').count(), 'mute icon on bob');
+  await waitFor(() => b.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('AL')), 'alice\'s initials on bob');
+  await b.evaluate(() => Object.values(pcs)[0].send({ username: 'x'.repeat(500), chat: 'long' })); // a peer can send anything
+  await waitFor(() => a.evaluate(() => document.querySelector('#chatText').textContent.includes('long')), 'chat on alice');
+  assert.ok(await a.evaluate(() => Object.values(allUserStreams).every(u => u.username.length <= 64)), 'username capped');
   await a.context().close(); await b.context().close();
 });
 

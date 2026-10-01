@@ -1,4 +1,4 @@
-const API_VERSION = 1.2;
+const API_VERSION = 1.3;
 
 // The notice in index.html is visible by default; browsers that can't parse or run this script keep seeing it.
 if (!window.RTCPeerConnection || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -72,7 +72,7 @@ async function updateCameraList() { //Show camera picker only if there is more t
 navigator.mediaDevices.addEventListener("devicechange", updateCameraList);
 updateCameraList();
 
-socket.on("msg", function (msg) {
+function showMsg(msg) {
   const line = document.createElement("div");
   msg.split(/(https?:\/\/\S+)/).forEach((part, i) => { // odd parts are links
     if (i % 2) {
@@ -90,7 +90,7 @@ socket.on("msg", function (msg) {
   if ($("#chatDiv").style.display != "block") {
     $("#addRemoveChatBtn").style.color = "#730303";
   }
-})
+}
 
 socket.on("currentIceServers", function (newIceServers) {
   webRTCConfig["iceServers"] = newIceServers;
@@ -108,20 +108,14 @@ socket.on("signaling", function (data) {
     createRemoteSocket(false, fromUUID)
   }
   pcs[fromUUID].signaling(data.signalingData).catch(e => console.log("signaling error", e));
-
-  if (data.username) {
-    allUserStreams[fromUUID] = allUserStreams[fromUUID] || {};
-    allUserStreams[fromUUID]["username"] = data.username;
-  }
 })
 
 socket.on("userJoined", function (content) {
   createRemoteSocket(true, content["UUID"] || null)
 })
 
-socket.on("currentAudioLvl", function (content) {
-  setAudioLevel(content["fromUUID"], content["currentAudioLvl"] || 0);
-})
+const sendToPeers = obj => { for (var i in pcs) pcs[i].send(obj) };
+const nameOf = UUID => { const n = allUserStreams[UUID] && allUserStreams[UUID]["username"]; return n && n != "NA" ? n + ": " : "" };
 
 function setAudioLevel(UUID, level) {
   const tile = byId(UUID);
@@ -164,7 +158,7 @@ var mediaReady = (async function () {
   allUserStreams[MY_UUID] = { audiostream: stream, username: username };
   calcCurrentVolumeLevel(stream, function (currentAudioLvl) {
     if (!micMuted) {
-      socket.emit('currentAudioLvl', currentAudioLvl);
+      sendToPeers({ audioLvl: currentAudioLvl });
       setAudioLevel(MY_UUID, currentAudioLvl);
     }
   });
@@ -179,7 +173,7 @@ $("#muteUnmuteMicBtn").onclick = function () {
   this.innerHTML = micMuted ? '<i class="fas fa-microphone-alt-slash"></i>' : '<i class="fas fa-microphone-alt"></i>';
   if (allUserStreams[MY_UUID] && allUserStreams[MY_UUID]["audiostream"]) {
     allUserStreams[MY_UUID]["audiostream"].getAudioTracks()[0].enabled = !micMuted;
-    if (micMuted) socket.emit('currentAudioLvl', -1);
+    if (micMuted) sendToPeers({ audioLvl: -1 });
   }
 }
 
@@ -194,8 +188,11 @@ $("#chatSendBtn").onclick = sendMsg;
 $("#chatInputText").onkeydown = e => { if (e.key == "Enter") sendMsg() };
 
 function sendMsg() {
-  socket.emit('sendMsg', $("#chatInputText").value.trim());
+  const chat = $("#chatInputText").value.trim();
   $("#chatInputText").value = "";
+  if (!chat) return;
+  sendToPeers({ chat: chat });
+  showMsg(nameOf(MY_UUID) + chat);
 }
 
 $("#addRemoveScreenBtn").onclick = async function () {
@@ -289,6 +286,16 @@ function createRemoteSocket(initiator, UUID) {
   pc.on("signaling", function (data) {
     socket.emit("signaling", { destUUID: UUID, signalingData: data })
   })
+  pc.on("open", () => pc.send({ username: username, audioLvl: micMuted ? -1 : 0 }));
+  pc.on("message", function (msg) { // from the peer: untrusted
+    if (typeof msg.username == "string") {
+      allUserStreams[UUID] = allUserStreams[UUID] || {};
+      allUserStreams[UUID]["username"] = msg.username.slice(0, 64);
+      updateUserLayout();
+    }
+    if (typeof msg.audioLvl == "number") setAudioLevel(UUID, msg.audioLvl);
+    if (typeof msg.chat == "string") showMsg(nameOf(UUID) + msg.chat);
+  });
   pc.on("stream", function (stream) {
     gotRemoteStream(stream, UUID)
   });
@@ -416,7 +423,7 @@ function updateUserLayout() {
 }
 
 function joinRoom() {
-  socket.emit("joinRoom", { roomname: getUrlParam("roomname", "unknown"), username: username });
+  socket.emit("joinRoom", { roomname: getUrlParam("roomname", "unknown") });
 }
 
 var resizeTimeout = null;
