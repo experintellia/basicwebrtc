@@ -22,8 +22,10 @@ async function client(uuid, key = uuid + '-key') {
   return { c, err, already };
 }
 async function join(cl, roomname, username = 'u') {
+  const joined = nextEvent(cl.c, 'msg'); // a socket's events are handled in order: the echo means the join is done
   cl.c.emit('joinRoom', { roomname, username });
-  await new Promise(r => setTimeout(r, 100));
+  cl.c.emit('sendMsg', 'joined');
+  await joined;
 }
 const nextEvent = (c, ev, ms = 1000) => new Promise((res, rej) => {
   const t = setTimeout(() => rej(new Error(`no '${ev}' within ${ms}ms`)), ms);
@@ -111,4 +113,25 @@ test('signaling is not routed across rooms', async () => {
   const got = nextEvent(b.c, 'signaling', 300);
   a.c.emit('signaling', { destUUID: 'X2', signalingData: 'hi' });
   await assert.rejects(got);
+});
+
+test('a second joinRoom cannot switch rooms', async () => {
+  const a = await client('W1'), spy = await client('W2');
+  await join(a, 'room-w1'); await join(spy, 'room-w2');
+  const seen = [];
+  spy.c.on('msg', m => seen.push(m));
+  a.c.emit('joinRoom', { roomname: 'room-w2', username: 'mallory' });
+  const echo = nextEvent(a.c, 'msg');
+  a.c.emit('sendMsg', 'leak');
+  assert.strictEqual(await echo, 'u: leak', 'name unchanged');
+  await new Promise(r => setTimeout(r, 200)); // nothing to wait for: asserting something does not arrive
+  assert.deepStrictEqual(seen, []);
+});
+
+test('an empty room name still allows signaling', async () => {
+  const a = await client('E1'), b = await client('E2');
+  await join(a, ''); await join(b, '');
+  const got = nextEvent(b.c, 'signaling');
+  a.c.emit('signaling', { destUUID: 'E2', signalingData: 'hi' });
+  assert.strictEqual((await got).signalingData, 'hi');
 });

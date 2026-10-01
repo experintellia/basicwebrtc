@@ -88,40 +88,33 @@ ioServer.sockets.on('connection', function (socket) {
         delete socketID_UUIDMatch[MY_UUID];
     });
 
-    var roomname;
-    var username = "";
-    socket.on("joinRoom", function (content, callback) {
-        if (!content || typeof content != "object") return;
-        roomname = String(content["roomname"] || "").slice(0, 64);
-        username = String(content["username"] || "").slice(0, 64);
-        console.log(username)
-        if (!roomOfUser) {
-            roomOfUser = socket.data.room = roomname;
-            nameOfUser = username;
-            socket.to(roomname).emit('userJoined', { UUID: MY_UUID });
-            console.log("joinRoom", roomname, MY_UUID);
-            socket.join(roomname);
-        }
+    socket.on("joinRoom", function (content) {
+        if (!content || typeof content != "object" || roomOfUser !== null) return; // one room per connection
+        roomOfUser = socket.data.room = String(content["roomname"] || "").slice(0, 64);
+        nameOfUser = String(content["username"] || "").slice(0, 64);
+        socket.to(roomOfUser).emit('userJoined', { UUID: MY_UUID });
+        console.log("joinRoom", roomOfUser, MY_UUID);
+        socket.join(roomOfUser);
     })
 
     socket.on("sendMsg", function (msg) {
         if (typeof (msg) == "string") {
             if (msg != "") {
-                if (username != "" && username != "NA") {
-                    msg = username + ': ' + msg;
+                if (nameOfUser != "" && nameOfUser != "NA") {
+                    msg = nameOfUser + ': ' + msg;
                 }
-                socket.to(roomname).emit('msg', msg);
+                socket.to(roomOfUser).emit('msg', msg);
                 socket.emit('msg', msg);
             }
         }
     });
 
     socket.on("currentAudioLvl", function (currentAudioLvl) {
-        socket.to(roomname).emit('currentAudioLvl', { currentAudioLvl: currentAudioLvl, fromUUID: MY_UUID });
+        socket.to(roomOfUser).emit('currentAudioLvl', { currentAudioLvl: currentAudioLvl, fromUUID: MY_UUID });
     });
 
     socket.on("signaling", function (content) {
-        if (!content || typeof content != "object" || !roomOfUser) return;
+        if (!content || typeof content != "object" || roomOfUser === null) return;
         var destSocketId = socketID_UUIDMatch[content.destUUID];
         var signalingData = content.signalingData;
         if (ioServer.sockets.sockets.get(destSocketId)?.data.room !== roomOfUser) return; // same room only
