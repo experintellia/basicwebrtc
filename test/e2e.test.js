@@ -16,7 +16,7 @@ before(async () => {
     executablePath: process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium',
     args: [
       '--use-fake-ui-for-media-stream',
-      '--use-fake-device-for-media-stream',
+      '--use-fake-device-for-media-stream=device-count=2', // two cameras -> picker shown
       '--disable-features=WebRtcHideLocalIpsWithMdns', // plain host candidates, no mDNS
       '--autoplay-policy=no-user-gesture-required',
     ],
@@ -71,6 +71,22 @@ test('camera toggle reaches the other peer', async () => {
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
   await a.click('#addRemoveCameraBtn');
   await waitFor(() => remoteVideoShown(b), 'remote video on bob');
+  await a.context().close(); await b.context().close();
+});
+
+test('camera picker switches the camera sent to the other peer', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
+  await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'picker visible');
+  const camId = () => a.evaluate(() => allUserStreams[MY_UUID].videostream.getVideoTracks()[0].getSettings().deviceId);
+  const other = await a.evaluate(cur => [...document.querySelectorAll('#cameraSelect option')].find(o => o.value != cur).value, await camId());
+  await a.selectOption('#cameraSelect', other);
+  await waitFor(async () => (await camId()) === other, 'camera switched');
+  await waitFor(() => remoteVideoShown(b), 'remote video after switch');
   await a.context().close(); await b.context().close();
 });
 
