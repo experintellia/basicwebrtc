@@ -54,5 +54,5 @@ is the reference; don't add a library.
 
 ## Deploy reminder
 
-`call.simonlaux.de` runs the pre-fix chat code (live XSS). Deploy PR #2 or at
+The live instance runs the pre-fix chat code (live XSS). Deploy PR #2 or at
 least commits `bf11eed` + `6a38526`.
