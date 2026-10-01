@@ -11,6 +11,8 @@ This repo is a fork of `cracker0dks/basicwebrtc`.
 Reliable, minimal, fully peer-to-peer voice chat for 2-3 people. No accounts.
 Prefer direct P2P connections; TURN is only a fallback. Everything stays end-to-end encrypted (WebRTC DTLS-SRTP).
 Keep the code small: fewer lines and dependencies beat features.
+Decided: video and screen share stay; no UI framework (plain DOM is enough); `web/js/socket.io.min.js` is the one vendored file worth keeping.
+Open work is tracked in GitHub issues on `experintellia/basicwebrtc`.
 
 ## Test-driven development
 
