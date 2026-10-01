@@ -18,7 +18,7 @@ Setup your own Videoconference Server for 1on1 and group calls! All Calls are en
 ### All User parameters ###
 * `username` -> Change your username shown
 * `roomname` -> Change the name of the room
-* `camon` -> Default is on. Set to false to start session audio only
+* `camon` -> Default is off (audio only). Set to true to start with the camera on
 * `socketdomain` -> Change if you want to use a different socketServer (Can also include path: `https://domainname.tld/path/sub/`)
 * `base64domain` -> true if socketDomain is given in base64 format
 
@@ -39,11 +39,24 @@ location /basicwebrtc/ {
 	proxy_pass http://127.0.0.1:8080/;
 }
 ```
+## Upgrading ##
+
+`iceservers.json` is no longer tracked by git (it holds your TURN secret). A plain `git pull` deletes it, so keep a copy:
+
+```
+cp iceservers.json ~/ && git checkout iceservers.json && git pull && cp ~/iceservers.json .
+```
+
+Without it the server still runs, but with public STUN only (no TURN fallback). While you're at it:
+* Change the TURN `authSecret` (coturn) and `turnServerCredential`; older versions of this repo committed it.
+* Add the TCP TURN url, see below.
+
+Updating is recommended: it includes connection-stability and security fixes.
+
 ## STUN and TURN Configuration ##
 If your clients are behind firewalls you might need to setup a TURN Server so the connection can fallback to that (Connection is e2e encrypted in any case).
 
-If you have your STUN/TURN Server, isert the urls into:
-/iceservers.json
+Copy `iceservers.example.json` to `iceservers.json` (not tracked by git, it holds your TURN secret) and add your STUN/TURN urls there. Without it, only public STUN is used.
 
 ### Setup your own TURN Server with docker ###
 This setup is using COTURN inside docker.
@@ -57,17 +70,18 @@ Don't forget to change the admin username, password and authSecret.
 
 For more configurations of this  take a look at repo of the container (https://github.com/cracker0dks/turn-server-docker-image) and the COTURN repo itself: https://github.com/coturn/coturn
 
-If you have the turn server running, make a new entry into /iceservers.json
+If you have the turn server running, put it into /iceservers.json
 ```
 [
     {
-        "url": "stun:10.10.10.10:443"
+        "urls": "stun:10.10.10.10:443"
     },
     {
-        "url": "turn:10.10.10.10:443",
+        "urls": ["turn:10.10.10.10:443", "turn:10.10.10.10:443?transport=tcp"],
         "turnServerCredential": "authSecret",
         "username": "webrtcuser"
     }
 ]
 ```
+The `?transport=tcp` url lets clients on UDP-blocked networks still connect (media stays e2e encrypted, the relay only sees ciphertext).
 Change the ips and authSecret as defined on docker run. The username can be set to anything you want or leave it like this then restart the basicwebrtc server.

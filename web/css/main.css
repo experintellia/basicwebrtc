@@ -94,47 +94,6 @@ ul>li {
   color: #044e04;
 }
 
-div.screenshare-select-dialog-backdrop {
-  position: absolute;
-  z-index:100;
-  background: rgba(0,0,0,0.6);
-  width: 100%;
-  height: 100%;
-}
-
-div.screenshare-select-dialog {
-  background-color: darkslategray;
-  border-radius: 7px;
-  padding: 5pt;
-  margin: auto;
-  width: 50%;
-}
-
-div.screenshare-options {
-  display: flex;
-  flex-wrap: wrap;
-}
-
-div.screenshare-option {
-  margin: 4px;
-  padding:2px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  border: 1px solid transparent;
-  max-width: 100px;
-}
-
-div.screenshare-option:hover {
-  border: 1px solid grey;
-}
-
-div.screenshare-option > img.thumbnail {
-  width: 100%;
-  max-width: 90px;
-  max-height: 90px;
-}
-
 #chatDiv {
   width: 250px;
   height: 330px;
@@ -203,6 +162,33 @@ div.screenshare-option > img.thumbnail {
 /* TV EFFECT */
 
 
+#unsupported {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  padding: 40px;
+  background: black;
+  color: white;
+  font: 1.5em sans-serif;
+  text-align: center;
+}
+
+div#topDiv, div#bottomDiv {
+  animation: tvClose 0.5s forwards;
+}
+
+@keyframes tvClose {
+  to { height: 50%; opacity: 1; }
+}
+
+div#centerDiv {
+  animation: tvLine 0.4s forwards;
+}
+
+@keyframes tvLine {
+  to { width: 0%; left: 50%; }
+}
+
 div#topDiv{
   width:100%;
   height:0%;
@@ -225,7 +211,6 @@ div#centerDiv{
   top: 50%;
   width:100%;
   background: white;
-  display:none;
   z-index:1;
 }
 

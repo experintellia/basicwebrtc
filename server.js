@@ -41,7 +41,10 @@ var crypto = require('crypto');
 
 app.listen(HTTP_PORT, HTTP_IP);
 
-var icesevers = JSON.parse(fs.readFileSync("./iceservers.json", 'utf8'));
+// iceservers.json holds the TURN secret and is not in git; fall back to public STUN only.
+var iceFile = fs.existsSync(__dirname + "/iceservers.json") ? "/iceservers.json" : "/iceservers.example.json";
+if (iceFile != "/iceservers.json") console.warn("WARNING: no iceservers.json, using public STUN only (no TURN fallback)");
+var icesevers = JSON.parse(fs.readFileSync(__dirname + iceFile, 'utf8'));
 
 console.log("--------------------------------------------");
 console.log("SIGNALINGSERVER RUNNING ON IP:PORT: " + HTTP_IP + ':' + HTTP_PORT);
@@ -61,7 +64,7 @@ ioServer.sockets.on('connection', function (socket) {
 
     socket.on("registerUUID", function (content, callback) {
         const UUID = content["UUID"] || null;
-        const UUID_KEY = content["UUID"] || null;
+        const UUID_KEY = content["UUID_KEY"] || null;
         if (UUID && UUID_KEY) {
             if (!registerdUUIDs[UUID] || registerdUUIDs[UUID] == UUID_KEY) {
                 const alreadyRegistred = registerdUUIDs[UUID] == UUID_KEY;
@@ -82,6 +85,7 @@ ioServer.sockets.on('connection', function (socket) {
     });
 
     socket.on('disconnect', function () {
+        if (socketID_UUIDMatch[MY_UUID] !== socket.id) return; // a newer socket already took over this UUID
         socket.to(roomOfUser).emit('userDiscconected', MY_UUID);
         delete registerdUUIDs[MY_UUID];
         delete socketID_UUIDMatch[MY_UUID];
@@ -104,10 +108,6 @@ ioServer.sockets.on('connection', function (socket) {
 
     socket.on("sendMsg", function (msg) {
         if (typeof (msg) == "string") {
-            msg = msg.replace(/\\/g, "\\\\")
-                .replace(/\$/g, "\\$")
-                .replace(/'/g, "\\'")
-                .replace(/"/g, "\\\"");
             if (msg != "") {
                 if (username != "" && username != "NA") {
                     msg = username + ': ' + msg;
@@ -135,12 +135,12 @@ ioServer.sockets.on('connection', function (socket) {
         if (icesevers[i].turnServerCredential) { //Generate a temp user and password with this turn server creds if given
             var turnCredentials = getTURNCredentials(icesevers[i].username, icesevers[i].turnServerCredential);
             returnIce.push({
-                url: icesevers[i].url,
+                urls: icesevers[i].urls || icesevers[i].url,
                 credential: turnCredentials.password,
                 username: turnCredentials.username,
             });
         } else {
-            returnIce.push(icesevers[i]);
+            returnIce.push({ urls: icesevers[i].urls || icesevers[i].url });
         }
     }
     socket.emit('currentIceServers', returnIce);

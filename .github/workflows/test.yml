@@ -1,0 +1,14 @@
+name: test
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # root so the P2P-outage test can drop UDP with iptables
+      - run: sudo -E env "PATH=$PATH" CHROMIUM_PATH=/usr/bin/google-chrome npm test
