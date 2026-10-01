@@ -149,6 +149,24 @@ test('chat shows messages as text and keeps links clickable', async () => {
   await a.context().close(); await b.context().close();
 });
 
+test('quote-free chat payload does not execute (bypasses old server escaping)', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  // No ' " \\ $ chars, so the upstream server's escaping leaves it intact.
+  const payload = '<img src=x onerror=window.__xss=1>';
+  await a.click('#addRemoveChatBtn');
+  await a.fill('#chatInputText', payload);
+  await a.press('#chatInputText', 'Enter');
+  await waitFor(() => b.evaluate(() => document.querySelectorAll('#chatText > div').length > 0), 'message on bob');
+  await new Promise(r => setTimeout(r, 400)); // give any injected onerror time to fire
+  assert.strictEqual(await b.evaluate(() => window.__xss), undefined, 'no script execution');
+  assert.strictEqual(await a.evaluate(() => window.__xss), undefined, 'no self-execution');
+  assert.strictEqual(await b.evaluate(() => document.querySelector('#chatText div:last-child').textContent), 'alice: ' + payload);
+  await a.context().close(); await b.context().close();
+});
+
 test('remote username is shown as text', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, '<img src=x onerror=window.__xss=1>');
