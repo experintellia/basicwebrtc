@@ -97,7 +97,7 @@ function initEzWebRTC(initiator, config) {
             }
             await pc.setLocalDescription(await pc.createAnswer(rtcConfig.offerOptions));
             var a_desc = pc.localDescription;
-            a_desc.sdp = removeDoubleSSRC(a_desc.sdp);
+            a_desc.sdp = opusParams(removeDoubleSSRC(a_desc.sdp));
             _this.emitEvent("signaling", a_desc)
             if (!initiator)
                 requestMissingTransceivers()
@@ -191,6 +191,7 @@ function initEzWebRTC(initiator, config) {
                 return console.log("offer error", e);
             }
             var o_desc = pc.localDescription;
+            o_desc.sdp = opusParams(o_desc.sdp);
             _this.emitEvent("signaling", o_desc)
         } else if (_this.gotOffer) { //Dont send renegotiate req before getting at least one offer
             _this.emitEvent("signaling", "renegotiate");
@@ -254,6 +255,17 @@ function removeDoubleSSRC(sdp) {
         }
     }
     return res.join("\n");
+}
+
+// Ask the sender for Opus DTX (near-silent when quiet/muted) and in-band FEC; fmtp is the receiver's wish.
+function opusParams(sdp) {
+    var pt = (sdp.match(/a=rtpmap:(\d+) opus\//i) || [])[1];
+    if (!pt) return sdp;
+    return sdp.replace(new RegExp("(a=fmtp:" + pt + " [^\\r\\n]*)"), function (line) {
+        if (!/usedtx=/.test(line)) line += ";usedtx=1";
+        if (!/useinbandfec=/.test(line)) line += ";useinbandfec=1";
+        return line;
+    });
 }
 
 function calcCurrentVolumeLevel(stream, callback) { //Returns audio levels for audio stream from 0 - silent; to 2 loud

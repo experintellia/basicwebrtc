@@ -262,6 +262,37 @@ test('remote username is shown as text', async () => {
   await a.context().close(); await b.context().close();
 });
 
+// #14: each side asks for Opus DTX + FEC, so a muted mic sends almost nothing.
+test('Opus DTX/FEC requested; muting drops the audio packet rate', async () => {
+  const room = 'r' + Date.now();
+  const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
+  const a = await join(room, 'alice', trackPcs);
+  const b = await join(room, 'bob', trackPcs);
+  await waitFor(async () => (await liveRemoteAudio(a)) === 1 && (await liveRemoteAudio(b)) === 1, 'remote audio');
+  for (const p of [a, b]) {
+    const fmtp = await p.evaluate(() => { const s = __raw[0].remoteDescription.sdp, pt = s.match(/a=rtpmap:(\d+) opus\//)[1]; return s.match(new RegExp('a=fmtp:' + pt + ' .*'))[0]; });
+    assert.match(fmtp, /usedtx=1/); assert.match(fmtp, /useinbandfec=1/);
+  }
+  // fmtp is the receiver's wish: alice's encoder follows bob's SDP, so measure alice's outbound packets.
+  // Without DTX it is ~100 packets/2s even when muted; the fake mic's beep has gaps, so unmuted is ~60 with DTX.
+  const sent2s = () => a.evaluate(async () => {
+    const n = async () => { let x = 0; (await __raw[0].getStats()).forEach(r => { if (r.type == 'outbound-rtp' && r.kind == 'audio') x += r.packetsSent; }); return x; };
+    const s = await n(); await new Promise(r => setTimeout(r, 2000)); return (await n()) - s;
+  });
+  const before = await sent2s();
+  await a.click('#muteUnmuteMicBtn');
+  await new Promise(r => setTimeout(r, 500));
+  const muted = await sent2s();
+  await a.click('#muteUnmuteMicBtn');
+  await new Promise(r => setTimeout(r, 500));
+  const after = await sent2s();
+  console.log('audio packets per 2s (unmuted, muted, unmuted):', before, muted, after);
+  assert.ok(muted < 20, `muted sent ${muted}`);
+  assert.ok(before > 40 && after > 40, `unmuted sent ${before}/${after}`);
+  assert.strictEqual(await liveRemoteAudio(b), 1, 'audio still arrives');
+  await a.context().close(); await b.context().close();
+});
+
 test('mute button toggles the mic track', async () => {
   const a = await join('r' + Date.now(), 'alice');
   await waitFor(() => a.evaluate(() => !!allUserStreams[MY_UUID]), 'mic ready');
