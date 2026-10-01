@@ -21,6 +21,12 @@ async function client(uuid, key = uuid + '-key') {
   const [err, already] = await new Promise(r => c.emit('registerUUID', { UUID: uuid, UUID_KEY: key }, (...a) => r(a)));
   return { c, err, already };
 }
+async function join(cl, roomname, username = 'u') {
+  const joined = nextEvent(cl.c, 'msg'); // a socket's events are handled in order: the echo means the join is done
+  cl.c.emit('joinRoom', { roomname, username });
+  cl.c.emit('sendMsg', 'joined');
+  await joined;
+}
 const nextEvent = (c, ev, ms = 1000) => new Promise((res, rej) => {
   const t = setTimeout(() => rej(new Error(`no '${ev}' within ${ms}ms`)), ms);
   c.once(ev, d => { clearTimeout(t); res(d); });
@@ -28,6 +34,7 @@ const nextEvent = (c, ev, ms = 1000) => new Promise((res, rej) => {
 
 test('signaling is routed to the destination UUID', async () => {
   const a = await client('A1'), b = await client('B1');
+  await join(a, 'room-a'); await join(b, 'room-a');
   const got = nextEvent(b.c, 'signaling');
   a.c.emit('signaling', { destUUID: 'B1', signalingData: { type: 'offer', sdp: 'x' } });
   assert.deepStrictEqual((await got).signalingData, { type: 'offer', sdp: 'x' });
@@ -47,7 +54,9 @@ test('stale socket disconnect does not unregister the reconnected socket', async
   assert.strictEqual(fresh.err, null);
   old.c.close(); // server now sees the *old* socket disconnect
   await new Promise(r => setTimeout(r, 200));
+  await join(fresh, 'room-r');
   const sender = await client('S1');
+  await join(sender, 'room-r');
   const got = nextEvent(fresh.c, 'signaling');
   sender.c.emit('signaling', { destUUID: 'R1', signalingData: 'hi' });
   await got;
@@ -71,4 +80,58 @@ test('room members get userJoined / userDiscconected', async () => {
   const left = nextEvent(a.c, 'userDiscconected');
   b.c.close();
   assert.strictEqual(await left, 'J2');
+});
+
+test('malformed payloads are ignored and signaling keeps working', async () => {
+  const a = await client('M1'), b = await client('M2');
+  a.c.emit('signaling', null);
+  a.c.emit('joinRoom', null);
+  a.c.emit('registerUUID', null);
+  a.c.emit('registerUUID', null, () => { });
+  a.c.emit('registerUUID', { UUID: 'M9', UUID_KEY: 'k' }); // no ack callback
+  a.c.emit('currentAudioLvl', null);
+  await new Promise(r => setTimeout(r, 100));
+  await join(a, 'room-m', { evil: 1 }); await join(b, 'room-m');
+  const got = nextEvent(b.c, 'signaling');
+  a.c.emit('signaling', { destUUID: 'M2', signalingData: 'hi' });
+  const d = await got;
+  assert.strictEqual(d.fromUUID, 'M1');
+  assert.strictEqual(typeof d.username, 'string');
+});
+
+test('only well-formed UUIDs are accepted, one per socket', async () => {
+  assert.ok((await client('bad uuid!')).err);
+  assert.ok((await client('x'.repeat(65))).err);
+  const a = await client('O1');
+  const [err] = await new Promise(r => a.c.emit('registerUUID', { UUID: 'O2', UUID_KEY: 'k' }, (...x) => r(x)));
+  assert.ok(err, 'second UUID on the same socket must be rejected');
+});
+
+test('signaling is not routed across rooms', async () => {
+  const a = await client('X1'), b = await client('X2');
+  await join(a, 'room-x1'); await join(b, 'room-x2');
+  const got = nextEvent(b.c, 'signaling', 300);
+  a.c.emit('signaling', { destUUID: 'X2', signalingData: 'hi' });
+  await assert.rejects(got);
+});
+
+test('a second joinRoom cannot switch rooms', async () => {
+  const a = await client('W1'), spy = await client('W2');
+  await join(a, 'room-w1'); await join(spy, 'room-w2');
+  const seen = [];
+  spy.c.on('msg', m => seen.push(m));
+  a.c.emit('joinRoom', { roomname: 'room-w2', username: 'mallory' });
+  const echo = nextEvent(a.c, 'msg');
+  a.c.emit('sendMsg', 'leak');
+  assert.strictEqual(await echo, 'u: leak', 'name unchanged');
+  await new Promise(r => setTimeout(r, 200)); // nothing to wait for: asserting something does not arrive
+  assert.deepStrictEqual(seen, []);
+});
+
+test('an empty room name still allows signaling', async () => {
+  const a = await client('E1'), b = await client('E2');
+  await join(a, ''); await join(b, '');
+  const got = nextEvent(b.c, 'signaling');
+  a.c.emit('signaling', { destUUID: 'E2', signalingData: 'hi' });
+  assert.strictEqual((await got).signalingData, 'hi');
 });
