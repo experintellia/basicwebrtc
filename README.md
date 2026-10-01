@@ -18,7 +18,7 @@ Setup your own Videoconference Server for 1on1 and group calls! All Calls are en
 ### All User parameters ###
 * `username` -> Change your username shown
 * `roomname` -> Change the name of the room
-* `camon` -> Default is on. Set to false to start session audio only
+* `camon` -> Default is off (audio only). Set to true to start with the camera on
 * `socketdomain` -> Change if you want to use a different socketServer (Can also include path: `https://domainname.tld/path/sub/`)
 * `base64domain` -> true if socketDomain is given in base64 format
 
@@ -44,7 +44,7 @@ location /basicwebrtc/ {
 `iceservers.json` is no longer tracked by git (it holds your TURN secret). A plain `git pull` deletes it, so keep a copy:
 
 ```
-cp iceservers.json ~/ && git pull && cp ~/iceservers.json .
+cp iceservers.json ~/ && git checkout iceservers.json && git pull && cp ~/iceservers.json .
 ```
 
 Without it the server still runs, but with public STUN only (no TURN fallback). While you're at it:

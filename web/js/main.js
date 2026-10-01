@@ -236,6 +236,7 @@ $("#cameraSelect").onchange = async function () {
   oldTrack.stop(); //Stop first, many phones can't open two cameras at once
   try {
     var newTrack = (await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: selectedCameraId } } })).getVideoTracks()[0];
+    if (!camActive) return newTrack.stop(); //camera was turned off meanwhile
     for (var i in pcs) pcs[i].replaceTrack(oldTrack, newTrack);
     stream.removeTrack(oldTrack);
     stream.addTrack(newTrack);

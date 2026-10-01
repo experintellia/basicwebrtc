@@ -244,6 +244,7 @@ test('call recovers after the direct P2P path drops for a while', { skip: !canDr
   for (const p of [a, b]) {
     await waitFor(async () => (await iceUp(p)) && (await liveRemoteAudio(p)) === 1, 'ICE and audio back', 45000);
     assert.strictEqual(await p.evaluate(() => Object.keys(pcs).length), 1, 'peer kept');
+    assert.strictEqual(await p.evaluate(() => __raw.length), 1, 'same connection, not rebuilt');
   }
   await a.context().close(); await b.context().close();
 });
