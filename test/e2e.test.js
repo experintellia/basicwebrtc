@@ -114,6 +114,45 @@ test('screen share reaches the other peer', async () => {
   await a.context().close(); await b.context().close();
 });
 
+test('browser "Stop sharing" ends the screen share', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await a.click('#addRemoveScreenBtn');
+  await waitFor(() => remoteVideoShown(b), 'remote screen on bob');
+  // Chrome's "Stop sharing" bar ends the track; stop() alone doesn't fire 'ended'.
+  await a.evaluate(() => allUserStreams[MY_UUID].videostream.getVideoTracks()[0].dispatchEvent(new Event('ended')));
+  await waitFor(async () => !(await a.evaluate(() => screenActive)), 'screen share stopped');
+  await waitFor(async () => !(await remoteVideoShown(b)), 'remote screen gone on bob');
+  await a.context().close(); await b.context().close();
+});
+
+test('camera turned on before the peer connects', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const errors = [];
+  a.on('pageerror', e => errors.push(e.message));
+  await waitFor(() => a.evaluate(() => !!allUserStreams[MY_UUID]), 'mic ready');
+  // Start the camera right after the pc is created, before ICE connects.
+  await a.evaluate(async () => {
+    const cam = await navigator.mediaDevices.getUserMedia({ video: true });
+    socket.on('userJoined', () => { camActive = true; startVideo(cam, $('#addRemoveCameraBtn')); });
+  });
+  const b = await join(room, 'bob');
+  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
+  await new Promise(r => setTimeout(r, 1000));
+  assert.deepStrictEqual(errors, []);
+  // Non-initiator side: bob's camera is already on when his pc is (re)created.
+  await b.click('#addRemoveCameraBtn');
+  await waitFor(() => remoteVideoShown(a), 'remote video on alice');
+  await a.evaluate(() => window.__oldPc = Object.values(pcs)[0]);
+  await b.evaluate(() => socket.io.engine.close());
+  await waitFor(() => a.evaluate(() => Object.values(pcs)[0] && Object.values(pcs)[0] !== __oldPc), 'alice rebuilt the pc');
+  await waitFor(() => remoteVideoShown(a), 'remote video on alice after reconnect');
+  await a.context().close(); await b.context().close();
+});
+
 test('third peer joins a running call', async () => {
   const room = 'r' + Date.now();
   const pages = [await join(room, 'alice'), await join(room, 'bob')];

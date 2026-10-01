@@ -55,7 +55,6 @@ var webRTCConfig = {};
 
 var allUserStreams = {};
 var pcs = {}; //Peer connections to all remotes
-var socketConnected = false;
 var micMuted = false;
 var camActive = false;
 var screenActive = false;
@@ -139,17 +138,12 @@ socket.on("userDiscconected", removePeer)
 
 // Every (re)connect is a fresh join, like a page reload: drop all peers, register, join again.
 socket.on("connect", function () {
-  socketConnected = true;
   for (var id in pcs) removePeer(id);
   socket.emit("registerUUID", { "UUID": MY_UUID, "UUID_KEY": MY_UUID_KEY }, async function (err) {
     if (err) return console.log(err);
     await mediaReady;
     joinRoom();
   })
-});
-
-socket.on("disconnect", function () {
-  socketConnected = false;
 });
 
 var mediaReady = (async function () {
@@ -179,12 +173,6 @@ var mediaReady = (async function () {
     setTimeout(toggleCamera, 1000)
   }
 })();
-
-window.addEventListener("beforeunload", function () {
-  if (socketConnected) {
-    socket.emit('closeConnection', null);
-  }
-})
 
 $("#muteUnmuteMicBtn").onclick = function () {
   micMuted = !micMuted;
@@ -221,6 +209,7 @@ $("#addRemoveScreenBtn").onclick = async function () {
     return;
   }
   screenActive = true;
+  stream.getVideoTracks()[0].onended = () => screenActive && stopVideo(); // browser's "Stop sharing" bar
   startVideo(stream, $("#addRemoveScreenBtn"));
 }
 
@@ -296,6 +285,7 @@ $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end sc
 function createRemoteSocket(initiator, UUID) {
   if (pcs[UUID]) removePeer(UUID); // same user rejoined: start over
   var pc = pcs[UUID] = new initEzWebRTC(initiator, webRTCConfig);
+  if (allUserStreams[MY_UUID]["videostream"]) pc.addStream(allUserStreams[MY_UUID]["videostream"]);
   pc.on("signaling", function (data) {
     socket.emit("signaling", { destUUID: UUID, signalingData: data })
   })
@@ -306,13 +296,6 @@ function createRemoteSocket(initiator, UUID) {
     if (kind == "video") {
       delete allUserStreams[UUID]["videostream"];
       updateUserLayout();
-    }
-  });
-  pc.on("connect", function () {
-    if (allUserStreams[MY_UUID]["videostream"]) {
-      setTimeout(function () {
-        pc.addStream(allUserStreams[MY_UUID]["videostream"])
-      }, 500)
     }
   });
 }
