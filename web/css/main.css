@@ -162,6 +162,33 @@ ul>li {
 /* TV EFFECT */
 
 
+#unsupported {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  padding: 40px;
+  background: black;
+  color: white;
+  font: 1.5em sans-serif;
+  text-align: center;
+}
+
+div#topDiv, div#bottomDiv {
+  animation: tvClose 0.5s forwards;
+}
+
+@keyframes tvClose {
+  to { height: 50%; opacity: 1; }
+}
+
+div#centerDiv {
+  animation: tvLine 0.4s forwards;
+}
+
+@keyframes tvLine {
+  to { width: 0%; left: 50%; }
+}
+
 div#topDiv{
   width:100%;
   height:0%;
@@ -184,7 +211,6 @@ div#centerDiv{
   top: 50%;
   width:100%;
   background: white;
-  display:none;
   z-index:1;
 }
 

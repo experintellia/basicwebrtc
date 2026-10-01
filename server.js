@@ -105,10 +105,6 @@ ioServer.sockets.on('connection', function (socket) {
 
     socket.on("sendMsg", function (msg) {
         if (typeof (msg) == "string") {
-            msg = msg.replace(/\\/g, "\\\\")
-                .replace(/\$/g, "\\$")
-                .replace(/'/g, "\\'")
-                .replace(/"/g, "\\\"");
             if (msg != "") {
                 if (username != "" && username != "NA") {
                     msg = username + ': ' + msg;
