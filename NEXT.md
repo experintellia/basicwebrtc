@@ -39,18 +39,20 @@ is the reference; don't add a library.
 - `iceservers.json` only offers `turn:...:443` over UDP. Add
   `turn:host:443?transport=tcp` (and/or `turns:`) so UDP-blocked networks
   still connect. Still E2E-encrypted — relays forward ciphertext only.
-- **Security:** the TURN shared secret is committed in `iceservers.json`
-  even though it's in `.gitignore` (it was committed before being ignored).
-  Rotate the secret, `git rm --cached iceservers.json`, ship an
-  `iceservers.example.json`.
+- **Security:** `iceservers.json` is tracked and the TURN shared secret is in
+  git history (committed before `.gitignore` listed it). The secret must be
+  treated as already compromised — **rotate it** (that's the only real fix;
+  `git rm --cached` + an `iceservers.example.json` only stops future leakage,
+  it does not remove it from history).
 
 ## 3. Smaller follow-ups
 
 - `web/js/socket.io.min.js` (52KB) is the last vendored blob — justified
   (signaling transport), leave it.
 - Add a GitHub Actions workflow running `npm test` on PRs.
-- Consider dropping video/screenshare only if you ever want voice-only; for
-  now they stay (user wants them).
+- Video and screen share stay — both are wanted features (not candidates for removal).
+- UI framework: decided **no React/Preact for now** — plain DOM is enough.
+  Revisit only if the UI grows enough to need declarative rendering.
 
 ## Deploy reminder
 
