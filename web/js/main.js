@@ -85,126 +85,123 @@ socket.on('connect_failed', function () {
   socketConnected = false;
 });
 
+socket.on("currentIceServers", function (newIceServers) {
+  console.log("got newIceServers", newIceServers)
+  webRTCConfig["iceServers"] = newIceServers;
+})
+
+socket.on("API_VERSION", function (serverAPI_VERSION) {
+  if (API_VERSION != serverAPI_VERSION) {
+    alert("SERVER has a different API Version (Client: v" + API_VERSION + " Server: v" + serverAPI_VERSION + ")! This can cause problems, so be warned!")
+  }
+})
+
+socket.on("signaling", function (data) {
+  var signalingData = data.signalingData;
+  var fromUUID = data.fromUUID;
+  if (!pcs[fromUUID]) {
+    createRemoteSocket(false, fromUUID)
+  }
+  pcs[fromUUID].signaling(signalingData);
+
+  if (data.username) {
+    allUserStreams[fromUUID] = allUserStreams[fromUUID] ? allUserStreams[fromUUID] : {};
+    allUserStreams[fromUUID]["username"] = data.username;
+  }
+})
+
+socket.on("userJoined", function (content) {
+  var userUUID = content["UUID"] || null;
+  createRemoteSocket(true, userUUID)
+})
+
+socket.on("currentAudioLvl", function (content) {
+  var fromUUID = content["fromUUID"] || null;
+  let currentAudioLvl = content["currentAudioLvl"] || 0;
+
+  $("#" + fromUUID).find(".audioMuted").remove();
+
+  if (currentAudioLvl < 0) { //Muted
+    $("#" + fromUUID).append('<div style="position:absolute; top: 0px; color: white; font-size: 1.7em; padding: 10px;" class="audioMuted"><i class="fas fa-microphone-alt-slash"></i></div>')
+  } else {
+    let perCent = currentAudioLvl * 50;
+    $("#" + fromUUID).find(".userPlaceholder").css({ "border": "2px solid rgb(255 255 255 / " + perCent + "%)" });
+  }
+})
+
+socket.on("userDiscconected", removePeer)
+
+// Every (re)connect is a fresh join, like a page reload: drop all peers, register, join again.
 socket.on("connect", function () {
   socketConnected = true;
-
-  socket.on("currentIceServers", function (newIceServers) {
-    console.log("got newIceServers", newIceServers)
-    webRTCConfig["iceServers"] = newIceServers;
+  for (var id in pcs) removePeer(id);
+  socket.emit("registerUUID", { "UUID": MY_UUID, "UUID_KEY": MY_UUID_KEY }, async function (err) {
+    if (err) return console.log(err);
+    await mediaReady;
+    joinRoom();
   })
+});
 
-  socket.emit("registerUUID", { "UUID": MY_UUID, "UUID_KEY": MY_UUID_KEY }, function (err, alreadyRegistered) {
-    if (err) {
-      return console.log(err)
-    }
+socket.on("disconnect", function () {
+  socketConnected = false;
+});
 
-    if (alreadyRegistered) {
-      return console.log("We are alreadyregistered so don't do it again!")
-    }
-
-    socket.on("API_VERSION", function (serverAPI_VERSION) {
-      if (API_VERSION != serverAPI_VERSION) {
-        alert("SERVER has a different API Version (Client: v" + API_VERSION + " Server: v" + serverAPI_VERSION + ")! This can cause problems, so be warned!")
-      }
-    })
-
-    socket.on("signaling", function (data) {
-      var signalingData = data.signalingData;
-      var fromUUID = data.fromUUID;
-      if (!pcs[fromUUID]) {
-        createRemoteSocket(false, fromUUID)
-      }
-      pcs[fromUUID].signaling(signalingData);
-
-      if (data.username) {
-        allUserStreams[fromUUID] = allUserStreams[fromUUID] ? allUserStreams[fromUUID] : {};
-        allUserStreams[fromUUID]["username"] = data.username;
-      }
-    })
-
-    socket.on("userJoined", function (content) {
-      var userUUID = content["UUID"] || null;
-      createRemoteSocket(true, userUUID)
-    })
-
-    socket.on("currentAudioLvl", function (content) {
-      var fromUUID = content["fromUUID"] || null;
-      let currentAudioLvl = content["currentAudioLvl"] || 0;
-
-      $("#" + fromUUID).find(".audioMuted").remove();
-
-      if (currentAudioLvl < 0) { //Muted
-        $("#" + fromUUID).append('<div style="position:absolute; top: 0px; color: white; font-size: 1.7em; padding: 10px;" class="audioMuted"><i class="fas fa-microphone-alt-slash"></i></div>')
-      } else {
-        let perCent = currentAudioLvl * 50;
-        $("#" + fromUUID).find(".userPlaceholder").css({ "border": "2px solid rgb(255 255 255 / " + perCent + "%)" });
-      }
-    })
-
-
-
-    socket.on("userDiscconected", function (userUUID) {
-      delete allUserStreams[userUUID];
-      $('audio' + userUUID).remove();
-      updateUserLayout();
-    })
-
-    if (camOnAtStart) {
-      navigator.getUserMedia({
-        video: true,
-        audio: true
-      }, function (stream) { //OnSuccess
-        startUserMedia()
-      }, function (error) { //OnError
-        console.log('getUserMedia error! Got this error: ', error);
-      });
-    } else {
+var mediaReady = new Promise(function (resolve) {
+  if (camOnAtStart) {
+    navigator.getUserMedia({
+      video: true,
+      audio: true
+    }, function (stream) { //OnSuccess
       startUserMedia()
-    }
+    }, function (error) { //OnError
+      console.log('getUserMedia error! Got this error: ', error);
+    });
+  } else {
+    startUserMedia()
+  }
 
-    function startUserMedia() {
-      navigator.getUserMedia({
-        video: false, // { 'facingMode': "user" }
-        audio: { 'echoCancellation': true, 'noiseSuppression': true }
-      }, function (stream) { //OnSuccess
-        webRTCConfig["stream"] = stream;
-        console.log('getUserMedia success! Stream: ', stream);
+  function startUserMedia() {
+    navigator.getUserMedia({
+      video: false, // { 'facingMode': "user" }
+      audio: { 'echoCancellation': true, 'noiseSuppression': true }
+    }, function (stream) { //OnSuccess
+      webRTCConfig["stream"] = stream;
+      console.log('getUserMedia success! Stream: ', stream);
 
-        var audioTracks = stream.getAudioTracks();
+      var audioTracks = stream.getAudioTracks();
 
-        if (audioTracks.length >= 1) {
-          allUserStreams[MY_UUID] = {
-            audiostream: stream,
-            username: username
+      if (audioTracks.length >= 1) {
+        allUserStreams[MY_UUID] = {
+          audiostream: stream,
+          username: username
+        }
+      }
+
+      if (audioTracks.length > 0) {
+        console.log('Using audio device: ' + audioTracks[0].label);
+        calcCurrentVolumeLevel(stream, function (currentAudioLvl) {
+          if (!micMuted) {
+            socket.emit('currentAudioLvl', currentAudioLvl);
+            var fromUUID = MY_UUID || null;
+            let perCent = currentAudioLvl * 50;
+            $("#" + fromUUID).find(".userPlaceholder").css({ "border": "2px solid rgb(255 255 255 / " + perCent + "%)" });
           }
-        }
+        });
+      }
 
-        if (audioTracks.length > 0) {
-          console.log('Using audio device: ' + audioTracks[0].label);
-          calcCurrentVolumeLevel(stream, function (currentAudioLvl) {
-            if (!micMuted) {
-              socket.emit('currentAudioLvl', currentAudioLvl);
-              var fromUUID = MY_UUID || null;
-              let perCent = currentAudioLvl * 50;
-              $("#" + fromUUID).find(".userPlaceholder").css({ "border": "2px solid rgb(255 255 255 / " + perCent + "%)" });
-            }
-          });
-        }
+      resolve();
+      updateUserLayout();
+      if (camOnAtStart) { //enable cam on start if set
+        setTimeout(function () {
+          $("#addRemoveCameraBtn").click();
+        }, 1000)
+      }
 
-        joinRoom();
-        updateUserLayout();
-        if (camOnAtStart) { //enable cam on start if set
-          setTimeout(function () {
-            $("#addRemoveCameraBtn").click();
-          }, 1000)
-        }
-
-      }, function (error) { //OnError
-        alert("Could not get your Mic! You need at least one Mic!")
-        console.log('getUserMedia error! Got this error: ', error);
-      });
-    }
-  })
+    }, function (error) { //OnError
+      alert("Could not get your Mic! You need at least one Mic!")
+      console.log('getUserMedia error! Got this error: ', error);
+    });
+  }
 });
 
 $(window).on("beforeunload", function () {
@@ -486,7 +483,8 @@ $(document).ready(function () {
 
 //This is where the WEBRTC Magic happens!!!
 function createRemoteSocket(initiator, UUID) {
-  pcs[UUID] = new initEzWebRTC(initiator, webRTCConfig); //initiator
+  if (pcs[UUID]) removePeer(UUID); // same user rejoined: start over
+  var pc = pcs[UUID] = new initEzWebRTC(initiator, webRTCConfig); //initiator
   pcs[UUID].on("signaling", function (data) {
     socket.emit("signaling", { destUUID: UUID, signalingData: data })
   })
@@ -500,22 +498,28 @@ function createRemoteSocket(initiator, UUID) {
       updateUserLayout();
     }
   });
-  pcs[UUID].on("closed", function (stream) {
-    delete allUserStreams[UUID];
-    $('audio' + UUID).remove();
-    updateUserLayout();
+  pcs[UUID].on("closed", function () {
     console.log("disconnected!");
+    if (pcs[UUID] === pc) removePeer(UUID); // ignore late events from a replaced connection
   });
   pcs[UUID].on("connect", function () {
     if (allUserStreams[MY_UUID]["videostream"]) {
       setTimeout(function () {
-        pcs[UUID].addStream(allUserStreams[MY_UUID]["videostream"])
+        pc.addStream(allUserStreams[MY_UUID]["videostream"])
       }, 500)
     }
   });
   pcs[UUID].on("iceFailed", function () {
     console.log("Error: Ice failed to to UUID: ", UUID);
   });
+}
+
+function removePeer(UUID) {
+  if (pcs[UUID]) pcs[UUID].destroy();
+  delete pcs[UUID];
+  delete allUserStreams[UUID];
+  $('#audio' + UUID).remove();
+  updateUserLayout();
 }
 
 function gotRemoteStream(stream, UUID) {
