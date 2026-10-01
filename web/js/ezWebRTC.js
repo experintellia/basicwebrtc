@@ -87,14 +87,7 @@ function initEzWebRTC(initiator, config) {
             negotiate();
         } else if (signalData && signalData.type == "offer") { //Got an offer -> Create Answer)
             _this.gotOffer = true;
-            if (pc.signalingState != "stable") { //If not stable ask for renegotiation
-                await Promise.all([
-                    pc.setLocalDescription({ type: "rollback" }), //Be polite
-                    await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData))
-                ]);
-            } else {
-                await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData))
-            }
+            await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData)) //only the answerer gets offers; have-remote-offer -> have-remote-offer is valid
             await pc.setLocalDescription(await pc.createAnswer(rtcConfig.offerOptions));
             var a_desc = pc.localDescription;
             a_desc.sdp = removeDoubleSSRC(a_desc.sdp);
