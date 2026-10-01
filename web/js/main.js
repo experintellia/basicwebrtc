@@ -286,7 +286,8 @@ function createRemoteSocket(initiator, UUID) {
   var pc = pcs[UUID] = new initEzWebRTC(initiator, webRTCConfig);
   if (allUserStreams[MY_UUID]["videostream"]) pc.addStream(allUserStreams[MY_UUID]["videostream"]);
   pc.on("signaling", function (data) {
-    if (!pc.send({ signaling: data })) socket.emit("signaling", { destUUID: UUID, signalingData: data }) // socket only until the data channel is open
+    // Data channel only while ICE is up: during an outage it can still read "open" but nothing gets through (ICE restart needs the socket).
+    if (!(pc.iceUp() && pc.send({ signaling: data }))) socket.emit("signaling", { destUUID: UUID, signalingData: data })
   })
   pc.on("close", () => pcs[UUID] === pc && removePeer(UUID)); // peer left (or closed its connection)
   pc.on("open", () => pc.send({ username: username, audioLvl: micMuted ? -1 : 0 }));

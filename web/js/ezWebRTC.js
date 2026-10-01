@@ -32,6 +32,7 @@ function initEzWebRTC(initiator, config) {
     dc.onclose = () => _this.emitEvent("close");
     dc.onmessage = e => { try { var msg = JSON.parse(e.data) } catch (err) { return } _this.emitEvent("message", msg) };
     this.send = obj => dc.readyState == "open" && (dc.send(JSON.stringify(obj)), true); // false: not open (yet)
+    this.iceUp = () => pc.iceConnectionState == "connected" || pc.iceConnectionState == "completed";
 
     pc.onsignalingstatechange = function (event) {
         _this.emitEvent("onsignalingstatechange", event);
