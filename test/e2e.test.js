@@ -27,11 +27,12 @@ after(async () => {
   await browser?.close();
 });
 
-async function join(room, name) {
+async function join(room, name, initScript) {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
+  if (initScript) await page.addInitScript(initScript);
   page.on('pageerror', e => console.log(`[${name}] pageerror`, e.message));
-  await page.goto(`${BASE}#roomname=${room}&username=${name}`);
+  await page.goto(`${BASE}#roomname=${room}&username=${encodeURIComponent(name)}`);
   return page;
 }
 
@@ -69,8 +70,7 @@ test('camera toggle reaches the other peer', async () => {
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
   await a.click('#addRemoveCameraBtn');
-  await waitFor(() => b.evaluate(() => [...document.querySelectorAll('#mediaDiv video')]
-    .some(v => v.srcObject && v.videoWidth > 0 && !v.style.transform.includes('scaleX'))), 'remote video on bob');
+  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
   await a.context().close(); await b.context().close();
 });
 
@@ -81,8 +81,7 @@ test('screen share reaches the other peer', async () => {
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
   await a.click('#addRemoveScreenBtn');
   await waitFor(() => a.evaluate(() => screenActive), 'screen capture started');
-  await waitFor(() => b.evaluate(() => [...document.querySelectorAll('#mediaDiv video')]
-    .some(v => v.srcObject && v.videoWidth > 0 && !v.style.transform.includes('scaleX'))), 'remote screen on bob');
+  await waitFor(() => remoteVideoShown(b), 'remote screen on bob');
   await a.context().close(); await b.context().close();
 });
 
@@ -121,11 +120,69 @@ test('signaling socket reconnect keeps the call working', async () => {
   assert.strictEqual(await a.locator('#chatText div', { hasText: 'ping' }).count(), 1, 'chat delivered once');
   // After the blip alice must still be able to renegotiate (turn on cam) and chat.
   await a.click('#addRemoveCameraBtn');
-  await waitFor(() => b.evaluate(() => [...document.querySelectorAll('#mediaDiv video')]
-    .some(v => v.srcObject && v.videoWidth > 0 && !v.style.transform.includes('scaleX'))), 'remote video after reconnect');
+  await waitFor(() => remoteVideoShown(b), 'remote video after reconnect');
   for (const p of [a, b]) {
     await waitFor(async () => (await connectedPeers(p)) === 1 && (await liveRemoteAudio(p)) === 1, 'one live peer each');
     assert.strictEqual(await p.evaluate(() => Object.keys(pcs).length), 1, 'no stale peer connections');
   }
   await a.context().close(); await b.context().close();
+});
+
+const remoteVideoShown = page => page.evaluate(() => [...document.querySelectorAll('#mediaDiv video')]
+  .some(v => v.srcObject && v.videoWidth > 0 && !v.style.transform.includes('scaleX')));
+
+test('chat shows messages as text and keeps links clickable', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  const msg = `<img src=x onerror="window.__xss=1"> it's "ok" https://example.com/a?b=1`;
+  await a.click('#addRemoveChatBtn');
+  await a.fill('#chatInputText', msg);
+  await a.press('#chatInputText', 'Enter');
+  await waitFor(() => b.evaluate(() => document.querySelector('#chatText').textContent.includes('example.com')), 'message on bob');
+  await new Promise(r => setTimeout(r, 300));
+  assert.strictEqual(await b.evaluate(() => window.__xss), undefined, 'no script execution');
+  assert.strictEqual(await b.evaluate(() => document.querySelector('#chatText div:last-child').textContent), 'alice: ' + msg);
+  assert.strictEqual(await b.evaluate(() => document.querySelector('#chatText a').href), 'https://example.com/a?b=1');
+  assert.strictEqual(await a.inputValue('#chatInputText'), '', 'input cleared');
+  await a.context().close(); await b.context().close();
+});
+
+test('remote username is shown as text', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, '<img src=x onerror=window.__xss=1>');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
+  await new Promise(r => setTimeout(r, 300));
+  assert.strictEqual(await b.evaluate(() => window.__xss), undefined, 'no script execution');
+  assert.ok(await b.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('<img src=x')), 'name shown literally');
+  await a.context().close(); await b.context().close();
+});
+
+test('mute button toggles the mic track', async () => {
+  const a = await join('r' + Date.now(), 'alice');
+  await waitFor(() => a.evaluate(() => !!allUserStreams[MY_UUID]), 'mic ready');
+  const micEnabled = () => a.evaluate(() => allUserStreams[MY_UUID].audiostream.getAudioTracks()[0].enabled);
+  await a.click('#muteUnmuteMicBtn');
+  assert.strictEqual(await micEnabled(), false);
+  assert.ok(await a.locator('#muteUnmuteMicBtn .fa-microphone-alt-slash').count());
+  await a.click('#muteUnmuteMicBtn');
+  assert.strictEqual(await micEnabled(), true);
+  await a.context().close();
+});
+
+test('hang up leads to the end screen', async () => {
+  const a = await join('r' + Date.now(), 'alice');
+  await a.click('#cancelCallBtn');
+  await a.waitForURL(/endcall\.html/, { timeout: 5000 });
+  await a.context().close();
+});
+
+test('browsers without WebRTC get an upgrade notice', async () => {
+  const a = await join('r' + Date.now(), 'alice', () => { delete window.RTCPeerConnection; });
+  await waitFor(() => a.locator('#unsupported').isVisible(), 'notice visible', 5000);
+  await a.context().close();
 });
