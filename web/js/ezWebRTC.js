@@ -104,6 +104,7 @@ function initEzWebRTC(initiator, config) {
         } else if (signalData && signalData.type == "answer" && initiator) { //Initiator: Setting answer and starting connection
             _this.makingOffer = false;
             await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData))
+            if (offerPending) { offerPending = false; negotiate(); } //e.g. a "renegotiate" that came in meanwhile
         } else if (signalData && signalData.type == "transceive" && initiator) { //Got an request to transrecive
             _this.addTransceiver(signalData.kind, signalData.init)
         } else if (signalData && signalData.candidate) { //is a icecandidate thing
@@ -174,9 +175,10 @@ function initEzWebRTC(initiator, config) {
         negotiate();
     }
 
+    var offerPending = false;
     async function negotiate() {
-        if (_this.makingOffer) //Dont make an offer twice before answer is received
-            return;
+        if (_this.makingOffer) //Dont make an offer twice before answer is received, but redo it after
+            return offerPending = true;
         //console.log("negotiate", initiator)
         if (initiator) {
             _this.makingOffer = true;

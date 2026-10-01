@@ -74,6 +74,33 @@ test('camera toggle reaches the other peer', async () => {
   await a.context().close(); await b.context().close();
 });
 
+// #3: bob turns on his camera after answering alice's offer, but before alice has applied that
+// answer. His "renegotiate" then arrives while alice is still making an offer and must not be lost.
+test('answerer camera change during an in-flight offer reaches the initiator', async () => {
+  const room = 'r' + Date.now();
+  const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
+  const a = await join(room, 'alice', trackPcs); // already in the room -> initiator
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await a.evaluate(() => { // hold back bob's answers on alice for 3s
+    const pc = Object.values(pcs)[0], orig = pc.signaling;
+    pc.signaling = d => d && d.type == 'answer' ? new Promise(r => setTimeout(r, 3000)).then(() => orig(d)) : orig(d);
+  });
+  await b.evaluate(() => { // count offers bob has answered
+    const pc = Object.values(pcs)[0], orig = pc.signaling;
+    window.__answered = 0;
+    pc.signaling = d => orig(d).then(() => { if (d && d.type == 'offer') __answered++; });
+  });
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => b.evaluate(() => __answered > 0), 'bob answered alice\'s offer', 3000);
+  await b.click('#addRemoveCameraBtn'); // after bob answered, before alice applied the answer
+  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
+  // Media-level check: the <video> element can stay at readyState 0 under this delayed-answer hook (see #15).
+  const decoded = () => a.evaluate(async () => { let n = 0; (await __raw[0].getStats()).forEach(r => { if (r.type == 'inbound-rtp' && r.kind == 'video') n += r.framesDecoded || 0; }); return n; });
+  await waitFor(async () => (await decoded()) > 0, 'alice decodes bob\'s video');
+  await a.context().close(); await b.context().close();
+});
+
 test('camera picker switches the camera sent to the other peer', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');
