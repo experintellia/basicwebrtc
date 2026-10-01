@@ -115,7 +115,8 @@ socket.on("userJoined", function (content) {
 })
 
 const sendToPeers = obj => { for (var i in pcs) pcs[i].send(obj) };
-const nameOf = UUID => { const n = allUserStreams[UUID] && allUserStreams[UUID]["username"]; return n && n != "NA" ? n + ": " : "" };
+window.addEventListener("pagehide", () => sendToPeers({ bye: true })); // hang up, tab closed or reload
+const nameOf =UUID => { const n = allUserStreams[UUID] && allUserStreams[UUID]["username"]; return n && n != "NA" ? n + ": " : "" };
 
 function setAudioLevel(UUID, level) {
   const tile = byId(UUID);
@@ -128,11 +129,11 @@ function setAudioLevel(UUID, level) {
   }
 }
 
-socket.on("userDiscconected", removePeer)
+// Only the peer's socket is gone: a connected peer stays until its data channel closes.
+socket.on("userDiscconected", UUID => pcs[UUID] && !pcs[UUID].isConnected && removePeer(UUID))
 
-// Every (re)connect is a fresh join, like a page reload: drop all peers, register, join again.
+// Every (re)connect registers and joins again; connected peers are kept.
 socket.on("connect", function () {
-  for (var id in pcs) removePeer(id);
   socket.emit("registerUUID", { "UUID": MY_UUID, "UUID_KEY": MY_UUID_KEY }, async function (err) {
     if (err) return console.log(err);
     await mediaReady;
@@ -280,12 +281,14 @@ $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end sc
 
 //This is where the WEBRTC Magic happens!!!
 function createRemoteSocket(initiator, UUID) {
+  if (pcs[UUID] && pcs[UUID].isConnected) return; // same user rejoined the server, call still up: keep it
   if (pcs[UUID]) removePeer(UUID); // same user rejoined: start over
   var pc = pcs[UUID] = new initEzWebRTC(initiator, webRTCConfig);
   if (allUserStreams[MY_UUID]["videostream"]) pc.addStream(allUserStreams[MY_UUID]["videostream"]);
   pc.on("signaling", function (data) {
     if (!pc.send({ signaling: data })) socket.emit("signaling", { destUUID: UUID, signalingData: data }) // socket only until the data channel is open
   })
+  pc.on("close", () => pcs[UUID] === pc && removePeer(UUID)); // peer left (or closed its connection)
   pc.on("open", () => pc.send({ username: username, audioLvl: micMuted ? -1 : 0 }));
   pc.on("message", function (msg) { // from the peer: untrusted
     if (typeof msg.username == "string") {
@@ -295,6 +298,7 @@ function createRemoteSocket(initiator, UUID) {
     }
     if (typeof msg.audioLvl == "number") setAudioLevel(UUID, msg.audioLvl);
     if (typeof msg.chat == "string") showMsg(nameOf(UUID) + msg.chat);
+    if (msg.bye) removePeer(UUID);
     if (msg.signaling) pc.signaling(msg.signaling).catch(e => console.log("signaling error", e));
   });
   pc.on("stream", function (stream) {

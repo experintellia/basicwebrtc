@@ -161,7 +161,7 @@ test('camera turned on before the peer connects', async () => {
   await b.click('#addRemoveCameraBtn');
   await waitFor(() => remoteVideoShown(a), 'remote video on alice');
   await a.evaluate(() => window.__oldPc = Object.values(pcs)[0]);
-  await b.evaluate(() => socket.io.engine.close());
+  await b.evaluate(() => { for (const id in pcs) removePeer(id); socket.io.engine.close(); });
   await waitFor(() => a.evaluate(() => Object.values(pcs)[0] && Object.values(pcs)[0] !== __oldPc), 'alice rebuilt the pc');
   await waitFor(() => remoteVideoShown(a), 'remote video on alice after reconnect');
   await a.context().close(); await b.context().close();
@@ -191,6 +191,8 @@ test('signaling socket reconnect keeps the call working', async () => {
   const a = await join(room, 'alice');
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
+  for (const p of [a, b]) await p.evaluate(() => window.__pc = Object.values(pcs)[0]);
   // Simulate a network blip / proxy idle timeout on alice's signaling socket.
   await a.evaluate(() => socket.io.engine.close());
   await waitFor(() => a.evaluate(() => socket.connected), 'socket reconnected');
@@ -209,6 +211,7 @@ test('signaling socket reconnect keeps the call working', async () => {
   for (const p of [a, b]) {
     await waitFor(async () => (await connectedPeers(p)) === 1 && (await liveRemoteAudio(p)) === 1, 'one live peer each');
     assert.strictEqual(await p.evaluate(() => Object.keys(pcs).length), 1, 'no stale peer connections');
+    assert.ok(await p.evaluate(() => Object.values(pcs)[0] === __pc), 'working pc not replaced');
   }
   await a.context().close(); await b.context().close();
 });
@@ -296,6 +299,33 @@ test('camera changes renegotiate without the server (#11)', async () => {
   await waitFor(() => remoteVideoShown(b), 'remote video on bob');
   await b.click('#addRemoveCameraBtn'); // answerer: "transceive"/"renegotiate" over the data channel
   await waitFor(() => remoteVideoShown(a), 'remote video on alice');
+  await a.context().close(); await b.context().close();
+});
+
+test('call survives the signaling server going away and coming back (#11)', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await liveRemoteAudio(a)) === 1 && (await liveRemoteAudio(b)) === 1, 'remote audio');
+  await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
+  for (const p of [a, b]) await p.evaluate(() => window.__pc = Object.values(pcs)[0]);
+  await a.evaluate(() => socket.disconnect()); // server tells bob "userDiscconected"
+  await new Promise(r => setTimeout(r, 1500));
+  for (const p of [a, b]) {
+    assert.strictEqual(await liveRemoteAudio(p), 1, 'audio still live');
+    assert.strictEqual(await p.locator('#mediaDiv .videoplaceholder').count(), 2, 'no tile removed');
+  }
+  await a.click('#addRemoveChatBtn');
+  await a.fill('#chatInputText', 'still here');
+  await a.press('#chatInputText', 'Enter');
+  await waitFor(() => b.evaluate(() => document.querySelector('#chatText').textContent.includes('still here')), 'chat while server is gone');
+  await a.evaluate(() => socket.connect()); // rejoin: bob gets "userJoined" for alice's UUID
+  await waitFor(() => a.evaluate(() => socket.connected), 'socket back');
+  await new Promise(r => setTimeout(r, 1500));
+  for (const p of [a, b]) {
+    assert.ok(await p.evaluate(() => Object.keys(pcs).length == 1 && Object.values(pcs)[0] === __pc), 'same peer connection kept');
+    assert.strictEqual(await liveRemoteAudio(p), 1, 'audio live after rejoin');
+  }
   await a.context().close(); await b.context().close();
 });
 
