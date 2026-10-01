@@ -71,6 +71,21 @@ ul>li {
   background: #ababad40;
 }
 
+#selectCameraBtn {
+  position: relative;
+}
+
+/* invisible native select over the icon, so the OS picker opens on click */
+#cameraSelect {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
 #cancelCallBtn {
   color: #710000;
 }

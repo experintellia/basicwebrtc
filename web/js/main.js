@@ -53,6 +53,20 @@ var micMuted = false;
 var camActive = false;
 var screenActive = false;
 var chatActive = false;
+var selectedCameraId = null;
+
+async function updateCameraList() { //Show camera picker only if there is more than one camera
+  const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind == "videoinput");
+  if (!cams.some(c => c.deviceId == selectedCameraId)) {
+    selectedCameraId = null;
+  }
+  $("#cameraSelect").empty().append(cams.map((c, i) => $("<option>").val(c.deviceId).text(c.label || "Camera " + (i + 1))));
+  $("#cameraSelect").val(selectedCameraId || (cams[0] && cams[0].deviceId));
+  $("#selectCameraBtn").toggle(cams.length > 1);
+}
+if (navigator.mediaDevices) { //Missing on insecure origins
+  navigator.mediaDevices.addEventListener("devicechange", updateCameraList);
+}
 
 socket.on("msg", function (msg) {
   var msg = msg.replace(/(<a href=")?((https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)))(">(.*)<\/a>)?/gi, function () { //Replace link in text with real link
@@ -350,6 +364,37 @@ $(document).ready(function () {
     }
   });
 
+  updateCameraList();
+
+  $("#cameraSelect").change(function () {
+    selectedCameraId = this.value;
+    if (!camActive) {
+      return $("#addRemoveCameraBtn").click();
+    }
+    //Swap the video track in place, so peers don't need to renegotiate
+    $("#cameraSelect").prop("disabled", true); //No overlapping switches
+    var stream = allUserStreams[MY_UUID]["videostream"];
+    var oldTrack = stream.getVideoTracks()[0];
+    oldTrack.stop(); //Stop first, many phones can't open two cameras at once
+    navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: selectedCameraId } } }).then(function (newStream) {
+      var newTrack = newStream.getVideoTracks()[0];
+      for (var i in pcs) {
+        pcs[i].replaceTrack(oldTrack, newTrack);
+      }
+      stream.removeTrack(oldTrack);
+      stream.addTrack(newTrack);
+      updateUserLayout();
+    }).catch(function (error) {
+      alert("Could not switch camera!")
+      console.log('getUserMedia error! Got this error: ', error);
+      selectedCameraId = null;
+      $("#addRemoveCameraBtn").click(); //Turn the dead camera off
+      updateCameraList();
+    }).finally(function () {
+      $("#cameraSelect").prop("disabled", false);
+    });
+  });
+
   $("#addRemoveCameraBtn").click(function () {
     if (screenActive) {
       $("#addRemoveScreenBtn").click();
@@ -359,9 +404,11 @@ $(document).ready(function () {
     if (!camActive) {
       $("#addRemoveCameraBtn").css({ color: "#030356" });
       navigator.getUserMedia({
-        video: { 'facingMode': "user" },
+        video: selectedCameraId ? { deviceId: { exact: selectedCameraId } } : { 'facingMode': "user" },
         audio: false
       }, function (stream) { //OnSuccess
+        selectedCameraId = stream.getVideoTracks()[0].getSettings().deviceId || selectedCameraId;
+        updateCameraList(); //Labels are only available after permission is granted
         for (var i in pcs) { //Add stream to all peers
           pcs[i].addStream(stream);
         }
@@ -519,7 +566,7 @@ function updateUserLayout() {
 
     if (userStream["videostream"]) {
       var mirrorStyle = ""
-      if (i == MY_UUID && !screenActive) {
+      if (i == MY_UUID && !screenActive && userStream["videostream"].getVideoTracks()[0].getSettings().facingMode != "environment") { //Don't mirror rear cameras
         mirrorStyle = "transform: scaleX(-1);"
       }
       var userDisplayName = userStream["username"] && userStream["username"] != "NA" ? (userStream["username"].charAt(0).toUpperCase() + userStream["username"].slice(1)) : i.substr(0, 2).toUpperCase();
