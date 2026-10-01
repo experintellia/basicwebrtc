@@ -80,10 +80,6 @@ ioServer.sockets.on('connection', function (socket) {
         }
     });
 
-    socket.on("closeConnection", function () {
-        socket.to(roomOfUser).emit('userDiscconected', MY_UUID);
-    });
-
     socket.on('disconnect', function () {
         if (socketID_UUIDMatch[MY_UUID] !== socket.id) return; // a newer socket already took over this UUID
         socket.to(roomOfUser).emit('userDiscconected', MY_UUID);
