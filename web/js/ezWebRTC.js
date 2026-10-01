@@ -11,14 +11,11 @@ function initEzWebRTC(initiator, config) {
             offerToReceiveAudio: true, //- depricated - want audio
             offerToReceiveVideo: true  //- depricated - want video
         },
-        stream: null,
         'iceServers': [
             {
                 "urls": "stun:stun.l.google.com:19302"
             }
-        ],
-        sdpSemantics: 'unified-plan',
-        preferH264Codec: false
+        ]
     }
     if (config) {
         for (var i in config) {
@@ -27,7 +24,7 @@ function initEzWebRTC(initiator, config) {
     }
 
     //Make new peer
-    var pc = new wrtc.RTCPeerConnection(rtcConfig);
+    var pc = new wrtc.RTCPeerConnection({ iceServers: rtcConfig.iceServers });
 
     pc.onsignalingstatechange = function (event) {
         _this.emitEvent("onsignalingstatechange", event);
@@ -100,7 +97,6 @@ function initEzWebRTC(initiator, config) {
             }
             await pc.setLocalDescription(await pc.createAnswer(rtcConfig.offerOptions));
             var a_desc = pc.localDescription;
-            a_desc.sdp = rtcConfig.preferH264Codec ? preferH264Codec(a_desc.sdp) : a_desc.sdp;
             a_desc.sdp = removeDoubleSSRC(a_desc.sdp);
             _this.emitEvent("signaling", a_desc)
             if (!initiator)
@@ -193,7 +189,6 @@ function initEzWebRTC(initiator, config) {
                 return console.log("offer error", e);
             }
             var o_desc = pc.localDescription;
-            o_desc.sdp = rtcConfig.preferH264Codec ? preferH264Codec(o_desc.sdp) : o_desc.sdp;
             _this.emitEvent("signaling", o_desc)
         } else if (_this.gotOffer) { //Dont send renegotiate req before getting at least one offer
             _this.emitEvent("signaling", "renegotiate");
@@ -230,32 +225,6 @@ function initEzWebRTC(initiator, config) {
         }
     };
     return this;
-}
-
-function preferH264Codec(sdp) {
-    var lineSplit = sdp.split("\n")
-    console.log(lineSplit)
-    var videoLinesIndexs = [];
-    var h264ids = [];
-    for (var i in lineSplit) {
-        if (lineSplit[i].startsWith("m=video")) { //find the video line
-            videoLinesIndexs.push(i);
-        } else if (lineSplit[i].startsWith("a=rtpmap")) { //find all codec lines
-            if (lineSplit[i].indexOf("H264") !== -1) {
-                h264ids.push(lineSplit[i].split("rtpmap:")[1].split(" ")[0])
-            }
-        }
-    }
-
-    for (var k in videoLinesIndexs) {
-        var videoLineIndex = videoLinesIndexs[k];
-        for (var i = h264ids.length; i--; i >= 0) { //Change codec order
-            var h264id = h264ids[i];
-            lineSplit[videoLineIndex] = lineSplit[videoLineIndex].replace(" " + h264id, "")
-            lineSplit[videoLineIndex] = lineSplit[videoLineIndex].replace("SAVPF ", "SAVPF " + h264id + " ")
-        }
-    }
-    return lineSplit.join("\n");
 }
 
 function removeDoubleSSRC(sdp) {
