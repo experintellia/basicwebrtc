@@ -138,9 +138,7 @@ function initEzWebRTC(initiator, config) {
     }
 
     this.removeStream = function (stream) {
-        stream.getTracks().forEach(track => {
-            pc.removeTrack(trackSenders[track.id])
-        });
+        stream.getTracks().forEach(track => _this.removeTrack(track));
     }
 
     this.addTrack = function (track, stream) {
@@ -148,7 +146,8 @@ function initEzWebRTC(initiator, config) {
     }
 
     this.removeTrack = function (track) {
-        pc.removeTrack(trackSenders[track.id])
+        if (trackSenders[track.id]) //Unknown track would throw and abort the caller
+            pc.removeTrack(trackSenders[track.id])
     }
 
     this.replaceTrack = function (oldTrack, newTrack) { //Swap a sent track without renegotiation
@@ -156,7 +155,7 @@ function initEzWebRTC(initiator, config) {
         if (!sender) return;
         delete trackSenders[oldTrack.id];
         trackSenders[newTrack.id] = sender;
-        sender.replaceTrack(newTrack);
+        sender.replaceTrack(newTrack).catch(e => console.log("replaceTrack Error", e)); //e.g. closed pc
     }
 
     this.addTransceiver = function (kind, init) {

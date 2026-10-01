@@ -64,7 +64,9 @@ async function updateCameraList() { //Show camera picker only if there is more t
   $("#cameraSelect").val(selectedCameraId || (cams[0] && cams[0].deviceId));
   $("#selectCameraBtn").toggle(cams.length > 1);
 }
-navigator.mediaDevices.addEventListener("devicechange", updateCameraList);
+if (navigator.mediaDevices) { //Missing on insecure origins
+  navigator.mediaDevices.addEventListener("devicechange", updateCameraList);
+}
 
 socket.on("msg", function (msg) {
   var msg = msg.replace(/(<a href=")?((https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)))(">(.*)<\/a>)?/gi, function () { //Replace link in text with real link
@@ -370,6 +372,7 @@ $(document).ready(function () {
       return $("#addRemoveCameraBtn").click();
     }
     //Swap the video track in place, so peers don't need to renegotiate
+    $("#cameraSelect").prop("disabled", true); //No overlapping switches
     var stream = allUserStreams[MY_UUID]["videostream"];
     var oldTrack = stream.getVideoTracks()[0];
     oldTrack.stop(); //Stop first, many phones can't open two cameras at once
@@ -384,7 +387,11 @@ $(document).ready(function () {
     }).catch(function (error) {
       alert("Could not switch camera!")
       console.log('getUserMedia error! Got this error: ', error);
+      selectedCameraId = null;
       $("#addRemoveCameraBtn").click(); //Turn the dead camera off
+      updateCameraList();
+    }).finally(function () {
+      $("#cameraSelect").prop("disabled", false);
     });
   });
 
