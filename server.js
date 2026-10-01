@@ -63,20 +63,21 @@ ioServer.sockets.on('connection', function (socket) {
     console.log("NEW USER!");
 
     socket.on("registerUUID", function (content, callback) {
-        const UUID = content["UUID"] || null;
-        const UUID_KEY = content["UUID_KEY"] || null;
-        if (UUID && UUID_KEY) {
-            if (!registerdUUIDs[UUID] || registerdUUIDs[UUID] == UUID_KEY) {
-                const alreadyRegistred = registerdUUIDs[UUID] == UUID_KEY;
-                registerdUUIDs[UUID] = UUID_KEY;
-                socketID_UUIDMatch[UUID] = socket.id;
-                MY_UUID = UUID;
-                callback(null, alreadyRegistred);
-            } else {
-                callback("UUID_KEY was not correct!")
-            }
+        if (typeof callback != "function") return;
+        const UUID = content && content["UUID"];
+        const UUID_KEY = content && content["UUID_KEY"];
+        if (typeof UUID != "string" || !/^[\w-]{1,64}$/.test(UUID) || typeof UUID_KEY != "string" || !UUID_KEY) {
+            return callback("UUID or UUID_KEY invalid on registerUUID!");
+        }
+        if (MY_UUID && MY_UUID != UUID) return callback("Only one UUID per connection!");
+        if (!registerdUUIDs[UUID] || registerdUUIDs[UUID] == UUID_KEY) {
+            const alreadyRegistred = registerdUUIDs[UUID] == UUID_KEY;
+            registerdUUIDs[UUID] = UUID_KEY;
+            socketID_UUIDMatch[UUID] = socket.id;
+            MY_UUID = UUID;
+            callback(null, alreadyRegistred);
         } else {
-            callback("UUID or UUID_KEY was empty on registerUUID!")
+            callback("UUID_KEY was not correct!")
         }
     });
 
@@ -94,11 +95,12 @@ ioServer.sockets.on('connection', function (socket) {
     var roomname;
     var username = "";
     socket.on("joinRoom", function (content, callback) {
-        roomname = content["roomname"] || "";
-        username = content["username"] || "";
+        if (!content || typeof content != "object") return;
+        roomname = String(content["roomname"] || "").slice(0, 64);
+        username = String(content["username"] || "").slice(0, 64);
         console.log(username)
         if (!roomOfUser) {
-            roomOfUser = roomname;
+            roomOfUser = socket.data.room = roomname;
             nameOfUser = username;
             socket.to(roomname).emit('userJoined', { UUID: MY_UUID });
             console.log("joinRoom", roomname, MY_UUID);
@@ -123,8 +125,10 @@ ioServer.sockets.on('connection', function (socket) {
     });
 
     socket.on("signaling", function (content) {
+        if (!content || typeof content != "object" || !roomOfUser) return;
         var destSocketId = socketID_UUIDMatch[content.destUUID];
         var signalingData = content.signalingData;
+        if (ioServer.sockets.sockets.get(destSocketId)?.data.room !== roomOfUser) return; // same room only
 
         ioServer.to(destSocketId).emit('signaling', { signalingData: signalingData, fromUUID: MY_UUID, username: nameOfUser });
     });
