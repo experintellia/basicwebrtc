@@ -18,7 +18,6 @@ function initEzWebRTC(initiator, config) {
             }
         ],
         sdpSemantics: 'unified-plan',
-        iceConnectionTimeoutInSec: 10,
         preferH264Codec: false
     }
     if (config) {
@@ -58,39 +57,19 @@ function initEzWebRTC(initiator, config) {
         });
     }
 
-    var iceConnectionTimeout;
-    pc.oniceconnectionstatechange = async function (e) {
-        //console.log('ICE state: ' + pc.iceConnectionState);
+    // Tiles are removed only when the server says the peer left; until then keep restarting ICE.
+    pc.oniceconnectionstatechange = function () {
         if (pc.iceConnectionState == "connected" || pc.iceConnectionState == "completed") {
-            if (iceConnectionTimeout) { clearTimeout(iceConnectionTimeout); };
             if (!_this.isConnected) {
                 _this.isConnected = true;
                 _this.emitEvent("connect", true)
             }
         } else if (pc.iceConnectionState == 'disconnected') {
-            setTimeout(async function () { //lets wait if connection switches back to connected in a few seconds
-                if (_this.isConnected && pc.iceConnectionState == "disconnected" && initiator) {  //if still in disconnected and not closed state try to restart ice
-                    //console.log("Try to recover ice connection form disconnected state!")
-                    await pc.setLocalDescription(await pc.createOffer({ iceRestart: true }));
-                    _this.emitEvent("signaling", pc.localDescription);
-                }
+            setTimeout(function () { //give it a few seconds to come back on its own
+                if (pc.iceConnectionState == "disconnected" && initiator) pc.restartIce();
             }, 3000);
-            iceConnectionTimeout = setTimeout(function () { //Close the connection if state not changes to connected in a given time
-                if (_this.isConnected) {
-                    _this.isConnected = false;
-                    _this.emitEvent("closed", true)
-                }
-            }, rtcConfig.iceConnectionTimeoutInSec * 1000);
-        } else if (pc.iceConnectionState == 'closed') {
-            if (_this.isConnected) {
-                _this.isConnected = false;
-                _this.emitEvent("closed", true)
-            }
-        } else if (pc.iceConnectionState == 'failed' && initiator) { //Try to reconnect from initator side
-            //console.log("Try to recover ice connection form failed state!")
-            await pc.setLocalDescription(await pc.createOffer({ iceRestart: true }))
-            _this.emitEvent("signaling", pc.localDescription)
-            _this.emitEvent("iceFailed", true)
+        } else if (pc.iceConnectionState == 'failed' && initiator) {
+            pc.restartIce(); //triggers negotiationneeded -> negotiate()
         }
     };
 
@@ -120,11 +99,11 @@ function initEzWebRTC(initiator, config) {
                 requestMissingTransceivers()
         } else if (signalData && signalData.type == "answer" && initiator) { //Initiator: Setting answer and starting connection
             _this.makingOffer = false;
-            pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData))
+            await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData))
         } else if (signalData && signalData.type == "transceive" && initiator) { //Got an request to transrecive
             _this.addTransceiver(signalData.kind, signalData.init)
         } else if (signalData && signalData.candidate) { //is a icecandidate thing
-            pc.addIceCandidate(new wrtc.RTCIceCandidate(signalData));
+            await pc.addIceCandidate(new wrtc.RTCIceCandidate(signalData));
         } else {
             console.log("Some unused signaling data???", signalData)
         }
@@ -198,7 +177,7 @@ function initEzWebRTC(initiator, config) {
         if (initiator) {
             _this.makingOffer = true;
             const offer = await pc.createOffer(rtcConfig.offerOptions); //Create offer
-            if (pc.signalingState != "stable") return;
+            if (pc.signalingState != "stable") return _this.makingOffer = false; //dropped, negotiationneeded fires again once stable
             await pc.setLocalDescription(offer);
             var o_desc = pc.localDescription;
             o_desc.sdp = rtcConfig.preferH264Codec ? preferH264Codec(o_desc.sdp) : o_desc.sdp;

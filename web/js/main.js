@@ -108,7 +108,7 @@ socket.on("signaling", function (data) {
   if (!pcs[fromUUID]) {
     createRemoteSocket(false, fromUUID)
   }
-  pcs[fromUUID].signaling(data.signalingData);
+  pcs[fromUUID].signaling(data.signalingData).catch(e => console.log("signaling error", e));
 
   if (data.username) {
     allUserStreams[fromUUID] = allUserStreams[fromUUID] || {};
@@ -307,18 +307,12 @@ function createRemoteSocket(initiator, UUID) {
       updateUserLayout();
     }
   });
-  pc.on("closed", function () {
-    if (pcs[UUID] === pc) removePeer(UUID); // ignore late events from a replaced connection
-  });
   pc.on("connect", function () {
     if (allUserStreams[MY_UUID]["videostream"]) {
       setTimeout(function () {
         pc.addStream(allUserStreams[MY_UUID]["videostream"])
       }, 500)
     }
-  });
-  pc.on("iceFailed", function () {
-    console.log("Error: Ice failed to to UUID: ", UUID);
   });
 }
 

@@ -204,3 +204,29 @@ test('browsers without WebRTC get an upgrade notice', async () => {
   await waitFor(() => a.locator('#unsupported').isVisible(), 'notice visible', 5000);
   await a.context().close();
 });
+
+// Dropping UDP breaks the direct P2P path while signaling (TCP) stays up. Needs root for iptables.
+const UDP_DROP = 'OUTPUT -p udp -m comment --comment basicwebrtc-test -j DROP';
+const canDropUdp = (() => { try { require('child_process').execSync('iptables -C ' + UDP_DROP + ' 2>/dev/null || iptables -L -n', { stdio: 'ignore' }); return true; } catch { return false; } })();
+const iptables = args => require('child_process').execSync('iptables ' + args);
+
+test('call recovers after the direct P2P path drops for a while', { skip: !canDropUdp && 'needs root + iptables' }, async () => {
+  const room = 'r' + Date.now();
+  const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
+  const a = await join(room, 'alice', trackPcs);
+  const b = await join(room, 'bob', trackPcs);
+  const iceUp = p => p.evaluate(() => __raw.some(x => ['connected', 'completed'].includes(x.iceConnectionState)));
+  await waitFor(async () => (await iceUp(a)) && (await liveRemoteAudio(a)) === 1, 'ICE connected');
+  iptables('-I ' + UDP_DROP);
+  try {
+    await waitFor(async () => !(await iceUp(a)) && !(await iceUp(b)), 'ICE disconnected', 15000);
+    await new Promise(r => setTimeout(r, 15000)); // longer than any give-up timeout
+  } finally {
+    iptables('-D ' + UDP_DROP);
+  }
+  for (const p of [a, b]) {
+    await waitFor(async () => (await iceUp(p)) && (await liveRemoteAudio(p)) === 1, 'ICE and audio back', 45000);
+    assert.strictEqual(await p.evaluate(() => Object.keys(pcs).length), 1, 'peer kept');
+  }
+  await a.context().close(); await b.context().close();
+});
