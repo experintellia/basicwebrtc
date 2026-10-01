@@ -100,6 +100,11 @@ ioServer.sockets.on('connection', function (socket) {
         socket.join(roomOfUser);
     })
 
+    socket.on("setName", function (name) {
+        nameOfUser = String(name || "").slice(0, 64);
+        if (roomOfUser !== null) socket.to(roomOfUser).emit('userName', { fromUUID: MY_UUID, username: nameOfUser });
+    });
+
     socket.on("sendMsg", function (msg) {
         if (typeof (msg) == "string") {
             if (msg != "") {

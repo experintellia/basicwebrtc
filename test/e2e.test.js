@@ -314,3 +314,27 @@ test('call recovers after the direct P2P path drops for a while', { skip: !canDr
   }
   await a.context().close(); await b.context().close();
 });
+
+test('rename updates the name for peers, chat and the URL', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  a.once('dialog', d => d.accept('zoe smith'));
+  await a.click('#changeNameBtn');
+  await waitFor(() => b.evaluate(() => Object.values(allUserStreams).some(s => s.username == 'zoe smith')), 'new name on bob');
+  assert.strictEqual(await b.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('ZO')), true, 'initials updated');
+  assert.strictEqual(await a.evaluate(() => getUrlParam('username', 'NA')), 'zoe smith', 'kept in URL for reloads');
+  await a.evaluate(() => socket.emit('sendMsg', 'hi'));
+  await waitFor(() => b.evaluate(() => document.querySelector('#chatText').textContent.includes('zoe smith: hi')), 'chat uses new name');
+  await a.context().close(); await b.context().close();
+});
+
+test('share button shares the room link without the username', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', () => { navigator.share = d => { window.__shared = d; return Promise.resolve(); }; });
+  await a.click('#shareBtn');
+  const shared = await a.evaluate(() => window.__shared);
+  assert.strictEqual(shared.url, `${BASE}#roomname=${room}`);
+  await a.context().close();
+});
