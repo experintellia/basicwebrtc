@@ -74,6 +74,18 @@ test('camera toggle reaches the other peer', async () => {
   await a.context().close(); await b.context().close();
 });
 
+test('screen share reaches the other peer', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await a.click('#addRemoveScreenBtn');
+  await waitFor(() => a.evaluate(() => screenActive), 'screen capture started');
+  await waitFor(() => b.evaluate(() => [...document.querySelectorAll('#mediaDiv video')]
+    .some(v => v.srcObject && v.videoWidth > 0 && !v.style.transform.includes('scaleX'))), 'remote screen on bob');
+  await a.context().close(); await b.context().close();
+});
+
 test('third peer joins a running call', async () => {
   const room = 'r' + Date.now();
   const pages = [await join(room, 'alice'), await join(room, 'bob')];
