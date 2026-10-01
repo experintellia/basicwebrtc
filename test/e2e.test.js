@@ -206,7 +206,7 @@ test('browsers without WebRTC get an upgrade notice', async () => {
 });
 
 // Dropping UDP breaks the direct P2P path while signaling (TCP) stays up. Needs root for iptables.
-const UDP_DROP = 'OUTPUT -p udp -m comment --comment basicwebrtc-test -j DROP';
+const UDP_DROP = 'OUTPUT -p udp ! --dport 53 -m comment --comment basicwebrtc-test -j DROP';
 const canDropUdp = (() => { try { require('child_process').execSync('iptables -C ' + UDP_DROP + ' 2>/dev/null || iptables -L -n', { stdio: 'ignore' }); return true; } catch { return false; } })();
 const iptables = args => require('child_process').execSync('iptables ' + args);
 

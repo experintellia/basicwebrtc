@@ -42,8 +42,7 @@ location /basicwebrtc/ {
 ## STUN and TURN Configuration ##
 If your clients are behind firewalls you might need to setup a TURN Server so the connection can fallback to that (Connection is e2e encrypted in any case).
 
-If you have your STUN/TURN Server, isert the urls into:
-/iceservers.json
+Copy `iceservers.example.json` to `iceservers.json` (not tracked by git, it holds your TURN secret) and add your STUN/TURN urls there. Without it, only public STUN is used.
 
 ### Setup your own TURN Server with docker ###
 This setup is using COTURN inside docker.
@@ -57,17 +56,18 @@ Don't forget to change the admin username, password and authSecret.
 
 For more configurations of this  take a look at repo of the container (https://github.com/cracker0dks/turn-server-docker-image) and the COTURN repo itself: https://github.com/coturn/coturn
 
-If you have the turn server running, make a new entry into /iceservers.json
+If you have the turn server running, put it into /iceservers.json
 ```
 [
     {
-        "url": "stun:10.10.10.10:443"
+        "urls": "stun:10.10.10.10:443"
     },
     {
-        "url": "turn:10.10.10.10:443",
+        "urls": ["turn:10.10.10.10:443", "turn:10.10.10.10:443?transport=tcp"],
         "turnServerCredential": "authSecret",
         "username": "webrtcuser"
     }
 ]
 ```
+The `?transport=tcp` url lets clients on UDP-blocked networks still connect (media stays e2e encrypted, the relay only sees ciphertext).
 Change the ips and authSecret as defined on docker run. The username can be set to anything you want or leave it like this then restart the basicwebrtc server.

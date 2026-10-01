@@ -15,46 +15,34 @@ test first, see it red, then the smallest fix. Run with `npm test`
 - Removed: Electron screen-share code, jQuery, adapter.js. Added
   unsupported-browser screen.
 
-## 1. Recovery when the direct P2P (ICE) connection fails  — highest value
+## Done in the follow-up
 
-The signaling-socket drop is handled, but a failure of the browser-to-browser
-connection is not. Symptoms in `web/js/ezWebRTC.js`:
+- **ICE recovery:** a peer is no longer dropped 10s after the P2P path breaks.
+  Tiles go away only when the server says the peer left; the initiator keeps
+  restarting ICE (`pc.restartIce()` → `negotiate()`). Dropped offers reset
+  `makingOffer`; signaling errors are awaited and logged. Test drops UDP via
+  iptables for 15s (needs root, skipped otherwise; CI runs it with sudo).
+- **TURN over TCP:** README documents `turn:host:443?transport=tcp` next to UDP.
+- **Secret:** `iceservers.json` is untracked; tracked `iceservers.example.json`
+  (public STUN only) is the fallback when it's missing.
+- **CI:** `.github/workflows/test.yml` runs `npm test` on push/PR.
 
-- `negotiate()` returns early on a dropped offer without resetting
-  `makingOffer`, so camera/screen changes can stop reaching peers permanently.
-- Only the initiator restarts ICE on `failed`/`disconnected`; the answerer
-  just waits.
-- After ~10s disconnected, `closed` fires and `removePeer` deletes the tile.
-  If ICE later recovers, the peer never reappears (`stream` won't re-fire).
-- Several `setRemoteDescription` / `addIceCandidate` calls lack `await`/`catch`.
+## Still open — needs the server owner
 
-Test approach: in Playwright, force an ICE failure mid-call (e.g. block the
-peer traffic, or call an internal restart), then assert the connection
-recovers and audio flows again — rather than the tile vanishing for good.
-Keep the fix minimal: the perfect-negotiation pattern already partly present
-is the reference; don't add a library.
+1. **Before the next deploy:** `updateserver.sh` does `git pull`, which now
+   *deletes* the live `iceservers.json` (it's untracked upstream). Back it up
+   first: `cp iceservers.json ~/ && git pull && cp ~/iceservers.json .`
+   Without it the server still runs, but STUN-only (no TURN fallback).
+2. **Rotate the TURN secret** (it's in git history — treat as compromised):
+   new `authSecret` in coturn + `turnServerCredential` in the live
+   `iceservers.json`.
+3. In that same live file, switch to `"urls": ["turn:HOST:443", "turn:HOST:443?transport=tcp"]`.
+4. Deploy — the live instance still runs the XSS-vulnerable chat code.
 
-## 2. TURN / relay robustness
+## Notes
 
-- `iceservers.json` only offers `turn:...:443` over UDP. Add
-  `turn:host:443?transport=tcp` (and/or `turns:`) so UDP-blocked networks
-  still connect. Still E2E-encrypted — relays forward ciphertext only.
-- **Security:** `iceservers.json` is tracked and the TURN shared secret is in
-  git history (committed before `.gitignore` listed it). The secret must be
-  treated as already compromised — **rotate it** (that's the only real fix;
-  `git rm --cached` + an `iceservers.example.json` only stops future leakage,
-  it does not remove it from history).
-
-## 3. Smaller follow-ups
-
-- `web/js/socket.io.min.js` (52KB) is the last vendored blob — justified
-  (signaling transport), leave it.
-- Add a GitHub Actions workflow running `npm test` on PRs.
-- Video and screen share stay — both are wanted features (not candidates for removal).
+- `web/js/socket.io.min.js` is the last vendored blob — justified, leave it.
+- Video and screen share stay — both are wanted features.
 - UI framework: decided **no React/Preact for now** — plain DOM is enough.
-  Revisit only if the UI grows enough to need declarative rendering.
-
-## Deploy reminder
-
-The live instance runs the pre-fix chat code (live XSS). Deploy PR #2 or at
-least commits `bf11eed` + `6a38526`.
+- Answerer still never restarts ICE itself; fine while signaling is up, since
+  the initiator sees the same failure. Revisit if one-sided failures show up.
