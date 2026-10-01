@@ -34,13 +34,13 @@ test('signaling is routed to the destination UUID', async () => {
   assert.strictEqual((await got).fromUUID, 'A1');
 });
 
-test('UUID cannot be hijacked with a wrong key', { todo: 'BUG: server reads UUID_KEY from content.UUID' }, async () => {
+test('UUID cannot be hijacked with a wrong key', async () => {
   await client('H1', 'secret');
   const { err } = await client('H1', 'guess');
   assert.ok(err, 'second registration with a different key must be rejected');
 });
 
-test('stale socket disconnect does not unregister the reconnected socket', { todo: 'BUG: disconnect deletes mapping without checking socket.id' }, async () => {
+test('stale socket disconnect does not unregister the reconnected socket', async () => {
   // Client reconnects (new socket) before the server noticed the old one died.
   const old = await client('R1');
   const fresh = await client('R1');
@@ -51,6 +51,14 @@ test('stale socket disconnect does not unregister the reconnected socket', { tod
   const got = nextEvent(fresh.c, 'signaling');
   sender.c.emit('signaling', { destUUID: 'R1', signalingData: 'hi' });
   await got;
+});
+
+test('ICE servers use the standard "urls" key', async () => {
+  const c = io(URL, { transports: ['websocket'], reconnection: false });
+  clients.push(c);
+  const servers = await nextEvent(c, 'currentIceServers');
+  assert.ok(servers.length > 0);
+  for (const s of servers) assert.ok(s.urls && !s.url, JSON.stringify(s));
 });
 
 test('room members get userJoined / userDiscconected', async () => {

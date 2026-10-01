@@ -83,7 +83,7 @@ test('third peer joins a running call', async () => {
   for (const p of pages) await p.context().close();
 });
 
-test('peer leaves: the other side cleans up', { todo: "BUG: main.js uses $('audio'+UUID), missing '#'" }, async () => {
+test('peer leaves: the other side cleans up', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');
   const b = await join(room, 'bob');
@@ -93,7 +93,7 @@ test('peer leaves: the other side cleans up', { todo: "BUG: main.js uses $('audi
   await a.context().close();
 });
 
-test('signaling socket reconnect keeps the call working', { todo: 'BUG: handlers re-registered on every reconnect' }, async () => {
+test('signaling socket reconnect keeps the call working', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');
   const b = await join(room, 'bob');
@@ -111,5 +111,9 @@ test('signaling socket reconnect keeps the call working', { todo: 'BUG: handlers
   await a.click('#addRemoveCameraBtn');
   await waitFor(() => b.evaluate(() => [...document.querySelectorAll('#mediaDiv video')]
     .some(v => v.srcObject && v.videoWidth > 0 && !v.style.transform.includes('scaleX'))), 'remote video after reconnect');
+  for (const p of [a, b]) {
+    await waitFor(async () => (await connectedPeers(p)) === 1 && (await liveRemoteAudio(p)) === 1, 'one live peer each');
+    assert.strictEqual(await p.evaluate(() => Object.keys(pcs).length), 1, 'no stale peer connections');
+  }
   await a.context().close(); await b.context().close();
 });
