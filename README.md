@@ -39,6 +39,20 @@ location /basicwebrtc/ {
 	proxy_pass http://127.0.0.1:8080/;
 }
 ```
+## Upgrading ##
+
+`iceservers.json` is no longer tracked by git (it holds your TURN secret). A plain `git pull` deletes it, so keep a copy:
+
+```
+cp iceservers.json ~/ && git pull && cp ~/iceservers.json .
+```
+
+Without it the server still runs, but with public STUN only (no TURN fallback). While you're at it:
+* Change the TURN `authSecret` (coturn) and `turnServerCredential`; older versions of this repo committed it.
+* Add the TCP TURN url, see below.
+
+Updating is recommended: it includes connection-stability and security fixes.
+
 ## STUN and TURN Configuration ##
 If your clients are behind firewalls you might need to setup a TURN Server so the connection can fallback to that (Connection is e2e encrypted in any case).
 

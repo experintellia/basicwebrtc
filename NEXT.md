@@ -37,7 +37,7 @@ test first, see it red, then the smallest fix. Run with `npm test`
    new `authSecret` in coturn + `turnServerCredential` in the live
    `iceservers.json`.
 3. In that same live file, switch to `"urls": ["turn:HOST:443", "turn:HOST:443?transport=tcp"]`.
-4. Deploy — the live instance still runs the XSS-vulnerable chat code.
+4. Deploy (live instance is behind on the chat fixes).
 
 ## Notes
 
