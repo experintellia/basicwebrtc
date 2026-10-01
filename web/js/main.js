@@ -284,7 +284,7 @@ function createRemoteSocket(initiator, UUID) {
   var pc = pcs[UUID] = new initEzWebRTC(initiator, webRTCConfig);
   if (allUserStreams[MY_UUID]["videostream"]) pc.addStream(allUserStreams[MY_UUID]["videostream"]);
   pc.on("signaling", function (data) {
-    socket.emit("signaling", { destUUID: UUID, signalingData: data })
+    if (!pc.send({ signaling: data })) socket.emit("signaling", { destUUID: UUID, signalingData: data }) // socket only until the data channel is open
   })
   pc.on("open", () => pc.send({ username: username, audioLvl: micMuted ? -1 : 0 }));
   pc.on("message", function (msg) { // from the peer: untrusted
@@ -295,6 +295,7 @@ function createRemoteSocket(initiator, UUID) {
     }
     if (typeof msg.audioLvl == "number") setAudioLevel(UUID, msg.audioLvl);
     if (typeof msg.chat == "string") showMsg(nameOf(UUID) + msg.chat);
+    if (msg.signaling) pc.signaling(msg.signaling).catch(e => console.log("signaling error", e));
   });
   pc.on("stream", function (stream) {
     gotRemoteStream(stream, UUID)

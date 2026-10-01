@@ -285,6 +285,20 @@ test('chat, mute state and username reach the peer without the server (#11)', as
   await a.context().close(); await b.context().close();
 });
 
+test('camera changes renegotiate without the server (#11)', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(a)) === 1 && (await connectedPeers(b)) === 1, 'ICE connected');
+  await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
+  for (const p of [a, b]) await p.evaluate(() => { socket.emit = () => { }; });
+  await a.click('#addRemoveCameraBtn'); // initiator: offer over the data channel
+  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
+  await b.click('#addRemoveCameraBtn'); // answerer: "transceive"/"renegotiate" over the data channel
+  await waitFor(() => remoteVideoShown(a), 'remote video on alice');
+  await a.context().close(); await b.context().close();
+});
+
 test('mute button toggles the mic track', async () => {
   const a = await join('r' + Date.now(), 'alice');
   await waitFor(() => a.evaluate(() => !!allUserStreams[MY_UUID]), 'mic ready');
