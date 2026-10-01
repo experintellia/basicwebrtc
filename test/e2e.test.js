@@ -74,6 +74,19 @@ test('camera toggle reaches the other peer', async () => {
   await a.context().close(); await b.context().close();
 });
 
+// Regression guard for #3: bob's "renegotiate" reaches alice mid-offer and is dropped,
+// but bob's answer to that offer already carries his video.
+test('both peers turn on cameras at once: each sees the other', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice'); // already in the room -> initiator
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await Promise.all([a.click('#addRemoveCameraBtn'), b.click('#addRemoveCameraBtn')]);
+  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
+  await waitFor(() => remoteVideoShown(a), 'remote video on alice');
+  await a.context().close(); await b.context().close();
+});
+
 test('camera picker switches the camera sent to the other peer', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');
