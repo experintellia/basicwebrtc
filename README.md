@@ -13,7 +13,7 @@ Setup your own Videoconference Server for 1on1 and group calls! All Calls are en
 1. Install node and clone this repo
 2. run: npm i
 3. run: node server.js
-4. surf to: http://IP:3001
+4. surf to: http://localhost:3001 (other devices need https, e.g. via the nginx proxy below: browsers only allow mic/camera on https or localhost)
 
 ### All User parameters ###
 * `username` -> Change your username shown
