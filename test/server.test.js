@@ -2,6 +2,10 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
 const { io } = require('socket.io-client');
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const PORT = 3600 + Math.floor(Math.random() * 300);
 const URL = `http://127.0.0.1:${PORT}`;
@@ -10,6 +14,12 @@ const clients = [];
 before(async () => {
   process.env.listen_port = String(PORT);
   process.env.listen_ip = '127.0.0.1';
+  // Own ice file so the result does not depend on a local iceservers.json.
+  process.env.ICESERVERS_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ice-')), 'ice.json');
+  fs.writeFileSync(process.env.ICESERVERS_FILE, JSON.stringify([
+    { url: 'stun:legacy.example:3478' },
+    { urls: 'turn:turn.example:3478', username: 'bob', turnServerCredential: 's3cret' },
+  ]));
   require('../server.js'); // ponytail: in-process, runner exits via --test-force-exit
 });
 after(() => clients.forEach(c => c.close()));
@@ -53,18 +63,25 @@ test('stale socket disconnect does not unregister the reconnected socket', async
   await got;
 });
 
-test('ICE servers use the standard "urls" key', async () => {
+test('ICE servers: legacy "url" becomes "urls", TURN gets HMAC credentials', async () => {
   const c = io(URL, { transports: ['websocket'], reconnection: false });
   clients.push(c);
-  const servers = await nextEvent(c, 'currentIceServers');
-  assert.ok(servers.length > 0);
-  for (const s of servers) assert.ok(s.urls && !s.url, JSON.stringify(s));
+  const [stun, turn] = await nextEvent(c, 'currentIceServers');
+  assert.deepStrictEqual(stun, { urls: 'stun:legacy.example:3478' });
+  assert.strictEqual(turn.urls, 'turn:turn.example:3478');
+  assert.ok(!('turnServerCredential' in turn), 'secret must not leak');
+  const [expiry, name] = turn.username.split(':');
+  assert.strictEqual(name, 'bob');
+  assert.ok(+expiry > Date.now() / 1000, 'expiry in the future');
+  assert.strictEqual(turn.credential, crypto.createHmac('sha1', 's3cret').update(turn.username).digest('base64'));
 });
 
 test('room members get userJoined / userDiscconected', async () => {
   const a = await client('J1'), b = await client('J2');
   a.c.emit('joinRoom', { roomname: 'room-j', username: 'a' });
-  await new Promise(r => setTimeout(r, 100));
+  const echoed = nextEvent(a.c, 'msg'); // server handles a socket's events in order:
+  a.c.emit('sendMsg', 'x');             // the echo means a's join is done
+  await echoed;
   const joined = nextEvent(a.c, 'userJoined');
   b.c.emit('joinRoom', { roomname: 'room-j', username: 'b' });
   assert.deepStrictEqual(await joined, { UUID: 'J2' });
