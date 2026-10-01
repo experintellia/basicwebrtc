@@ -46,3 +46,7 @@ test first, see it red, then the smallest fix. Run with `npm test`
 - UI framework: decided **no React/Preact for now** — plain DOM is enough.
 - Answerer still never restarts ICE itself; fine while signaling is up, since
   the initiator sees the same failure. Revisit if one-sided failures show up.
+- Pre-existing: an answerer's `"renegotiate"` request is dropped if the
+  initiator has an offer in flight (`negotiate()` returns on `makingOffer`),
+  so an answerer's cam/screen change can miss that peer. Fix: remember it and
+  call `negotiate()` again after the answer is applied.

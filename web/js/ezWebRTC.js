@@ -66,12 +66,20 @@ function initEzWebRTC(initiator, config) {
             }
         } else if (pc.iceConnectionState == 'disconnected') {
             setTimeout(function () { //give it a few seconds to come back on its own
-                if (pc.iceConnectionState == "disconnected" && initiator) pc.restartIce();
+                if (pc.iceConnectionState == "disconnected" && initiator) restartIce();
             }, 3000);
         } else if (pc.iceConnectionState == 'failed' && initiator) {
-            pc.restartIce(); //triggers negotiationneeded -> negotiate()
+            restartIce();
         }
     };
+
+    async function restartIce() {
+        if (pc.signalingState == "have-local-offer") { //answer got lost: negotiationneeded never fires outside stable
+            _this.makingOffer = false;
+            await pc.setLocalDescription({ type: "rollback" }).catch(e => console.log("rollback error", e));
+        }
+        pc.restartIce(); //triggers negotiationneeded -> negotiate()
+    }
 
     pc.onnegotiationneeded = function () {
         negotiate();
@@ -176,9 +184,14 @@ function initEzWebRTC(initiator, config) {
         //console.log("negotiate", initiator)
         if (initiator) {
             _this.makingOffer = true;
-            const offer = await pc.createOffer(rtcConfig.offerOptions); //Create offer
-            if (pc.signalingState != "stable") return _this.makingOffer = false; //dropped, negotiationneeded fires again once stable
-            await pc.setLocalDescription(offer);
+            try {
+                const offer = await pc.createOffer(rtcConfig.offerOptions); //Create offer
+                if (pc.signalingState != "stable") return _this.makingOffer = false; //dropped, negotiationneeded fires again once stable
+                await pc.setLocalDescription(offer);
+            } catch (e) {
+                _this.makingOffer = false;
+                return console.log("offer error", e);
+            }
             var o_desc = pc.localDescription;
             o_desc.sdp = rtcConfig.preferH264Codec ? preferH264Codec(o_desc.sdp) : o_desc.sdp;
             _this.emitEvent("signaling", o_desc)

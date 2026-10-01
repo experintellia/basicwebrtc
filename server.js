@@ -43,6 +43,7 @@ app.listen(HTTP_PORT, HTTP_IP);
 
 // iceservers.json holds the TURN secret and is not in git; fall back to public STUN only.
 var iceFile = fs.existsSync(__dirname + "/iceservers.json") ? "/iceservers.json" : "/iceservers.example.json";
+if (iceFile != "/iceservers.json") console.warn("WARNING: no iceservers.json, using public STUN only (no TURN fallback)");
 var icesevers = JSON.parse(fs.readFileSync(__dirname + iceFile, 'utf8'));
 
 console.log("--------------------------------------------");
