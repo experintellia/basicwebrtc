@@ -15,12 +15,14 @@ before(async () => {
   process.env.listen_port = String(PORT);
   process.env.listen_ip = '127.0.0.1';
   // Own ice file so the result does not depend on a local iceservers.json.
-  process.env.ICESERVERS_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ice-')), 'ice.json');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ice-'));
+  process.env.ICESERVERS_FILE = path.join(dir, 'ice.json');
   fs.writeFileSync(process.env.ICESERVERS_FILE, JSON.stringify([
     { url: 'stun:legacy.example:3478' },
     { urls: 'turn:turn.example:3478', username: 'bob', turnServerCredential: 's3cret' },
   ]));
   require('../server.js'); // ponytail: in-process, runner exits via --test-force-exit
+  fs.rmSync(dir, { recursive: true }); // read synchronously at startup
 });
 after(() => clients.forEach(c => c.close()));
 
@@ -87,10 +89,7 @@ test('ICE servers: legacy "url" becomes "urls", TURN gets HMAC credentials', asy
 
 test('room members get userJoined / userDiscconected', async () => {
   const a = await client('J1'), b = await client('J2');
-  a.c.emit('joinRoom', { roomname: 'room-j', username: 'a' });
-  const echoed = nextEvent(a.c, 'msg'); // server handles a socket's events in order:
-  a.c.emit('sendMsg', 'x');             // the echo means a's join is done
-  await echoed;
+  await join(a, 'room-j');
   const joined = nextEvent(a.c, 'userJoined');
   b.c.emit('joinRoom', { roomname: 'room-j', username: 'b' });
   assert.deepStrictEqual(await joined, { UUID: 'J2' });
@@ -107,7 +106,6 @@ test('malformed payloads are ignored and signaling keeps working', async () => {
   a.c.emit('registerUUID', null, () => { });
   a.c.emit('registerUUID', { UUID: 'M9', UUID_KEY: 'k' }); // no ack callback
   a.c.emit('currentAudioLvl', null);
-  await new Promise(r => setTimeout(r, 100));
   await join(a, 'room-m', { evil: 1 }); await join(b, 'room-m');
   const got = nextEvent(b.c, 'signaling');
   a.c.emit('signaling', { destUUID: 'M2', signalingData: 'hi' });
