@@ -12,7 +12,7 @@ const byId = id => document.getElementById(id); // ids are peer-supplied UUIDs: 
 const MY_UUID = uuidv4();
 const MY_UUID_KEY = uuidv4();
 
-var subdir = window.location.pathname.endsWith("/") ? window.location.pathname : window.location.pathname + "/";
+var subdir = location.pathname.replace(/[^/]*$/, ""); // folder of the page: "/basicwebrtc/index.html" -> "/basicwebrtc/"
 
 var base64Domain = getUrlParam("base64domain", false);
 
@@ -48,7 +48,7 @@ if (socketDomain) {
   subdir = subdir.endsWith('/') ? subdir : subdir + '/';
   socket = io(socketDomain, { "path": subdir + "socket.io", ...SocketIO_Options })
 } else {
-  socket = subdir == "/" ? io("", SocketIO_Options) : io("", { "path": subdir + "/socket.io", ...SocketIO_Options }); //Connect to socketIo even on subpaths
+  socket = io("", { "path": subdir + "socket.io", ...SocketIO_Options }); //Connect to socketIo even on subpaths
 }
 
 var webRTCConfig = {};
