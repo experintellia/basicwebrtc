@@ -71,17 +71,27 @@ ul>li {
   background: #ababad40;
 }
 
-#selectCameraBtn {
+#cameraGroup {
   position: relative;
+}
+
+/* caret on the camera button's top right corner */
+#selectCameraBtn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 1.1em;
+  height: 1.1em;
+  font-size: 0.55em;
+  line-height: 1.1em;
+  border-radius: 50%;
+  background: #ffffffd0;
 }
 
 /* invisible native select over the icon, so the OS picker opens on click */
 #cameraSelect {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  inset: -6px; /* tap target bigger than the badge */
   opacity: 0;
   cursor: pointer;
 }
@@ -95,46 +105,72 @@ ul>li {
 }
 
 #chatDiv {
-  width: 250px;
-  height: 330px;
+  width: 300px;
+  height: 400px;
   position: absolute;
   right: 20px;
   bottom: 130px;
+  z-index: 20;
   border-radius: 7px;
-  background: #7b79798c;
+  background: #2b2a2aee;
   border: 1px solid #80808087;
-  color: #c7c6c6;
+  color: #ddd;
+  display: flex;
+  flex-direction: column;
+}
+
+#chatDiv[hidden] {
   display: none;
 }
 
-#chatInputText {
-  width: 100%;
-  position: absolute;
-  bottom: 0;
-  background: #0000ff00;
-  border: 0px;
-  border-top: 1px solid #8080804f;
-  outline: none;
-  color: #bbb;
-  padding: 5px;
-  padding-right: 30px;
+#chatDiv button {
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1.2em;
+  padding: 8px 12px;
 }
 
-#chatSendBtn {
-  font-size: 1em;
-  position: absolute;
-  bottom: 5px;
-  right: 7px;
-  color: #c1bebe;
-  width: 20px;
-  height: 17px;
-  cursor: pointer;
+#chatCloseBtn {
+  align-self: flex-end;
 }
 
 #chatText {
-  height: 303px;
+  flex: 1;
   overflow-y: auto;
-  padding-left: 3px;
+  padding: 0 8px;
+}
+
+#chatText a {
+  color: #9cf;
+}
+
+#chatInputRow {
+  display: flex;
+  border-top: 1px solid #8080804f;
+}
+
+#chatInputText {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: none;
+  color: inherit;
+  padding: 8px;
+  font: 16px sans-serif; /* below 16px iOS zooms in on focus */
+}
+
+#shareDialog {
+  max-width: 90vw;
+  font: 16px sans-serif;
+}
+
+#shareLink {
+  width: 100%;
+  margin-bottom: 10px;
+  font: inherit;
 }
 
 /* SCROLLBAR */
@@ -272,6 +308,16 @@ div#centerDiv{
 
   .videoplaceholder {
     min-width: 126px;
+  }
+
+  #chatDiv {
+    position: fixed;
+    inset: 0;
+    width: auto;
+    height: auto;
+    border: 0;
+    border-radius: 0;
+    background: rgb(43, 42, 42);
   }
 
   .selfPreview .userPlaceholder {

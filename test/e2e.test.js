@@ -352,14 +352,65 @@ test('rename keeps other URL params byte-identical and cannot switch them on', a
   await ctx.close();
 });
 
-test('share falls back to the copy prompt when Web Share fails', async () => {
+test('share falls back to a copy dialog when Web Share fails', async () => {
   const a = await join('r' + Date.now(), 'alice', () => { navigator.share = () => Promise.reject(new DOMException('no', 'NotAllowedError')); });
-  let shown;
-  a.once('dialog', d => { shown = d.defaultValue(); d.dismiss(); });
   await a.click('#shareBtn');
-  await waitFor(() => shown, 'copy prompt');
-  assert.match(shown, /#roomname=r\d+$/);
+  await waitFor(() => a.locator('#shareDialog').isVisible(), 'share dialog');
+  assert.match(await a.inputValue('#shareLink'), /#roomname=r\d+$/);
   await a.context().close();
+});
+
+test('without Web Share the dialog copies the link', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', () => {
+    delete Navigator.prototype.share;
+    navigator.clipboard.writeText = t => { window.__copied = t; return Promise.resolve(); };
+  });
+  await a.click('#shareBtn');
+  await a.click('#copyLinkBtn');
+  assert.strictEqual(await a.evaluate(() => window.__copied), `${BASE}#roomname=${room}`);
+  await a.click('#shareDialog button[value=close]');
+  assert.strictEqual(await a.locator('#shareDialog').isVisible(), false);
+  await a.context().close();
+});
+
+test('camera picker is a small overlay on the camera button', async () => {
+  const a = await join('r' + Date.now(), 'alice');
+  await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'picker visible');
+  const [cam, pick] = await Promise.all(['#addRemoveCameraBtn', '#selectCameraBtn'].map(s => a.locator(s).boundingBox()));
+  assert.ok(pick.x >= cam.x && pick.x + pick.width <= cam.x + cam.width + 1 && pick.y >= cam.y - 1, 'caret sits on the camera button');
+  await a.context().close();
+});
+
+// iOS Safari may refuse to start remote audio without a user gesture: the next tap must start it.
+test('remote audio blocked by autoplay starts on the next tap', async () => {
+  const blockAutoplay = () => { // not userActivation: page.evaluate counts as a gesture
+    let tapped = false;
+    window.addEventListener('click', () => tapped = true, true);
+    document.addEventListener('play', e => { if (!tapped) e.target.pause(); }, true);
+  };
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', blockAutoplay);
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await liveRemoteAudio(a)) === 1, 'remote audio element');
+  const paused = () => a.evaluate(() => document.querySelector('#audioStreams audio').paused);
+  await waitFor(paused, 'autoplay blocked');
+  await a.mouse.click(5, 5);
+  await waitFor(async () => !(await paused()), 'audio playing after tap');
+  await a.context().close(); await b.context().close();
+});
+
+test('chat opens fullscreen on phones and closes again', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 320, height: 568 } });
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=r${Date.now()}`);
+  await a.click('#addRemoveChatBtn');
+  const box = await a.locator('#chatDiv').boundingBox();
+  assert.deepStrictEqual([box.x, box.y, box.width, box.height], [0, 0, 320, 568]);
+  assert.ok(parseFloat(await a.$eval('#chatInputText', e => getComputedStyle(e).fontSize)) >= 16, 'no iOS zoom on focus');
+  await a.click('#chatCloseBtn');
+  assert.strictEqual(await a.locator('#chatDiv').isVisible(), false);
+  await ctx.close();
 });
 
 test('all call buttons fit on screen from phone to small desktop widths', async () => {

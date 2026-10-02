@@ -16,17 +16,29 @@
 <body>
   <div id="unsupported">Your browser can't do video calls. Please update to a current Chrome, Firefox, Edge or Safari, and open this page via https.</div>
   <div id="mediaDiv"></div>
-  <div id="chatDiv">
-    <div id="chatContent"></div>
+  <div id="chatDiv" hidden>
+    <button id="chatCloseBtn" title="close chat" aria-label="close chat">&times;</button>
     <div id="chatText"></div>
-    <input id="chatInputText" placeholder="your msg..." type="text" width="100%" >
-    <div id="chatSendBtn"><i class="fas fa-paper-plane"></i></div>
+    <div id="chatInputRow">
+      <input id="chatInputText" placeholder="your msg..." type="text" enterkeyhint="send">
+      <button id="chatSendBtn" aria-label="send"><i class="fas fa-paper-plane"></i></button>
+    </div>
   </div>
+  <dialog id="shareDialog">
+    <form method="dialog">
+      <p>Send this link to who you want to talk to.<br>The room is the part after #: anyone with the link can join.</p>
+      <input id="shareLink" readonly aria-label="room link">
+      <button id="copyLinkBtn" type="button">Copy</button>
+      <button value="close">Close</button>
+    </form>
+  </dialog>
   <div id="mediaControllContainer">
     <div id="mediaControll">
       <div title="mute / unmute microphon!" id="muteUnmuteMicBtn" class="callBtn"><i class="fas fa-microphone-alt"></i></div>
-      <div title="add / remove camera!" id="addRemoveCameraBtn" class="callBtn"><i class="fas fa-video"></i></div>
-      <div title="select camera" id="selectCameraBtn" class="callBtn" style="display:none;"><i class="fas fa-camera"></i><select id="cameraSelect" aria-label="select camera"></select></div>
+      <div id="cameraGroup">
+        <div title="add / remove camera!" id="addRemoveCameraBtn" class="callBtn"><i class="fas fa-video"></i></div>
+        <div title="select camera" id="selectCameraBtn" style="display:none;"><i class="fas fa-caret-up"></i><select id="cameraSelect" aria-label="select camera"></select></div>
+      </div>
       <div title="add / remove screen!" id="addRemoveScreenBtn" class="callBtn"><i class="fas fa-desktop"></i></div>
       <div title="open / close Chat" id="addRemoveChatBtn" class="callBtn"><i class="far fa-comment-dots"></i></div>
       <div title="change your name" id="changeNameBtn" class="callBtn"><i class="fas fa-user-edit"></i></div>

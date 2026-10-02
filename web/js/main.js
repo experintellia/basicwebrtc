@@ -87,7 +87,7 @@ socket.on("msg", function (msg) {
   });
   $("#chatText").append(line);
   $("#chatText").scrollTop = $("#chatText").scrollHeight;
-  if ($("#chatDiv").style.display != "block") {
+  if ($("#chatDiv").hidden) {
     $("#addRemoveChatBtn").style.color = "#730303";
   }
 })
@@ -190,11 +190,12 @@ $("#muteUnmuteMicBtn").onclick = function () {
 }
 
 $("#addRemoveChatBtn").onclick = function () {
-  const open = $("#chatDiv").style.display != "block";
-  $("#chatDiv").style.display = open ? "block" : "none";
+  const open = $("#chatDiv").hidden;
+  $("#chatDiv").hidden = !open;
   this.style.color = open ? "#030356" : "black";
   if (open) $("#chatInputText").focus();
 }
+$("#chatCloseBtn").onclick = () => $("#addRemoveChatBtn").click();
 
 $("#chatSendBtn").onclick = sendMsg;
 $("#chatInputText").onkeydown = e => { if (e.key == "Enter") sendMsg() };
@@ -300,10 +301,15 @@ $("#changeNameBtn").onclick = function () {
 
 $("#shareBtn").onclick = function () {
   const url = location.origin + location.pathname + location.search + hashWithout(["username", "camon"]);
-  const copy = () => prompt("Share this link:", url); // ponytail: no Web Share (desktop Firefox) -> copy from prompt
+  const copy = () => { $("#shareLink").value = url; $("#shareDialog").showModal(); $("#shareLink").select(); };
   if (!navigator.share) return copy();
   navigator.share({ title: "Join my call", url }).catch(e => e.name != "AbortError" && copy()); // AbortError = user cancelled
 }
+
+$("#copyLinkBtn").onclick = function () {
+  navigator.clipboard.writeText($("#shareLink").value).then(() => this.textContent = "Copied!", () => $("#shareLink").select());
+}
+$("#shareDialog").onclose = () => $("#copyLinkBtn").textContent = "Copy";
 
 $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end screen
   document.body.insertAdjacentHTML("beforeend", '<div id="topDiv"></div><div id="bottomDiv"></div>');
@@ -448,6 +454,9 @@ function updateUserLayout() {
 function joinRoom() {
   socket.emit("joinRoom", { roomname: getUrlParam("roomname", "unknown"), username: username });
 }
+
+// iOS Safari can block autoplay of remote audio: any tap retries it
+addEventListener("click", () => document.querySelectorAll("#audioStreams audio").forEach(a => a.paused && a.play().catch(() => { })), true);
 
 var resizeTimeout = null;
 window.onresize = function () {
