@@ -319,6 +319,15 @@ function createRemoteSocket(initiator, UUID) {
   pc.on("signaling", function (data) {
     socket.emit("signaling", { destUUID: UUID, signalingData: data })
   })
+  allUserStreams[UUID] = allUserStreams[UUID] || {}; // show the tile right away, with its status
+  allUserStreams[UUID]["status"] = "connecting…";
+  updateUserLayout();
+  pc.on("icestate", function (state) {
+    if (pcs[UUID] !== pc) return; // already removed
+    allUserStreams[UUID]["status"] = ["connected", "completed"].includes(state) ? "" : pc.isConnected ? "reconnecting…" : "connecting…";
+    const el = byId(UUID)?.querySelector(".peerStatus");
+    if (el) el.textContent = allUserStreams[UUID]["status"];
+  });
   pc.on("stream", function (stream) {
     gotRemoteStream(stream, UUID)
   });
@@ -366,6 +375,7 @@ function updateUserLayout() {
     </div>`);
     userDiv.id = i;
     userDiv.querySelector(".userPlaceholder").textContent = (name || i).substr(0, 2).toUpperCase();
+    if (i != MY_UUID) userDiv.append(Object.assign(document.createElement("div"), { className: "peerStatus", textContent: userStream["status"] || "" }));
 
     if (userStream["audiostream"] && i !== MY_UUID && !byId('audio' + i)) {
       const audio = fromHTML('<audio autoplay hidden></audio>');

@@ -72,6 +72,24 @@ test('two peers connect and exchange audio', async () => {
   await a.context().close(); await b.context().close();
 });
 
+// Status text on a remote peer's tile ("" when connected).
+const peerStatus = page => page.evaluate(() =>
+  [...document.querySelectorAll('#mediaDiv .peerStatus')].map(e => e.textContent).join('|'));
+
+test('peer tile shows "connecting" until ICE is up, then nothing', async () => {
+  const room = 'r' + Date.now();
+  const noIce = () => { RTCPeerConnection.prototype.addIceCandidate = async () => { }; }; // ICE can never connect
+  const a = await join(room, 'alice', noIce);
+  const b = await join(room, 'bob', noIce);
+  await waitFor(async () => (await peerStatus(a)) === 'connecting…' && (await peerStatus(b)) === 'connecting…', 'connecting shown');
+  await a.context().close(); await b.context().close();
+  const c = await join(room + 'x', 'alice');
+  const d = await join(room + 'x', 'bob');
+  await waitFor(async () => (await connectedPeers(c)) === 1 && (await connectedPeers(d)) === 1, 'ICE connected');
+  await waitFor(async () => (await peerStatus(c)) === '' && (await peerStatus(d)) === '', 'status cleared');
+  await c.context().close(); await d.context().close();
+});
+
 test('camera toggle reaches the other peer', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');
@@ -311,6 +329,7 @@ test('call recovers after the direct P2P path drops for a while', { skip: !canDr
   iptables('-I ' + UDP_DROP);
   try {
     await waitFor(async () => !(await iceUp(a)) && !(await iceUp(b)), 'ICE disconnected', 15000);
+    await waitFor(async () => (await peerStatus(a)) === 'reconnecting…' && (await peerStatus(b)) === 'reconnecting…', 'reconnecting shown');
     await new Promise(r => setTimeout(r, 15000)); // longer than any give-up timeout
   } finally {
     iptables('-D ' + UDP_DROP);
@@ -319,6 +338,7 @@ test('call recovers after the direct P2P path drops for a while', { skip: !canDr
     await waitFor(async () => (await iceUp(p)) && (await liveRemoteAudio(p)) === 1, 'ICE and audio back', 45000);
     assert.strictEqual(await p.evaluate(() => Object.keys(pcs).length), 1, 'peer kept');
     assert.strictEqual(await p.evaluate(() => __raw.length), 1, 'same connection, not rebuilt');
+    await waitFor(async () => (await peerStatus(p)) === '', 'status cleared');
   }
   await a.context().close(); await b.context().close();
 });
