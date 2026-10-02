@@ -27,12 +27,12 @@ after(async () => {
   await browser?.close();
 });
 
-async function join(room, name, initScript) {
+async function join(room, name, initScript, file = '') {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   if (initScript) await page.addInitScript(initScript);
   page.on('pageerror', e => console.log(`[${name}] pageerror`, e.message));
-  await page.goto(`${BASE}#roomname=${room}&username=${encodeURIComponent(name)}`);
+  await page.goto(`${BASE}${file}#roomname=${room}&username=${encodeURIComponent(name)}`);
   return page;
 }
 
@@ -54,6 +54,14 @@ async function waitFor(fn, what, ms = 15000) {
   }
   assert.fail(`timed out waiting for ${what} (last=${last})`);
 }
+
+test('peers connect when the page is opened as index.html', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', null, 'index.html');
+  const b = await join(room, 'bob', null, 'index.html');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await a.context().close(); await b.context().close();
+});
 
 test('two peers connect and exchange audio', async () => {
   const room = 'r' + Date.now();
