@@ -361,3 +361,17 @@ test('share falls back to the copy prompt when Web Share fails', async () => {
   assert.match(shown, /#roomname=r\d+$/);
   await a.context().close();
 });
+
+test('all call buttons fit on screen from phone to small desktop widths', async () => {
+  const phone = 'Mozilla/5.0 (Linux; Android 14) Mobile'; // phones hide the screen share button
+  for (const [width, height, userAgent] of [[320, 568, phone], [568, 320, phone], [520, 800], [600, 800]]) {
+    const ctx = await browser.newContext({ viewport: { width, height }, userAgent });
+    const a = await ctx.newPage();
+    await a.goto(`${BASE}#roomname=r${Date.now()}`);
+    await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'camera picker shown (2 fake cams)');
+    const overflow = await a.evaluate(() => [...document.querySelectorAll('.callBtn')]
+      .filter(b => b.offsetParent && b.getBoundingClientRect().right > innerWidth).map(b => b.id));
+    assert.deepStrictEqual(overflow, [], `${width}x${height}`);
+    await ctx.close();
+  }
+});

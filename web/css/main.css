@@ -253,7 +253,7 @@ div#centerDiv{
   --selfPreviewBottomOffset: 30px;
 }
 
-@media only screen and (max-width: 460px), only screen and (max-height: 460px) {
+@media only screen and (max-width: 600px), only screen and (max-height: 460px) {
   :root {
     --selfPreviewBottomOffset: 80px;
   }
