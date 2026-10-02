@@ -75,23 +75,23 @@ ul>li {
   position: relative;
 }
 
-/* caret on the camera button's top right corner */
+/* caret tab on top of the camera button: opens the camera list */
 #selectCameraBtn {
   position: absolute;
-  top: 0;
+  bottom: 100%;
+  left: 0;
   right: 0;
-  width: 1.1em;
-  height: 1.1em;
-  font-size: 0.55em;
-  line-height: 1.1em;
-  border-radius: 50%;
-  background: #ffffffd0;
+  height: 28px;
+  line-height: 28px;
+  font-size: 20px;
+  border-radius: 5px 5px 0 0;
+  background: #ffffff3b;
 }
 
 /* invisible native select over the icon, so the OS picker opens on click */
 #cameraSelect {
   position: absolute;
-  inset: -6px; /* tap target bigger than the badge */
+  inset: 0;
   opacity: 0;
   cursor: pointer;
 }

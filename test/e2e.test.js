@@ -374,14 +374,17 @@ test('without Web Share the dialog copies the link', async () => {
   await a.context().close();
 });
 
-test('camera picker is a small overlay on the camera button', async () => {
-  const a = await join('r' + Date.now(), 'alice');
+test('camera picker is a touch-sized tab on top of the camera button', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true });
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=r${Date.now()}`);
   await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'picker visible');
   const [cam, pick] = await Promise.all(['#addRemoveCameraBtn', '#selectCameraBtn'].map(s => a.locator(s).boundingBox()));
-  assert.ok(pick.x > cam.x && pick.y < cam.y + cam.height / 2, 'caret sits on the camera button\'s top right');
+  assert.ok(pick.y + pick.height <= cam.y + 1 && Math.abs(pick.x - cam.x) <= 1 && Math.abs(pick.width - cam.width) <= 1, 'tab right above the camera button');
+  assert.ok(pick.height >= 24 && pick.width >= 40, `touch-sized (${pick.width}x${pick.height})`);
   await a.mouse.click(cam.x + cam.width - 4, cam.y + cam.height / 2); // the button's right edge still toggles the camera
   await waitFor(() => a.evaluate(() => camActive), 'camera on');
-  await a.context().close();
+  await ctx.close();
 });
 
 test('peer joining during fullscreen is still heard', async () => {
