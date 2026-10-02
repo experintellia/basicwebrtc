@@ -281,12 +281,11 @@ function stopVideo() { // camera and screen share use the same slot
   updateUserLayout();
 }
 
-// Hash params minus `drop`, re-encoded so getUrlParam (decodeURIComponent) reads them back
+// Hash minus `drop` plus `add`; other params stay byte-identical (getUrlVars parses them raw)
 function hashWithout(drop, add = {}) {
-  const h = new URLSearchParams(location.hash.slice(1));
-  drop.forEach(k => h.delete(k));
-  for (const k in add) h.set(k, add[k]);
-  return "#" + h.toString().replace(/\+/g, "%20");
+  const kept = location.hash.slice(1).split("&").filter(p => p && !drop.includes(p.split("=")[0]));
+  for (const k in add) kept.push(k + "=" + encodeURIComponent(add[k]));
+  return "#" + kept.join("&");
 }
 
 $("#changeNameBtn").onclick = function () {
@@ -300,9 +299,10 @@ $("#changeNameBtn").onclick = function () {
 }
 
 $("#shareBtn").onclick = function () {
-  const url = location.origin + location.pathname + hashWithout(["username", "camon"]);
-  if (navigator.share) return navigator.share({ title: "Join my call", url }).catch(() => { }); // cancel rejects
-  prompt("Share this link:", url); // ponytail: no Web Share (desktop Firefox) -> copy from prompt
+  const url = location.origin + location.pathname + location.search + hashWithout(["username", "camon"]);
+  const copy = () => prompt("Share this link:", url); // ponytail: no Web Share (desktop Firefox) -> copy from prompt
+  if (!navigator.share) return copy();
+  navigator.share({ title: "Join my call", url }).catch(e => e.name != "AbortError" && copy()); // AbortError = user cancelled
 }
 
 $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end screen

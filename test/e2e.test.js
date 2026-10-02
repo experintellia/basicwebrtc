@@ -338,3 +338,26 @@ test('share button shares the room link without the username', async () => {
   assert.strictEqual(shared.url, `${BASE}#roomname=${room}`);
   await a.context().close();
 });
+
+test('rename keeps other URL params byte-identical and cannot switch them on', async () => {
+  const ctx = await browser.newContext();
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=a+b=c&username=alice`);
+  a.once('dialog', d => d.accept('my camon socketdomain name'));
+  await a.click('#changeNameBtn');
+  assert.strictEqual(await a.evaluate(() => location.hash), '#roomname=a+b=c&username=my%20camon%20socketdomain%20name');
+  await a.reload();
+  assert.deepStrictEqual(await a.evaluate(() => [getUrlParam('camon', false), getUrlParam('socketdomain', false), getUrlParam('username', 'NA')]),
+    [false, false, 'my camon socketdomain name']);
+  await ctx.close();
+});
+
+test('share falls back to the copy prompt when Web Share fails', async () => {
+  const a = await join('r' + Date.now(), 'alice', () => { navigator.share = () => Promise.reject(new DOMException('no', 'NotAllowedError')); });
+  let shown;
+  a.once('dialog', d => { shown = d.defaultValue(); d.dismiss(); });
+  await a.click('#shareBtn');
+  await waitFor(() => shown, 'copy prompt');
+  assert.match(shown, /#roomname=r\d+$/);
+  await a.context().close();
+});

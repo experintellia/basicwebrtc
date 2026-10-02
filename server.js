@@ -93,15 +93,17 @@ ioServer.sockets.on('connection', function (socket) {
 
     socket.on("joinRoom", function (content) {
         if (!content || typeof content != "object" || roomOfUser !== null) return; // one room per connection
-        roomOfUser = socket.data.room = String(content["roomname"] || "").slice(0, 64);
-        nameOfUser = String(content["username"] || "").slice(0, 64);
+        const str = v => typeof v == "string" ? v : ""; // String() of an object can throw and kill the server
+        roomOfUser = socket.data.room = str(content["roomname"]).slice(0, 64);
+        nameOfUser = str(content["username"]).slice(0, 64);
         socket.to(roomOfUser).emit('userJoined', { UUID: MY_UUID });
         console.log("joinRoom", roomOfUser, MY_UUID);
         socket.join(roomOfUser);
     })
 
     socket.on("setName", function (name) {
-        nameOfUser = String(name || "").slice(0, 64);
+        if (typeof name != "string") return;
+        nameOfUser = name.slice(0, 64);
         if (roomOfUser !== null) socket.to(roomOfUser).emit('userName', { fromUUID: MY_UUID, username: nameOfUser });
     });
 
