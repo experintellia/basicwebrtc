@@ -104,15 +104,14 @@ socket.on("API_VERSION", function (serverAPI_VERSION) {
 
 socket.on("signaling", function (data) {
   var fromUUID = data.fromUUID;
+  if (data.username) { // before createRemoteSocket, so the new tile shows the name
+    allUserStreams[fromUUID] = allUserStreams[fromUUID] || {};
+    allUserStreams[fromUUID]["username"] = data.username;
+  }
   if (!pcs[fromUUID]) {
     createRemoteSocket(false, fromUUID)
   }
   pcs[fromUUID].signaling(data.signalingData).catch(e => console.log("signaling error", e));
-
-  if (data.username) {
-    allUserStreams[fromUUID] = allUserStreams[fromUUID] || {};
-    allUserStreams[fromUUID]["username"] = data.username;
-  }
 })
 
 socket.on("userJoined", function (content) {

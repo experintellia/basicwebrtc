@@ -82,6 +82,9 @@ test('peer tile shows "connecting" until ICE is up, then nothing', async () => {
   const a = await join(room, 'alice', noIce);
   const b = await join(room, 'bob', noIce);
   await waitFor(async () => (await peerStatus(a)) === 'connecting…' && (await peerStatus(b)) === 'connecting…', 'connecting shown');
+  await new Promise(r => setTimeout(r, 2000)); // ICE on localhost would be up by now
+  assert.strictEqual(await connectedPeers(a) + await connectedPeers(b), 0, 'stub kept ICE down');
+  assert.strictEqual(await peerStatus(a) + await peerStatus(b), 'connecting…connecting…');
   await a.context().close(); await b.context().close();
   const c = await join(room + 'x', 'alice');
   const d = await join(room + 'x', 'bob');
