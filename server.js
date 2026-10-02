@@ -92,7 +92,7 @@ ioServer.sockets.on('connection', function (socket) {
     });
 
     socket.on("joinRoom", function (content) {
-        if (!content || typeof content != "object" || roomOfUser !== null) return; // one room per connection
+        if (!MY_UUID || !content || typeof content != "object" || roomOfUser !== null) return; // registered first, one room per connection
         const str = v => typeof v == "string" ? v : ""; // String() of an object can throw and kill the server
         roomOfUser = socket.data.room = str(content["roomname"]).slice(0, 64);
         nameOfUser = str(content["username"]).slice(0, 64);

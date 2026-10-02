@@ -166,3 +166,14 @@ test('setName renames for chat and peers; junk payloads do not crash the server'
   c.c.emit('joinRoom', { roomname: { toString: 1 }, username: { toString: 1 } });
   await join(c, 'room-n'); // server still alive and c can still join
 });
+
+test('joinRoom before registerUUID is ignored', async () => {
+  const a = await client('U1');
+  await join(a, 'room-u');
+  const ghost = io(URL, { transports: ['websocket'], reconnection: false });
+  clients.push(ghost);
+  await new Promise(r => ghost.on('connect', r));
+  const got = nextEvent(a.c, 'userJoined', 300);
+  ghost.emit('joinRoom', { roomname: 'room-u', username: 'g' });
+  await assert.rejects(got, 'no peer connection for a null UUID');
+});
