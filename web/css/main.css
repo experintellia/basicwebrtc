@@ -85,7 +85,14 @@ ul>li {
   line-height: 28px;
   font-size: 20px;
   border-radius: 5px 5px 0 0;
-  background: #ffffff3b;
+  border: 1px solid #fff;
+  border-bottom: 0;
+  box-sizing: border-box;
+  background: #ffffffc0;
+}
+
+#selectCameraBtn:hover {
+  background: #fff;
 }
 
 /* invisible native select over the icon, so the OS picker opens on click */
