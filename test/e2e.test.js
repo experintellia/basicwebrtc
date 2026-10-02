@@ -378,8 +378,18 @@ test('camera picker is a small overlay on the camera button', async () => {
   const a = await join('r' + Date.now(), 'alice');
   await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'picker visible');
   const [cam, pick] = await Promise.all(['#addRemoveCameraBtn', '#selectCameraBtn'].map(s => a.locator(s).boundingBox()));
-  assert.ok(pick.x >= cam.x && pick.x + pick.width <= cam.x + cam.width + 1 && pick.y >= cam.y - 1, 'caret sits on the camera button');
+  assert.ok(pick.x > cam.x && pick.y < cam.y + cam.height / 2, 'caret sits on the camera button\'s top right');
+  await a.mouse.click(cam.x + cam.width - 4, cam.y + cam.height / 2); // the button's right edge still toggles the camera
+  await waitFor(() => a.evaluate(() => camActive), 'camera on');
   await a.context().close();
+});
+
+test('peer joining during fullscreen is still heard', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', () => Object.defineProperty(document, 'fullscreenElement', { get: () => document.body }));
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await liveRemoteAudio(a)) === 1, 'remote audio on alice');
+  await a.context().close(); await b.context().close();
 });
 
 // iOS Safari may refuse to start remote audio without a user gesture: the next tap must start it.
@@ -401,10 +411,11 @@ test('remote audio blocked by autoplay starts on the next tap', async () => {
 });
 
 test('chat opens fullscreen on phones and closes again', async () => {
-  const ctx = await browser.newContext({ viewport: { width: 320, height: 568 } });
+  const ctx = await browser.newContext({ viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true });
   const a = await ctx.newPage();
   await a.goto(`${BASE}#roomname=r${Date.now()}`);
   await a.click('#addRemoveChatBtn');
+  assert.notStrictEqual(await a.evaluate(() => document.activeElement.id), 'chatInputText', 'no keyboard popping up on touch');
   const box = await a.locator('#chatDiv').boundingBox();
   assert.deepStrictEqual([box.x, box.y, box.width, box.height], [0, 0, 320, 568]);
   assert.ok(parseFloat(await a.$eval('#chatInputText', e => getComputedStyle(e).fontSize)) >= 16, 'no iOS zoom on focus');

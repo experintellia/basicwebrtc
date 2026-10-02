@@ -193,7 +193,7 @@ $("#addRemoveChatBtn").onclick = function () {
   const open = $("#chatDiv").hidden;
   $("#chatDiv").hidden = !open;
   this.style.color = open ? "#030356" : "black";
-  if (open) $("#chatInputText").focus();
+  if (open && !matchMedia("(pointer: coarse)").matches) $("#chatInputText").focus(); // no keyboard covering the chat on phones
 }
 $("#chatCloseBtn").onclick = () => $("#addRemoveChatBtn").click();
 
@@ -307,7 +307,7 @@ $("#shareBtn").onclick = function () {
 }
 
 $("#copyLinkBtn").onclick = function () {
-  navigator.clipboard.writeText($("#shareLink").value).then(() => this.textContent = "Copied!", () => $("#shareLink").select());
+  navigator.clipboard?.writeText($("#shareLink").value).then(() => this.textContent = "Copied!", () => $("#shareLink").select());
 }
 $("#shareDialog").onclose = () => $("#copyLinkBtn").textContent = "Copy";
 
@@ -347,6 +347,12 @@ function removePeer(UUID) {
 function gotRemoteStream(stream, UUID) {
   allUserStreams[UUID] = allUserStreams[UUID] || {};
   allUserStreams[UUID][stream.getVideoTracks().length ? "videostream" : "audiostream"] = stream;
+  if (!stream.getVideoTracks().length && !byId('audio' + UUID)) { // not in updateUserLayout: that skips while fullscreen
+    const audio = fromHTML('<audio autoplay hidden></audio>');
+    audio.id = 'audio' + UUID;
+    audio.srcObject = stream;
+    $("#audioStreams").append(audio);
+  }
   updateUserLayout();
 }
 
@@ -372,13 +378,6 @@ function updateUserLayout() {
     </div>`);
     userDiv.id = i;
     userDiv.querySelector(".userPlaceholder").textContent = (name || i).substr(0, 2).toUpperCase();
-
-    if (userStream["audiostream"] && i !== MY_UUID && !byId('audio' + i)) {
-      const audio = fromHTML('<audio autoplay hidden></audio>');
-      audio.id = 'audio' + i;
-      audio.srcObject = userStream["audiostream"];
-      $("#audioStreams").append(audio);
-    }
 
     if (userStream["videostream"]) {
       var mirror = i == MY_UUID && !screenActive && userStream["videostream"].getVideoTracks()[0].getSettings().facingMode != "environment"; //Don't mirror rear cameras
