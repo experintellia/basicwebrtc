@@ -119,6 +119,12 @@ socket.on("userJoined", function (content) {
   createRemoteSocket(true, content["UUID"] || null)
 })
 
+socket.on("userName", function (content) {
+  if (!allUserStreams[content.fromUUID]) return;
+  allUserStreams[content.fromUUID].username = content.username;
+  updateUserLayout();
+})
+
 socket.on("currentAudioLvl", function (content) {
   setAudioLevel(content["fromUUID"], content["currentAudioLvl"] || 0);
 })
@@ -273,6 +279,30 @@ function stopVideo() { // camera and screen share use the same slot
   $("#addRemoveCameraBtn").style.color = $("#addRemoveScreenBtn").style.color = "black";
   camActive = screenActive = false;
   updateUserLayout();
+}
+
+// Hash minus `drop` plus `add`; other params stay byte-identical (getUrlVars parses them raw)
+function hashWithout(drop, add = {}) {
+  const kept = location.hash.slice(1).split("&").filter(p => p && !drop.includes(p.split("=")[0]));
+  for (const k in add) kept.push(k + "=" + encodeURIComponent(add[k]));
+  return "#" + kept.join("&");
+}
+
+$("#changeNameBtn").onclick = function () {
+  const name = prompt("Your name:", username == "NA" ? "" : username);
+  if (name === null) return;
+  username = name.trim().slice(0, 64) || "NA";
+  history.replaceState(null, "", hashWithout(["username"], { username })); // survives reloads
+  if (allUserStreams[MY_UUID]) allUserStreams[MY_UUID].username = username;
+  socket.emit("setName", username);
+  updateUserLayout();
+}
+
+$("#shareBtn").onclick = function () {
+  const url = location.origin + location.pathname + location.search + hashWithout(["username", "camon"]);
+  const copy = () => prompt("Share this link:", url); // ponytail: no Web Share (desktop Firefox) -> copy from prompt
+  if (!navigator.share) return copy();
+  navigator.share({ title: "Join my call", url }).catch(e => e.name != "AbortError" && copy()); // AbortError = user cancelled
 }
 
 $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end screen

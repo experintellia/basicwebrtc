@@ -314,3 +314,64 @@ test('call recovers after the direct P2P path drops for a while', { skip: !canDr
   }
   await a.context().close(); await b.context().close();
 });
+
+test('rename updates the name for peers, chat and the URL', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  a.once('dialog', d => d.accept('zoe smith'));
+  await a.click('#changeNameBtn');
+  await waitFor(() => b.evaluate(() => Object.values(allUserStreams).some(s => s.username == 'zoe smith')), 'new name on bob');
+  assert.strictEqual(await b.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('ZO')), true, 'initials updated');
+  assert.strictEqual(await a.evaluate(() => getUrlParam('username', 'NA')), 'zoe smith', 'kept in URL for reloads');
+  await a.evaluate(() => socket.emit('sendMsg', 'hi'));
+  await waitFor(() => b.evaluate(() => document.querySelector('#chatText').textContent.includes('zoe smith: hi')), 'chat uses new name');
+  await a.context().close(); await b.context().close();
+});
+
+test('share button shares the room link without the username', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', () => { navigator.share = d => { window.__shared = d; return Promise.resolve(); }; });
+  await a.click('#shareBtn');
+  const shared = await a.evaluate(() => window.__shared);
+  assert.strictEqual(shared.url, `${BASE}#roomname=${room}`);
+  await a.context().close();
+});
+
+test('rename keeps other URL params byte-identical and cannot switch them on', async () => {
+  const ctx = await browser.newContext();
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=a+b=c&username=alice`);
+  a.once('dialog', d => d.accept('my camon socketdomain name'));
+  await a.click('#changeNameBtn');
+  assert.strictEqual(await a.evaluate(() => location.hash), '#roomname=a+b=c&username=my%20camon%20socketdomain%20name');
+  await a.reload();
+  assert.deepStrictEqual(await a.evaluate(() => [getUrlParam('camon', false), getUrlParam('socketdomain', false), getUrlParam('username', 'NA')]),
+    [false, false, 'my camon socketdomain name']);
+  await ctx.close();
+});
+
+test('share falls back to the copy prompt when Web Share fails', async () => {
+  const a = await join('r' + Date.now(), 'alice', () => { navigator.share = () => Promise.reject(new DOMException('no', 'NotAllowedError')); });
+  let shown;
+  a.once('dialog', d => { shown = d.defaultValue(); d.dismiss(); });
+  await a.click('#shareBtn');
+  await waitFor(() => shown, 'copy prompt');
+  assert.match(shown, /#roomname=r\d+$/);
+  await a.context().close();
+});
+
+test('all call buttons fit on screen from phone to small desktop widths', async () => {
+  const phone = 'Mozilla/5.0 (Linux; Android 14) Mobile'; // phones hide the screen share button
+  for (const [width, height, userAgent] of [[320, 568, phone], [568, 320, phone], [520, 800], [600, 800]]) {
+    const ctx = await browser.newContext({ viewport: { width, height }, userAgent });
+    const a = await ctx.newPage();
+    await a.goto(`${BASE}#roomname=r${Date.now()}`);
+    await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'camera picker shown (2 fake cams)');
+    const overflow = await a.evaluate(() => [...document.querySelectorAll('.callBtn')]
+      .filter(b => b.offsetParent && b.getBoundingClientRect().right > innerWidth).map(b => b.id));
+    assert.deepStrictEqual(overflow, [], `${width}x${height}`);
+    await ctx.close();
+  }
+});

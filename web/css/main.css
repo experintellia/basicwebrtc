@@ -227,7 +227,7 @@ div#centerDiv{
 }
 
 #mediaControll{
-  max-width: 460px;
+  max-width: 100%;
   width: fit-content;
   display: flex;
   margin-left: auto;
@@ -253,20 +253,20 @@ div#centerDiv{
   --selfPreviewBottomOffset: 30px;
 }
 
-@media only screen and (max-width: 460px) {
+@media only screen and (max-width: 600px), only screen and (max-height: 460px) {
   :root {
     --selfPreviewBottomOffset: 80px;
   }
   #mediaControllContainer {
     height: unset;
     bottom: 10px;
+    font-size: 1.7em;
   }
 
   .callBtn {
-    padding: 8px;
-    padding-left: 12px;
-    padding-right: 12px;
-    width: 45px;
+    padding: 8px 5px;
+    width: auto;
+    min-width: 34px; /* 44px tap target incl. padding, 7 buttons fit 320px */
   }
 
 

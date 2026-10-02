@@ -150,3 +150,19 @@ test('an empty room name still allows signaling', async () => {
   a.c.emit('signaling', { destUUID: 'E2', signalingData: 'hi' });
   assert.strictEqual((await got).signalingData, 'hi');
 });
+
+test('setName renames for chat and peers; junk payloads do not crash the server', async () => {
+  const a = await client('N1'), b = await client('N2');
+  await join(a, 'room-n', 'alice'); await join(b, 'room-n');
+  a.c.emit('setName', { toString: 1 });
+  a.c.emit('joinRoom', { roomname: { toString: 1 } }); // already joined: ignored, but must not throw either
+  const renamed = nextEvent(b.c, 'userName');
+  a.c.emit('setName', 'zoe');
+  assert.deepStrictEqual(await renamed, { fromUUID: 'N1', username: 'zoe' });
+  const msg = nextEvent(b.c, 'msg');
+  a.c.emit('sendMsg', 'hi');
+  assert.strictEqual(await msg, 'zoe: hi');
+  const c = await client('N3');
+  c.c.emit('joinRoom', { roomname: { toString: 1 }, username: { toString: 1 } });
+  await join(c, 'room-n'); // server still alive and c can still join
+});
