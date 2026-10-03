@@ -17,6 +17,11 @@
   <div id="unsupported">Your browser can't do video calls. Please update to a current Chrome, Firefox, Edge or Safari, and open this page via https.</div>
   <div id="micError" hidden>Could not get your microphone. Allow access to it, then <button onclick="location.reload()">Try again</button></div>
   <div id="mediaDiv"></div>
+  <form id="lobby" hidden>
+    <p>Check your mic and camera, then join.</p>
+    <input id="nameInput" placeholder="Your name" maxlength="64" aria-label="your name" autocomplete="nickname">
+    <button id="joinBtn">Join</button>
+  </form>
   <div id="chatDiv" hidden>
     <div id="chatHeader">Chat<button id="chatCloseBtn" title="close chat" aria-label="close chat">&times;</button></div>
     <div id="chatText"></div>
@@ -36,10 +41,13 @@
   </dialog>
   <div id="mediaControllContainer">
     <div id="mediaControll">
-      <div title="mute / unmute microphon!" id="muteUnmuteMicBtn" class="callBtn"><i class="fas fa-microphone-alt"></i></div>
-      <div id="cameraGroup">
+      <div id="micGroup" class="deviceGroup">
+        <div title="mute / unmute microphon!" id="muteUnmuteMicBtn" class="callBtn"><i class="fas fa-microphone-alt"></i></div>
+        <div title="select microphone" id="selectMicBtn" class="selectDeviceBtn" style="display:none;"><i class="fas fa-caret-up"></i><select id="micSelect" aria-label="select microphone"></select></div>
+      </div>
+      <div id="cameraGroup" class="deviceGroup">
         <div title="add / remove camera!" id="addRemoveCameraBtn" class="callBtn"><i class="fas fa-video"></i></div>
-        <div title="select camera" id="selectCameraBtn" style="display:none;"><i class="fas fa-caret-up"></i><select id="cameraSelect" aria-label="select camera"></select></div>
+        <div title="select camera" id="selectCameraBtn" class="selectDeviceBtn" style="display:none;"><i class="fas fa-caret-up"></i><select id="cameraSelect" aria-label="select camera"></select></div>
       </div>
       <div title="add / remove screen!" id="addRemoveScreenBtn" class="callBtn"><i class="fas fa-desktop"></i></div>
       <div title="screen share: sharp text (click for smooth motion)" id="screenModeBtn" class="callBtn" aria-label="smooth motion (performance mode)" role="button" tabindex="0" aria-pressed="false" hidden><i class="fas fa-font"></i></div>
