@@ -105,8 +105,8 @@ test('malformed payloads are ignored and signaling keeps working', async () => {
   a.c.emit('registerUUID', null);
   a.c.emit('registerUUID', null, () => { });
   a.c.emit('registerUUID', { UUID: 'M9', UUID_KEY: 'k' }); // no ack callback
-  a.c.emit('joinRoom', { roomname: { evil: 1 } });
-  await sync(a); await join(b, '[object Object]');
+  a.c.emit('joinRoom', { roomname: { toString: 1 } }); // String() of it would throw
+  await sync(a); await join(b, '');
   const got = nextEvent(b.c, 'signaling');
   a.c.emit('signaling', { destUUID: 'M2', signalingData: 'hi' });
   assert.strictEqual((await got).fromUUID, 'M1');
@@ -155,4 +155,15 @@ test('an empty room name still allows signaling', async () => {
   const got = nextEvent(b.c, 'signaling');
   a.c.emit('signaling', { destUUID: 'E2', signalingData: 'hi' });
   assert.strictEqual((await got).signalingData, 'hi');
+});
+
+test('joinRoom before registerUUID is ignored', async () => {
+  const a = await client('U1');
+  await join(a, 'room-u');
+  const ghost = io(URL, { transports: ['websocket'], reconnection: false });
+  clients.push(ghost);
+  await new Promise(r => ghost.on('connect', r));
+  const got = nextEvent(a.c, 'userJoined', 300);
+  ghost.emit('joinRoom', { roomname: 'room-u', username: 'g' });
+  await assert.rejects(got, 'no peer connection for a null UUID');
 });
