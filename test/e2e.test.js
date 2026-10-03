@@ -416,7 +416,7 @@ const UDP_DROP = 'OUTPUT -p udp ! --dport 53 -m comment --comment basicwebrtc-te
 const canDropUdp = (() => { try { require('child_process').execSync('iptables -L -n', { stdio: 'ignore' }); return true; } catch { return false; } })();
 const iptables = args => require('child_process').execSync('iptables ' + args);
 
-test('call recovers after the direct P2P path drops for a while', { skip: !canDropUdp && 'needs root + iptables' }, async () => {
+for (const outage of [15, 45]) test(`call recovers after the direct P2P path drops for ${outage}s`, { skip: !canDropUdp && 'needs root + iptables' }, async () => {
   const room = 'r' + Date.now();
   const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
   const a = await join(room, 'alice', trackPcs);
@@ -428,7 +428,7 @@ test('call recovers after the direct P2P path drops for a while', { skip: !canDr
   try {
     await waitFor(async () => !(await iceUp(a)) && !(await iceUp(b)), 'ICE disconnected', 15000);
     await waitFor(async () => (await peerStatus(a)) === 'reconnecting…' && (await peerStatus(b)) === 'reconnecting…', 'reconnecting shown');
-    await new Promise(r => setTimeout(r, 15000)); // longer than any give-up timeout
+    await new Promise(r => setTimeout(r, outage * 1000)); // 15s: longer than any give-up timeout; 45s: #22
   } finally {
     iptables('-D ' + UDP_DROP);
   }
