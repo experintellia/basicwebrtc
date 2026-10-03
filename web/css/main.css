@@ -11,25 +11,9 @@ body {
   background: rgb(43, 42, 42);;
 }
 
-div#container {
-  margin: 0 auto 0 auto;
-  max-width: 40em;
-  padding: 0em 1.5em 1.3em 1.5em;
-}
-
 video {
   background: #222;
   width: 100%;
-}
-
-.htext {
-  color: #fff;
-  text-shadow: 1px 0 0 #000, 0 -1px 0 #000, 0 1px 0 #000, -1px 0 0 #000;
-  position: relative;
-  top: 24px;
-  left: 10px;
-  font-size: 0.9em;
-  z-index: 10;
 }
 
 .userPlaceholder {
@@ -47,22 +31,8 @@ video {
   top: 25%;
 }
 
-ul {
-  list-style-type: none;
-  margin: 0;
-  padding: 0;
-}
-
-ul>li {
-  display: inline-block;
-  margin: 0px;
-  padding: 0;
-}
-
 .callBtn {
-  padding: 10px;
-  padding-left: 15px;
-  padding-right: 15px;
+  padding: 10px 15px;
   width: 45px;
   cursor: pointer;
 }
@@ -118,11 +88,6 @@ ul>li {
   right: 20px;
   bottom: 130px;
   z-index: 20;
-  border-radius: 12px;
-  background: rgb(43, 42, 42);
-  border: 1px solid #80808087;
-  box-shadow: 0 10px 40px #000a;
-  color: #ddd;
   font: 15px sans-serif;
   display: flex;
   flex-direction: column;
@@ -133,10 +98,35 @@ ul>li {
   display: none;
 }
 
-#chatDiv button {
+#chatDiv, #shareDialog {
+  border: 1px solid #80808087;
+  border-radius: 12px;
+  background: rgb(43, 42, 42);
+  color: #ddd;
+  box-shadow: 0 10px 40px #000a;
+}
+
+#chatDiv button, #shareDialog button {
   border: 0;
   cursor: pointer;
   font: inherit;
+}
+
+#chatInputText, #shareLink {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #555;
+  background: #1e1e1e;
+  color: #fff;
+}
+
+#chatSendBtn, #copyLinkBtn {
+  background: #3b6fd6;
+  color: #fff;
+}
+
+#chatSendBtn:hover, #copyLinkBtn:hover {
+  background: #4c80e8;
 }
 
 #chatHeader {
@@ -196,14 +186,9 @@ ul>li {
 }
 
 #chatInputText {
-  flex: 1;
-  min-width: 0;
   padding: 9px 14px;
-  border: 1px solid #555;
   border-radius: 20px;
-  background: #1e1e1e;
   outline: none;
-  color: #fff;
   font: 16px sans-serif; /* below 16px iOS zooms in on focus */
 }
 
@@ -215,24 +200,13 @@ ul>li {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: #3b6fd6;
-  color: #fff;
-}
-
-#chatSendBtn:hover {
-  background: #4c80e8;
 }
 
 #shareDialog {
   width: min(420px, 90vw);
   box-sizing: border-box;
   padding: 20px;
-  border: 1px solid #80808087;
-  border-radius: 12px;
-  background: rgb(43, 42, 42);
-  color: #ddd;
   font: 16px sans-serif;
-  box-shadow: 0 10px 40px #000a;
 }
 
 #shareDialog form {
@@ -261,13 +235,6 @@ ul>li {
   gap: 8px;
 }
 
-#shareDialog button {
-  border: 0;
-  border-radius: 6px;
-  font: inherit;
-  cursor: pointer;
-}
-
 #shareDialog button[value=close] {
   float: right;
   margin: -10px -8px 0 0;
@@ -278,44 +245,29 @@ ul>li {
 }
 
 #shareLink {
-  flex: 1;
-  min-width: 0;
   padding: 10px;
-  border: 1px solid #555;
   border-radius: 6px;
-  background: #1e1e1e;
-  color: #fff;
   font: 14px monospace;
 }
 
 #copyLinkBtn {
   padding: 10px 16px;
-  background: #3b6fd6;
-  color: #fff;
+  border-radius: 6px;
   white-space: nowrap;
 }
 
-#copyLinkBtn:hover {
-  background: #4c80e8;
-}
-
-/* SCROLLBAR */
-/* width */
 ::-webkit-scrollbar {
   width: 10px;
 }
 
-/* Track */
 ::-webkit-scrollbar-track {
   background: #f1f1f1; 
 }
  
-/* Handle */
 ::-webkit-scrollbar-thumb {
   background: #888; 
 }
 
-/* Handle on hover */
 ::-webkit-scrollbar-thumb:hover {
   background: #555; 
 }
@@ -351,22 +303,15 @@ div#centerDiv {
   to { width: 0%; left: 50%; }
 }
 
-div#topDiv{
+div#topDiv, div#bottomDiv {
   width:100%;
   height:0%;
   opacity:0.9;
   background:black;
   position:absolute;
-  top: 0%;
 }
-div#bottomDiv{
-  width:100%;
-  height:0%;
-  opacity:0.9;
-  background:black;
-  position:absolute;
-  bottom: 0%;
-}
+div#topDiv { top: 0%; }
+div#bottomDiv { bottom: 0%; }
 div#centerDiv{
   position:absolute;
   height: 1px;
@@ -431,11 +376,6 @@ div#centerDiv{
     min-width: 34px; /* 44px tap target incl. padding, 7 buttons fit 320px */
   }
 
-
-  .videoplaceholder {
-    min-width: 126px;
-  }
-
   #chatDiv {
     position: fixed;
     inset: 0;
@@ -443,7 +383,6 @@ div#centerDiv{
     height: auto;
     border: 0;
     border-radius: 0;
-    background: rgb(43, 42, 42);
   }
 
   .selfPreview .userPlaceholder {
