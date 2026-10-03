@@ -1,4 +1,4 @@
-const API_VERSION = 1.3;
+const API_VERSION = 1.4;
 
 // The notice in index.html is visible by default; browsers that can't parse or run this script keep seeing it.
 if (!window.RTCPeerConnection || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -23,6 +23,8 @@ var camOnAtStart = getUrlParam("camon", false) == false ? false : true; //Define
 const stored = k => { try { return sessionStorage[k] } catch { } }; // throws when storage is blocked
 const store = (k, v) => { try { sessionStorage[k] = v } catch { } };
 var username = getUrlParam("username", stored("username") || "NA");
+const knockId = stored("knockId") || uuidv4(); // a locked room's reject cooldown outlives a reload
+store("knockId", knockId);
 var roomname = getUrlParam("roomname", false);
 
 if (!roomname) {
@@ -622,9 +624,52 @@ function updateUserLayout() {
 }
 document.addEventListener("fullscreenchange", updateUserLayout); // redo what was skipped while fullscreen
 
+var retryJoin = null; // at a locked room's door: joins again once let in
 function joinRoom(onJoined) {
-  socket.emit("joinRoom", { roomname: getUrlParam("roomname", "unknown"), keep: Object.keys(pcs) }, onJoined);
+  socket.emit("joinRoom", { roomname: getUrlParam("roomname", "unknown"), keep: Object.keys(pcs), name: username, knockId }, function (res) {
+    if (!Array.isArray(res)) return retryJoin = () => joinRoom(onJoined), atTheDoor(res.wait);
+    showLobby(false);
+    $("#knocks").replaceChildren(); // the server sends the open ones again
+    showLock(false); // and the lock, if set
+    onJoined(res);
+  });
 }
+
+function atTheDoor(wait) { // locked room: back to the lobby until a member lets us in
+  setStatus(MY_UUID, "");
+  showLobby(true);
+  $("#joinBtn").disabled = true;
+  $("#lobbyMsg").textContent = wait ? `You were not let in. You can ask again in ${wait}s.` : "The room is locked. Waiting for someone in the call to let you in…";
+  if (wait) setTimeout(() => $("#joinBtn").disabled = false, wait * 1000);
+  $("#lobby").onsubmit = e => {
+    e.preventDefault();
+    setName($("#nameInput").value);
+    setStatus(MY_UUID, "connecting…");
+    retryJoin();
+  };
+}
+socket.on("knockAnswer", res => res.accept ? retryJoin?.() : atTheDoor(res.wait));
+
+socket.on("knock", function ({ UUID, name }) { // someone at the door: any member decides
+  byId("knock" + UUID)?.remove();
+  const row = fromHTML('<div class="knock"><span></span><button>Let in</button><button>Deny</button></div>');
+  row.id = "knock" + UUID;
+  row.firstChild.textContent = (name && name != "NA" ? name : "Someone") + " wants to join";
+  row.querySelectorAll("button").forEach((btn, i) => btn.onclick = () => socket.emit("answerKnock", { UUID, accept: !i }));
+  $("#knocks").append(row);
+});
+socket.on("knockDone", UUID => byId("knock" + UUID)?.remove());
+
+var roomLocked = false;
+function showLock(locked) {
+  roomLocked = locked;
+  $("#lockBtn").innerHTML = locked ? '<i class="fas fa-lock-open"></i> Unlock room' : '<i class="fas fa-lock"></i> Lock room';
+}
+socket.on("locked", function ({ locked, by }) {
+  showLock(locked);
+  if (by && by != MY_UUID) showMsg("", `${nameOf(by) || "Someone"} ${locked ? "locked the room: newcomers have to be let in" : "unlocked the room"}`);
+});
+$("#lockBtn").onclick = () => socket.emit("setLocked", !roomLocked);
 
 // iOS Safari can block autoplay of remote audio: any tap retries it
 addEventListener("click", () => document.querySelectorAll("#audioStreams audio").forEach(a => a.paused && a.play().catch(() => { })), true);
