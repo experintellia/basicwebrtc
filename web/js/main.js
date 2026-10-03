@@ -117,8 +117,12 @@ socket.on("signaling", function (data) {
   pcs[fromUUID].signaling(data.signalingData).catch(e => console.log("signaling error", e));
 })
 
+// MY_UUID is new per page load: a known UUID means that page's socket reconnected. It already dropped
+// peers whose ICE is down and lists the rest in keep; keep the call only if both sides still have it.
 socket.on("userJoined", function (content) {
-  createRemoteSocket(true, content["UUID"] || null)
+  const UUID = content["UUID"] || null;
+  if (pcs[UUID]?.iceUp() && content.keep?.includes(MY_UUID)) return pcs[UUID].left = false;
+  createRemoteSocket(true, UUID);
 })
 
 const sendToPeers = obj => { for (var i in pcs) pcs[i].send(obj) };
@@ -336,13 +340,7 @@ $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end sc
 }
 
 //This is where the WEBRTC Magic happens!!!
-function createRemoteSocket(initiator, UUID, force) {
-  if (pcs[UUID] && pcs[UUID].iceUp() && !force) { // same user rejoined the server: keep the call if the peer still answers on it
-    const old = pcs[UUID];
-    old.left = old.pong = false;
-    old.send({ ping: true });
-    return setTimeout(() => pcs[UUID] === old && !old.pong && createRemoteSocket(initiator, UUID, true), 2000);
-  }
+function createRemoteSocket(initiator, UUID) {
   if (initiator) socket.emit("signaling", { destUUID: UUID, signalingData: "reset" }); // peer drops any old pc before our offer
   if (pcs[UUID]) removePeer(UUID); // same user rejoined: start over
   var pc = pcs[UUID] = new initEzWebRTC(initiator, webRTCConfig);
@@ -357,7 +355,8 @@ function createRemoteSocket(initiator, UUID, force) {
   updateUserLayout();
   pc.on("icestate", function (state) {
     if (pcs[UUID] !== pc) return; // already removed
-    if (pc.left && !pc.iceUp()) return removePeer(UUID); // gone from the server and from ICE
+    // Gone from the server and from ICE. ponytail: a short ICE blip while the peer is off the server also drops it; accepted for fast crash cleanup.
+    if (pc.left && !pc.iceUp()) return removePeer(UUID);
     setStatus(UUID, ["connected", "completed"].includes(state) ? "" : pc.isConnected ? "reconnecting…" : "connecting…");
   });
   pc.on("close", () => pcs[UUID] === pc && removePeer(UUID)); // peer left (or closed its connection)
@@ -371,8 +370,6 @@ function createRemoteSocket(initiator, UUID, force) {
     if (typeof msg.audioLvl == "number") setAudioLevel(UUID, msg.audioLvl);
     if (typeof msg.chat == "string") showMsg(nameOf(UUID), msg.chat.slice(0, 2000));
     if (msg.bye) removePeer(UUID);
-    if (msg.ping) pc.send({ pong: true });
-    if (msg.pong) pc.pong = true;
     if (msg.signaling) pc.signaling(msg.signaling).catch(e => console.log("signaling error", e));
   });
   pc.on("stream", function (stream) {
@@ -502,7 +499,7 @@ function updateUserLayout() {
 }
 
 function joinRoom() {
-  socket.emit("joinRoom", { roomname: getUrlParam("roomname", "unknown") });
+  socket.emit("joinRoom", { roomname: getUrlParam("roomname", "unknown"), keep: Object.keys(pcs) });
 }
 
 // iOS Safari can block autoplay of remote audio: any tap retries it

@@ -91,11 +91,23 @@ test('room members get userJoined / userDiscconected', async () => {
   const a = await client('J1'), b = await client('J2');
   await join(a, 'room-j');
   const joined = nextEvent(a.c, 'userJoined');
-  b.c.emit('joinRoom', { roomname: 'room-j', username: 'b' });
-  assert.deepStrictEqual(await joined, { UUID: 'J2' });
+  b.c.emit('joinRoom', { roomname: 'room-j' });
+  assert.deepStrictEqual(await joined, { UUID: 'J2', keep: [] });
   const left = nextEvent(a.c, 'userDiscconected');
   b.c.close();
   assert.strictEqual(await left, 'J2');
+});
+
+test('userJoined forwards the rejoining peer\'s keep list, strings only, at most 8', async () => {
+  const a = await client('K1'), b = await client('K2');
+  await join(a, 'room-k');
+  const joined = nextEvent(a.c, 'userJoined');
+  b.c.emit('joinRoom', { roomname: 'room-k', keep: ['K1', { toString: 1 }, 5, ...'abcdefghij'] });
+  assert.deepStrictEqual(await joined, { UUID: 'K2', keep: ['K1', ...'abcdefg'] });
+  const c = await client('K3');
+  const again = nextEvent(a.c, 'userJoined');
+  c.c.emit('joinRoom', { roomname: 'room-k', keep: 'K1' });
+  assert.deepStrictEqual(await again, { UUID: 'K3', keep: [] });
 });
 
 test('malformed payloads are ignored and signaling keeps working', async () => {

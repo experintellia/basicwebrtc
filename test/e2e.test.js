@@ -361,8 +361,9 @@ test('call survives the signaling server going away and coming back (#11)', asyn
   await waitFor(async () => (await liveRemoteAudio(a)) === 1 && (await liveRemoteAudio(b)) === 1, 'remote audio');
   await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
   for (const p of [a, b]) await p.evaluate(() => window.__pc = Object.values(pcs)[0]);
+  await b.evaluate(() => socket.on('userJoined', () => window.__rejoined = true)); // runs after the app's handler
   await a.evaluate(() => socket.disconnect()); // server tells bob "userDiscconected"
-  await new Promise(r => setTimeout(r, 1500));
+  await waitFor(() => b.evaluate(() => __pc.left), 'bob saw alice leave the server');
   for (const p of [a, b]) {
     assert.strictEqual(await liveRemoteAudio(p), 1, 'audio still live');
     assert.strictEqual(await p.locator('#mediaDiv .videoplaceholder').count(), 2, 'no tile removed');
@@ -372,8 +373,7 @@ test('call survives the signaling server going away and coming back (#11)', asyn
   await a.press('#chatInputText', 'Enter');
   await waitFor(() => b.evaluate(() => document.querySelector('#chatText').textContent.includes('still here')), 'chat while server is gone');
   await a.evaluate(() => socket.connect()); // rejoin: bob gets "userJoined" for alice's UUID
-  await waitFor(() => a.evaluate(() => socket.connected), 'socket back');
-  await new Promise(r => setTimeout(r, 1500));
+  await waitFor(() => b.evaluate(() => window.__rejoined), 'bob handled alice\'s rejoin');
   for (const p of [a, b]) {
     assert.ok(await p.evaluate(() => Object.keys(pcs).length == 1 && Object.values(pcs)[0] === __pc), 'same peer connection kept');
     assert.strictEqual(await liveRemoteAudio(p), 1, 'audio live after rejoin');
@@ -392,6 +392,19 @@ test('network switch: ICE and socket lost together, the call comes back', async 
   for (const p of [a, b]) await p.evaluate(() => Object.values(pcs)[0].mappedEvents.close = []); // a lost network sends no goodbye
   await a.evaluate(() => { __raw[0].close(); socket.io.engine.close(); }); // old network gone: no ICE, socket drops and reconnects
   for (const p of [a, b]) await waitFor(() => callUp(p), 'call up again', 30000);
+  await a.context().close(); await b.context().close();
+});
+
+test('rejoining peer that still has the call gets a reset when the other side rebuilds', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  for (const p of [a, b]) await p.evaluate(() => window.__pc = Object.values(pcs)[0]);
+  await b.evaluate(() => __pc.iceUp = () => false); // bob's side of the call is dead, alice's looks fine
+  await a.evaluate(() => __pc.mappedEvents.close = []); // no close event reaches alice either
+  await a.evaluate(() => socket.io.engine.close()); // alice rejoins, keeping bob
+  for (const p of [a, b]) await waitFor(async () => (await p.evaluate(() => Object.values(pcs)[0] !== __pc)) && (await callUp(p)), 'new call on both sides');
   await a.context().close(); await b.context().close();
 });
 
