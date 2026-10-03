@@ -134,6 +134,14 @@ function initEzWebRTC(initiator, config) {
         sender.replaceTrack(newTrack).catch(e => console.log("replaceTrack Error", e)); //e.g. closed pc
     }
 
+    this.setDegradation = function (track, pref) { //What the encoder gives up under load, without renegotiation
+        var sender = trackSenders[track.id];
+        if (!sender) return;
+        var params = sender.getParameters();
+        params.degradationPreference = pref;
+        sender.setParameters(params).catch(e => console.log("setParameters Error", e));
+    }
+
     this.addTransceiver = function (kind, init) {
         if (initiator) {
             try {

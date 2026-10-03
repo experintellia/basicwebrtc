@@ -58,6 +58,7 @@ var pcs = {}; //Peer connections to all remotes
 var micMuted = false;
 var camActive = false;
 var screenActive = false;
+var screenMotion = false; //Screen share mode: false = Detail (sharp text), true = Performance (smooth motion)
 var selectedCameraId = null;
 
 async function updateCameraList() { //Show camera picker only if there is more than one camera
@@ -236,6 +237,23 @@ $("#addRemoveScreenBtn").onclick = async function () {
   screenActive = true;
   stream.getVideoTracks()[0].onended = () => screenActive && stopVideo(); // browser's "Stop sharing" bar
   startVideo(stream, $("#addRemoveScreenBtn"));
+  applyScreenMode();
+  $("#screenModeBtn").hidden = false;
+}
+
+$("#screenModeBtn").onclick = function () {
+  screenMotion = !screenMotion;
+  applyScreenMode();
+}
+$("#screenModeBtn").onkeydown = e => (e.key == "Enter" || e.key == " ") && (e.preventDefault(), e.target.click());
+
+function applyScreenMode() { //contentHint is the main effect, degradationPreference makes it explicit for the encoder
+  const track = allUserStreams[MY_UUID]["videostream"].getVideoTracks()[0];
+  track.contentHint = screenMotion ? "motion" : "detail";
+  for (var i in pcs) pcs[i].setDegradation(track, screenMotion ? "maintain-framerate" : "maintain-resolution");
+  $("#screenModeBtn").setAttribute("aria-pressed", screenMotion);
+  $("#screenModeBtn i").className = screenMotion ? "fas fa-running" : "fas fa-font";
+  $("#screenModeBtn").title = screenMotion ? "screen share: smooth motion (click for sharp text)" : "screen share: sharp text (click for smooth motion)";
 }
 
 $("#addRemoveCameraBtn").onclick = toggleCamera;
@@ -297,6 +315,7 @@ function stopVideo() { // camera and screen share use the same slot
   delete allUserStreams[MY_UUID]["videostream"];
   $("#addRemoveCameraBtn").style.color = $("#addRemoveScreenBtn").style.color = "black";
   camActive = screenActive = false;
+  $("#screenModeBtn").hidden = true;
   updateUserLayout();
 }
 
@@ -341,6 +360,7 @@ function createRemoteSocket(initiator, UUID) {
   if (pcs[UUID]) removePeer(UUID); // same user rejoined: start over
   var pc = pcs[UUID] = new initEzWebRTC(initiator, webRTCConfig);
   if (allUserStreams[MY_UUID]["videostream"]) pc.addStream(allUserStreams[MY_UUID]["videostream"]);
+  if (screenActive) applyScreenMode(); //late joiner gets the current mode
   pc.on("signaling", function (data) {
     socket.emit("signaling", { destUUID: UUID, signalingData: data })
   })

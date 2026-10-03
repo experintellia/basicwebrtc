@@ -170,6 +170,51 @@ test('screen share reaches the other peer', async () => {
   await a.context().close(); await b.context().close();
 });
 
+// #13: Detail (default) / Performance mode for screen share, applied live without renegotiation.
+const screenMode = page => page.evaluate(() => {
+  const track = allUserStreams[MY_UUID].videostream.getVideoTracks()[0];
+  const senders = __raw.flatMap(p => p.getSenders().filter(s => s.track === track));
+  return [track.contentHint, ...senders.map(s => s.getParameters().degradationPreference)];
+});
+
+test('screen share mode: detail by default, performance on toggle, applied to late joiners', async () => {
+  const room = 'r' + Date.now();
+  const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
+  const a = await join(room, 'alice', trackPcs);
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  assert.strictEqual(await a.locator('#screenModeBtn').isVisible(), false, 'hidden without screen share');
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
+  assert.strictEqual(await a.locator('#screenModeBtn').isVisible(), false, 'hidden for camera');
+  await a.click('#addRemoveScreenBtn');
+  await waitFor(() => a.evaluate(() => screenActive), 'screen capture started');
+  await waitFor(() => remoteVideoShown(b), 'remote screen on bob');
+  assert.ok(await a.locator('#screenModeBtn').isVisible(), 'toggle shown while sharing');
+  await waitFor(async () => (await screenMode(a)).join() === 'detail,maintain-resolution', 'detail mode');
+  const offers = () => b.evaluate(() => window.__offers);
+  await b.evaluate(() => { const pc = Object.values(pcs)[0], orig = pc.signaling; window.__offers = 0; pc.signaling = d => { if (d && d.type == 'offer') __offers++; return orig(d); }; });
+  const pressed = () => a.getAttribute('#screenModeBtn', 'aria-pressed');
+  assert.strictEqual(await pressed(), 'false', 'aria-pressed off in detail mode');
+  await a.click('#screenModeBtn');
+  await waitFor(async () => (await screenMode(a)).join() === 'motion,maintain-framerate', 'performance mode');
+  assert.strictEqual(await pressed(), 'true', 'aria-pressed on in performance mode');
+  await a.focus('#screenModeBtn'); await a.keyboard.press('Enter');
+  await waitFor(async () => (await screenMode(a)).join() === 'detail,maintain-resolution', 'Enter toggles');
+  await a.keyboard.press(' ');
+  await waitFor(async () => (await screenMode(a)).join() === 'motion,maintain-framerate', 'Space toggles');
+  const frames = () => b.evaluate(() => [...document.querySelectorAll('#mediaDiv video')].map(v => v.getVideoPlaybackQuality().totalVideoFrames).reduce((x, y) => x + y, 0));
+  const before = await frames();
+  await waitFor(async () => (await frames()) > before, 'remote video keeps playing');
+  assert.strictEqual(await offers(), 0, 'no renegotiation');
+  const c = await join(room, 'carol');
+  await waitFor(() => remoteVideoShown(c), 'remote screen on carol');
+  await waitFor(async () => (await screenMode(a)).join() === 'motion,maintain-framerate,maintain-framerate', 'late joiner gets mode');
+  await a.click('#addRemoveScreenBtn');
+  await waitFor(async () => !(await a.locator('#screenModeBtn').isVisible()), 'hidden after share ends');
+  for (const p of [a, b, c]) await p.context().close();
+});
+
 test('browser "Stop sharing" ends the screen share', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');
@@ -532,6 +577,7 @@ test('all call buttons fit on screen from phone to small desktop widths', async 
     const a = await ctx.newPage();
     await a.goto(`${BASE}#roomname=r${Date.now()}`);
     await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'camera picker shown (2 fake cams)');
+    await a.evaluate(() => { document.getElementById('screenModeBtn').hidden = false; }); // shown while sharing
     const overflow = await a.evaluate(() => [...document.querySelectorAll('.callBtn')]
       .filter(b => b.offsetParent && b.getBoundingClientRect().right > innerWidth).map(b => b.id));
     assert.deepStrictEqual(overflow, [], `${width}x${height}`);
