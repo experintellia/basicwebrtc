@@ -24,7 +24,7 @@ var roomname = getUrlParam("roomname", false);
 
 if (!roomname) {
   roomname = "r" + Math.random().toString().replace(".", "")
-  window.location = location.href + "#roomname=" + roomname
+  location.hash = paramsWithout("#", location.hash, [], { roomname }) // & not a 2nd "#"
 }
 
 if (base64Domain && socketDomain) {

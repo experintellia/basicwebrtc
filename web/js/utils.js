@@ -1,6 +1,7 @@
 function getUrlParam(parameter, defaultvalue) {
     const vars = getUrlVars(); // exact key match: "camon" inside a username must not count
-    let ret = parameter in vars ? decodeURIComponent(vars[parameter]) : defaultvalue; // bare "#camon" -> "undefined", truthy as before
+    const decode = v => { try { return decodeURIComponent(v); } catch { return v; } }; // stray "%" (e.g. "100%") stays raw instead of blanking the page
+    let ret = parameter in vars ? decode(vars[parameter]) : defaultvalue; // bare "#camon" -> "undefined", truthy as before
     ret = ret == "false" ? false : ret;
     return ret;
 }
