@@ -27,12 +27,12 @@ after(async () => {
   await browser?.close();
 });
 
-async function join(room, name, initScript) {
+async function join(room, name, initScript, file = '') {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   if (initScript) await page.addInitScript(initScript);
   page.on('pageerror', e => console.log(`[${name}] pageerror`, e.message));
-  await page.goto(`${BASE}#roomname=${room}&username=${encodeURIComponent(name)}`);
+  await page.goto(`${BASE}${file}#roomname=${room}&username=${encodeURIComponent(name)}`);
   return page;
 }
 
@@ -55,6 +55,14 @@ async function waitFor(fn, what, ms = 15000) {
   assert.fail(`timed out waiting for ${what} (last=${last})`);
 }
 
+test('peers connect when the page is opened as index.html', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', null, 'index.html');
+  const b = await join(room, 'bob', null, 'index.html');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await a.context().close(); await b.context().close();
+});
+
 test('two peers connect and exchange audio', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');
@@ -62,6 +70,43 @@ test('two peers connect and exchange audio', async () => {
   await waitFor(async () => (await connectedPeers(a)) === 1 && (await connectedPeers(b)) === 1, 'ICE connected');
   await waitFor(async () => (await liveRemoteAudio(a)) === 1 && (await liveRemoteAudio(b)) === 1, 'remote audio');
   await a.context().close(); await b.context().close();
+});
+
+// Status text on a remote peer's tile ("" when connected).
+const peerStatus = page => page.evaluate(() =>
+  [...document.querySelectorAll('#mediaDiv .peerStatus')].filter(e => e.parentElement.id != MY_UUID).map(e => e.textContent).join('|'));
+const selfStatus = page => page.evaluate(() => byId(MY_UUID)?.querySelector('.peerStatus')?.textContent);
+
+test('own tile shows "connecting…" until joined and "reconnecting…" while the server is gone', async () => {
+  const ctx = await browser.newContext();
+  await ctx.route('**/socket.io/**', r => r.abort()); // server unreachable
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=r${Date.now()}&username=alice`);
+  await waitFor(async () => (await selfStatus(a)) === 'connecting…', 'connecting shown');
+  await ctx.unroute('**/socket.io/**');
+  await waitFor(async () => (await selfStatus(a)) === '', 'status cleared after join');
+  await a.evaluate(() => socket.disconnect());
+  await waitFor(async () => (await selfStatus(a)) === 'reconnecting…', 'reconnecting shown');
+  await a.evaluate(() => socket.connect());
+  await waitFor(async () => (await selfStatus(a)) === '', 'status cleared after rejoin');
+  await ctx.close();
+});
+
+test('peer tile shows "connecting" until ICE is up, then nothing', async () => {
+  const room = 'r' + Date.now();
+  const noIce = () => { RTCPeerConnection.prototype.addIceCandidate = async () => { }; }; // ICE can never connect
+  const a = await join(room, 'alice', noIce);
+  const b = await join(room, 'bob', noIce);
+  await waitFor(async () => (await peerStatus(a)) === 'connecting…' && (await peerStatus(b)) === 'connecting…', 'connecting shown');
+  await new Promise(r => setTimeout(r, 2000)); // ICE on localhost would be up by now
+  assert.strictEqual(await connectedPeers(a) + await connectedPeers(b), 0, 'stub kept ICE down');
+  assert.strictEqual(await peerStatus(a) + await peerStatus(b), 'connecting…connecting…');
+  await a.context().close(); await b.context().close();
+  const c = await join(room + 'x', 'alice');
+  const d = await join(room + 'x', 'bob');
+  await waitFor(async () => (await connectedPeers(c)) === 1 && (await connectedPeers(d)) === 1, 'ICE connected');
+  await waitFor(async () => (await peerStatus(c)) === '' && (await peerStatus(d)) === '', 'status cleared');
+  await c.context().close(); await d.context().close();
 });
 
 test('camera toggle reaches the other peer', async () => {
@@ -304,6 +349,7 @@ test('call recovers after the direct P2P path drops for a while', { skip: !canDr
   iptables('-I ' + UDP_DROP);
   try {
     await waitFor(async () => !(await iceUp(a)) && !(await iceUp(b)), 'ICE disconnected', 15000);
+    await waitFor(async () => (await peerStatus(a)) === 'reconnecting…' && (await peerStatus(b)) === 'reconnecting…', 'reconnecting shown');
     await new Promise(r => setTimeout(r, 15000)); // longer than any give-up timeout
   } finally {
     iptables('-D ' + UDP_DROP);
@@ -312,6 +358,7 @@ test('call recovers after the direct P2P path drops for a while', { skip: !canDr
     await waitFor(async () => (await iceUp(p)) && (await liveRemoteAudio(p)) === 1, 'ICE and audio back', 45000);
     assert.strictEqual(await p.evaluate(() => Object.keys(pcs).length), 1, 'peer kept');
     assert.strictEqual(await p.evaluate(() => __raw.length), 1, 'same connection, not rebuilt');
+    await waitFor(async () => (await peerStatus(p)) === '', 'status cleared');
   }
   await a.context().close(); await b.context().close();
 });

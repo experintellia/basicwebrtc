@@ -467,3 +467,16 @@ div#centerDiv{
   }
 }
 
+
+.peerStatus {
+  position: absolute;
+  top: 10px;
+  width: 100%;
+  text-align: center;
+  color: white;
+  z-index: 10;
+}
+
+.peerStatus:empty {
+  display: none;
+}
