@@ -58,6 +58,7 @@ var pcs = {}; //Peer connections to all remotes
 var micMuted = false;
 var camActive = false;
 var screenActive = false;
+var screenMotion = false; //Screen share mode: false = Detail (sharp text), true = Performance (smooth motion)
 var selectedCameraId = null;
 
 async function updateCameraList() { //Show camera picker only if there is more than one camera
@@ -239,6 +240,23 @@ $("#addRemoveScreenBtn").onclick = async function () {
   screenActive = true;
   stream.getVideoTracks()[0].onended = () => screenActive && stopVideo(); // browser's "Stop sharing" bar
   startVideo(stream, $("#addRemoveScreenBtn"));
+  applyScreenMode();
+  $("#screenModeBtn").hidden = false;
+}
+
+$("#screenModeBtn").onclick = function () {
+  screenMotion = !screenMotion;
+  applyScreenMode();
+}
+$("#screenModeBtn").onkeydown = e => (e.key == "Enter" || e.key == " ") && (e.preventDefault(), e.target.click());
+
+function applyScreenMode() { //contentHint is the main effect, degradationPreference makes it explicit for the encoder
+  const track = allUserStreams[MY_UUID]["videostream"].getVideoTracks()[0];
+  track.contentHint = screenMotion ? "motion" : "detail";
+  for (var i in pcs) pcs[i].setDegradation(track, screenMotion ? "maintain-framerate" : "maintain-resolution");
+  $("#screenModeBtn").setAttribute("aria-pressed", screenMotion);
+  $("#screenModeBtn i").className = screenMotion ? "fas fa-running" : "fas fa-font";
+  $("#screenModeBtn").title = screenMotion ? "screen share: smooth motion (click for sharp text)" : "screen share: sharp text (click for smooth motion)";
 }
 
 $("#addRemoveCameraBtn").onclick = toggleCamera;
@@ -300,28 +318,29 @@ function stopVideo() { // camera and screen share use the same slot
   delete allUserStreams[MY_UUID]["videostream"];
   $("#addRemoveCameraBtn").style.color = $("#addRemoveScreenBtn").style.color = "black";
   camActive = screenActive = false;
+  $("#screenModeBtn").hidden = true;
   updateUserLayout();
 }
 
-// Hash minus `drop` plus `add`; other params stay byte-identical (getUrlVars parses them raw)
-function hashWithout(drop, add = {}) {
-  const kept = location.hash.slice(1).split("&").filter(p => p && !drop.includes(p.split("=")[0]));
+// `part` (location.hash/search) minus `drop` plus `add`; other params stay byte-identical (getUrlVars parses them raw)
+function paramsWithout(sep, part, drop, add = {}) {
+  const kept = part.slice(1).split("&").filter(p => p && !drop.includes(p.split("=")[0]));
   for (const k in add) kept.push(k + "=" + encodeURIComponent(add[k]));
-  return "#" + kept.join("&");
+  return kept.length ? sep + kept.join("&") : "";
 }
 
 $("#changeNameBtn").onclick = function () {
   const name = prompt("Your name:", username == "NA" ? "" : username);
   if (name === null) return;
   username = name.trim().slice(0, 64) || "NA";
-  history.replaceState(null, "", hashWithout(["username"], { username })); // survives reloads
+  history.replaceState(null, "", paramsWithout("#", location.hash, ["username"], { username })); // survives reloads
   if (allUserStreams[MY_UUID]) allUserStreams[MY_UUID].username = username;
   sendToPeers({ username });
   updateUserLayout();
 }
 
 $("#shareBtn").onclick = function () {
-  const url = location.origin + location.pathname + location.search + hashWithout(["username", "camon"]);
+  const url = location.origin + location.pathname + paramsWithout("?", location.search, ["username", "camon"]) + paramsWithout("#", location.hash, ["username", "camon"]);
   const copy = () => { $("#shareLink").value = url; $("#shareDialog").showModal(); $("#shareLink").select(); };
   if (!navigator.share) return copy();
   navigator.share({ title: "Join my call", url }).catch(e => e.name != "AbortError" && copy()); // AbortError = user cancelled
@@ -345,6 +364,7 @@ function createRemoteSocket(initiator, UUID) {
   if (pcs[UUID]) removePeer(UUID); // same user rejoined: start over
   var pc = pcs[UUID] = new initEzWebRTC(initiator, webRTCConfig);
   if (allUserStreams[MY_UUID]["videostream"]) pc.addStream(allUserStreams[MY_UUID]["videostream"]);
+  if (screenActive) applyScreenMode(); //late joiner gets the current mode
   pc.on("signaling", function (data) {
     // Socket first: one ordered path, and a data channel can read "open" while nothing gets through. Channel only without a server.
     if (socket.connected) socket.emit("signaling", { destUUID: UUID, signalingData: data });

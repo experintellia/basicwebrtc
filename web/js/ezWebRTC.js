@@ -96,18 +96,9 @@ function initEzWebRTC(initiator, config) {
             negotiate();
         } else if (signalData && signalData.type == "offer") { //Got an offer -> Create Answer)
             _this.gotOffer = true;
-            if (pc.signalingState != "stable") { //If not stable ask for renegotiation
-                await Promise.all([
-                    pc.setLocalDescription({ type: "rollback" }), //Be polite
-                    await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData))
-                ]);
-            } else {
-                await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData))
-            }
+            await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData)) //only the answerer gets offers; have-remote-offer -> have-remote-offer is valid
             await pc.setLocalDescription(await pc.createAnswer(rtcConfig.offerOptions));
-            var a_desc = pc.localDescription;
-            a_desc.sdp = removeDoubleSSRC(a_desc.sdp);
-            _this.emitEvent("signaling", a_desc)
+            _this.emitEvent("signaling", pc.localDescription)
             if (!initiator)
                 requestMissingTransceivers()
         } else if (signalData && signalData.type == "answer" && initiator) { //Initiator: Setting answer and starting connection
@@ -149,6 +140,14 @@ function initEzWebRTC(initiator, config) {
         delete trackSenders[oldTrack.id];
         trackSenders[newTrack.id] = sender;
         sender.replaceTrack(newTrack).catch(e => console.log("replaceTrack Error", e)); //e.g. closed pc
+    }
+
+    this.setDegradation = function (track, pref) { //What the encoder gives up under load, without renegotiation
+        var sender = trackSenders[track.id];
+        if (!sender) return;
+        var params = sender.getParameters();
+        params.degradationPreference = pref;
+        sender.setParameters(params).catch(e => console.log("setParameters Error", e));
     }
 
     this.addTransceiver = function (kind, init) {
@@ -236,33 +235,6 @@ function initEzWebRTC(initiator, config) {
         }
     };
     return this;
-}
-
-function removeDoubleSSRC(sdp) {
-    var lineSplit = sdp.split("\n");
-    var mediaWithSSRC = null;
-    var mediaCnt = 0;
-    var readyToRemove = false;
-    var res = [];
-    for (var i in lineSplit) {
-        if (lineSplit[i].startsWith("m=")) { //find the video line
-            mediaCnt++;
-        }
-        if (lineSplit[i].startsWith("a=ssrc")) { //find the video line
-            if (!mediaWithSSRC) {
-                mediaWithSSRC = mediaCnt;
-            }
-            if (mediaWithSSRC < mediaCnt) {
-                readyToRemove = true;
-            }
-        }
-        if (readyToRemove && lineSplit[i].startsWith("a=ssrc")) {
-            //Do nothing
-        } else {
-            res.push(lineSplit[i]);
-        }
-    }
-    return res.join("\n");
 }
 
 function calcCurrentVolumeLevel(stream, callback) { //Returns audio levels for audio stream from 0 - silent; to 2 loud
