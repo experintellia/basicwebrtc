@@ -113,6 +113,7 @@ socket.on("signaling", function (data) {
   var fromUUID = data.fromUUID;
   if (data.signalingData == "reset") return removePeer(fromUUID);
   if (!pcs[fromUUID]) {
+    if (data.signalingData?.type != "offer") return; // only an offer starts a call: late candidates of a removed peer would leave a ghost
     createRemoteSocket(false, fromUUID)
   }
   pcs[fromUUID].signaling(data.signalingData).catch(e => console.log("signaling error", e));
@@ -131,6 +132,7 @@ window.addEventListener("pagehide", () => sendToPeers({ bye: true })); // hang u
 const nameOf = UUID => { const n = allUserStreams[UUID] && allUserStreams[UUID]["username"]; return n && n != "NA" ? n : "" };
 
 function setAudioLevel(UUID, level) {
+  if (allUserStreams[UUID]) allUserStreams[UUID].muted = level < 0; // re-shown by updateUserLayout
   const tile = byId(UUID);
   if (!tile) return;
   tile.querySelector(".audioMuted")?.remove();
@@ -459,7 +461,7 @@ function updateUserLayout() {
       </div>
     </div>`);
     userDiv.id = i;
-    userDiv.querySelector(".userPlaceholder").textContent = (name || i).substr(0, 2).toUpperCase();
+    userDiv.querySelector(".userPlaceholder").textContent = [...(name || i)].slice(0, 2).join("").toUpperCase();
     userDiv.append(Object.assign(document.createElement("div"), { className: "peerStatus", textContent: userStream["status"] || "" }));
 
     if (userStream["videostream"]) {
@@ -531,7 +533,9 @@ function updateUserLayout() {
     video.style.maxHeight = cont.offsetHeight + 'px';
     video.play().catch(() => { });
   }
+  for (const i in allUserStreams) if (allUserStreams[i].muted) setAudioLevel(i, -1);
 }
+document.addEventListener("fullscreenchange", updateUserLayout); // redo what was skipped while fullscreen
 
 function joinRoom(onJoined) {
   socket.emit("joinRoom", { roomname: getUrlParam("roomname", "unknown"), keep: Object.keys(pcs) }, onJoined);

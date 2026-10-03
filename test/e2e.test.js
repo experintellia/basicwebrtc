@@ -963,3 +963,54 @@ test('mic denied shows a message and "Try again" joins once allowed', async () =
   await waitFor(async () => (await liveRemoteAudio(b)) === 1, 'alice heard by bob');
   await a.context().close(); await b.context().close();
 });
+
+// #27: the mute icon survives re-layouts and reaches peers who join later.
+test('remote mute icon survives re-layout and is shown to late-joining peers', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'first pair');
+  await a.click('#muteUnmuteMicBtn');
+  await waitFor(() => b.locator('.audioMuted').count(), 'mute icon on bob');
+  const c = await join(room, 'carol');
+  const aId = await a.evaluate(() => MY_UUID);
+  for (const p of [b, c]) {
+    await waitFor(() => p.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('CA')), 'carol\'s tile');
+    await waitFor(() => p.evaluate(id => !!byId(id)?.querySelector('.audioMuted'), aId), 'alice muted');
+  }
+  await b.evaluate(() => updateUserLayout()); // any later re-layout keeps it
+  assert.ok(await b.evaluate(id => !!byId(id)?.querySelector('.audioMuted'), aId), 'still muted after re-layout');
+  for (const p of [a, b, c]) await p.context().close();
+});
+
+test('layout skipped in fullscreen is redone on exit', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', () => { window.__fs = null; Object.defineProperty(document, 'fullscreenElement', { get: () => window.__fs }); });
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(a)) === 1, 'connected');
+  const bId = await b.evaluate(() => MY_UUID);
+  await a.evaluate(() => window.__fs = document.body);
+  await b.context().close();
+  await waitFor(() => a.evaluate(() => !Object.keys(pcs).length), 'bob removed');
+  await a.evaluate(() => { window.__fs = null; document.dispatchEvent(new Event('fullscreenchange')); });
+  assert.ok(await a.evaluate(id => !byId(id), bId), 'bob\'s tile gone');
+  await a.context().close();
+});
+
+test('late signaling from a departed peer creates no connection', async () => {
+  const a = await join('r' + Date.now(), 'alice');
+  await waitFor(() => a.evaluate(() => socket.connected), 'connected');
+  await a.evaluate(() => {
+    socket.listeners('userDiscconected')[0]('ghost');
+    socket.listeners('signaling')[0]({ fromUUID: 'ghost', signalingData: { candidate: 'candidate:1 1 udp 1 1.2.3.4 9 typ host', sdpMid: '0', sdpMLineIndex: 0 } });
+  });
+  assert.deepStrictEqual(await a.evaluate(() => [Object.keys(pcs), !!byId('ghost')]), [[], false]);
+  await a.context().close();
+});
+
+test('tile initials do not split an emoji', async () => {
+  const a = await join('r' + Date.now(), 'a😀b');
+  await waitFor(() => a.evaluate(() => byId(MY_UUID)?.querySelector('.userPlaceholder').textContent), 'own tile');
+  assert.strictEqual(await a.evaluate(() => byId(MY_UUID).querySelector('.userPlaceholder').textContent), 'A😀');
+  await a.context().close();
+});
