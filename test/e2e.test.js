@@ -471,11 +471,13 @@ test('chat, rename and share live in the more menu', async () => {
   await a.mouse.click(5, 5);
   assert.deepStrictEqual(await visible(), [false, false, false], 'outside click closes');
   // unread chat is flagged on the more button while chat is closed
-  await a.evaluate(() => socket.emit('sendMsg', 'ping'));
-  await waitFor(() => a.evaluate(() => document.querySelector('#moreBtn').classList.contains('unread')), 'unread dot');
+  const unread = () => a.evaluate(() => [document.querySelector('#moreBtn').dataset.unread, document.querySelector('#addRemoveChatBtn').dataset.unread]);
+  await a.evaluate(() => { socket.emit('sendMsg', 'ping'); socket.emit('sendMsg', 'pong'); });
+  await waitFor(async () => (await unread())[0] === '2', 'unread count badge');
+  assert.deepStrictEqual(await unread(), ['2', '2'], 'count on the button and the chat item');
   await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
   assert.strictEqual(await a.locator('#moreMenu').isVisible(), false, 'picking an item closes the menu');
-  assert.strictEqual(await a.evaluate(() => document.querySelector('#moreBtn').classList.contains('unread')), false, 'read');
+  assert.deepStrictEqual(await unread(), [undefined, undefined], 'read');
   await a.context().close();
 });
 

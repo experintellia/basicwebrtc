@@ -105,20 +105,35 @@ video {
   width: 1.4em;
 }
 
-/* unread chat dot */
-#moreBtn.unread {
+/* unread chat count badge */
+#moreBtn {
   position: relative;
 }
 
-#moreBtn.unread::after {
-  content: "";
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+#moreBtn[data-unread]::after, #addRemoveChatBtn[data-unread]::after {
+  content: attr(data-unread);
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 10px;
   background: #e53935;
+  color: #fff;
+  font: bold 12px/20px sans-serif;
+  text-align: center;
+}
+
+#moreBtn[data-unread]::after {
+  position: absolute;
+  top: -8px;
+  right: 0;
+  border: 2px solid #fff;
+  line-height: 16px;
+}
+
+#addRemoveChatBtn[data-unread]::after {
+  display: inline-block;
+  margin-left: 8px;
 }
 
 /* invisible native select over the icon, so the OS picker opens on click */

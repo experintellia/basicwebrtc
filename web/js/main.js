@@ -94,7 +94,7 @@ socket.on("msg", function ({ name, msg }) {
   $("#chatText").append(line);
   $("#chatText").scrollTop = $("#chatText").scrollHeight;
   if ($("#chatDiv").hidden) {
-    $("#moreBtn").classList.add("unread");
+    for (const b of [$("#moreBtn"), $("#addRemoveChatBtn")]) b.dataset.unread = (+b.dataset.unread || 0) + 1;
   }
 })
 
@@ -198,7 +198,7 @@ $("#muteUnmuteMicBtn").onclick = function () {
 $("#addRemoveChatBtn").onclick = function () {
   const open = $("#chatDiv").hidden;
   $("#chatDiv").hidden = !open;
-  if (open) $("#moreBtn").classList.remove("unread");
+  if (open) for (const b of [$("#moreBtn"), this]) delete b.dataset.unread;
   if (open && !matchMedia("(pointer: coarse)").matches) $("#chatInputText").focus(); // no keyboard covering the chat on phones
 }
 $("#moreBtn").onclick = () => $("#moreMenu").hidden = !$("#moreMenu").hidden;
