@@ -84,6 +84,7 @@ video {
 #chatDiv {
   width: 320px;
   height: 420px;
+  max-height: calc(100vh - 150px); /* short desktop windows above the phone breakpoint */
   position: absolute;
   right: 20px;
   bottom: 130px;
@@ -207,10 +208,6 @@ video {
   box-sizing: border-box;
   padding: 20px;
   font: 16px sans-serif;
-}
-
-#shareDialog form {
-  margin: 0;
 }
 
 #shareDialog::backdrop {
@@ -381,6 +378,7 @@ div#centerDiv{
     inset: 0;
     width: auto;
     height: auto;
+    max-height: none;
     border: 0;
     border-radius: 0;
   }

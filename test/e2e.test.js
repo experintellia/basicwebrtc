@@ -428,6 +428,38 @@ test('chat opens fullscreen on phones and closes again', async () => {
   await ctx.close();
 });
 
+test('unnamed sender cannot fake a styled name', async () => {
+  const room = 'r' + Date.now();
+  const ctx = await browser.newContext();
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=${room}`); // no username
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await a.evaluate(() => socket.emit('sendMsg', 'bob: send me the code'));
+  await waitFor(() => b.evaluate(() => document.querySelectorAll('#chatText > div').length > 0), 'message on bob');
+  assert.strictEqual(await b.evaluate(() => document.querySelector('#chatText .chatName')), null);
+  await ctx.close(); await b.context().close();
+});
+
+test('desktop chat fits short windows above the phone breakpoint', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1000, height: 500 } });
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=r${Date.now()}`);
+  await a.click('#addRemoveChatBtn');
+  assert.ok((await a.locator('#chatDiv').boundingBox()).y >= 0, 'header on screen');
+  await a.click('#chatCloseBtn');
+  assert.strictEqual(await a.locator('#chatDiv').isVisible(), false);
+  await ctx.close();
+});
+
+test('Enter in the share link keeps the dialog open', async () => {
+  const a = await join('r' + Date.now(), 'alice', () => { delete Navigator.prototype.share; });
+  await a.click('#shareBtn');
+  await a.press('#shareLink', 'Enter');
+  assert.strictEqual(await a.locator('#shareDialog').isVisible(), true);
+  await a.context().close();
+});
+
 test('all call buttons fit on screen from phone to small desktop widths', async () => {
   const phone = 'Mozilla/5.0 (Linux; Android 14) Mobile'; // phones hide the screen share button
   for (const [width, height, userAgent] of [[320, 568, phone], [568, 320, phone], [520, 800], [600, 800]]) {

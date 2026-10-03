@@ -1,4 +1,4 @@
-const API_VERSION = 1.2;
+const API_VERSION = 1.3;
 
 // The notice in index.html is visible by default; browsers that can't parse or run this script keep seeing it.
 if (!window.RTCPeerConnection || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -72,15 +72,13 @@ async function updateCameraList() { //Show camera picker only if there is more t
 navigator.mediaDevices.addEventListener("devicechange", updateCameraList);
 updateCameraList();
 
-socket.on("msg", function (msg) {
+socket.on("msg", function ({ name, msg }) {
   const line = document.createElement("div");
-  const named = msg.match(/^([^:]{1,64}): ([\s\S]*)$/); // server prefixes "name: "
-  if (named) {
+  if (name) {
     const b = document.createElement("b");
     b.className = "chatName";
-    b.textContent = named[1];
+    b.textContent = name;
     line.append(b, ": ");
-    msg = named[2];
   }
   msg.split(/(https?:\/\/\S+)/).forEach((part, i) => { // odd parts are links
     if (i % 2) {
@@ -315,7 +313,8 @@ $("#shareBtn").onclick = function () {
 }
 
 $("#copyLinkBtn").onclick = function () {
-  navigator.clipboard?.writeText($("#shareLink").value).then(() => this.innerHTML = '<i class="fas fa-check"></i> Copied!', () => $("#shareLink").select());
+  if (!navigator.clipboard) return $("#shareLink").select();
+  navigator.clipboard.writeText($("#shareLink").value).then(() => this.innerHTML = '<i class="fas fa-check"></i> Copied!', () => $("#shareLink").select());
 }
 $("#shareDialog").onclose = () => $("#copyLinkBtn").innerHTML = '<i class="far fa-copy"></i> Copy';
 

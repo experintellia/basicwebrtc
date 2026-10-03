@@ -9,7 +9,7 @@ const HTTP_PORT = parseInt(process.env.listen_port) > 0 ? parseInt(process.env.l
 const HTTP_IP = process.env.listen_ip ? process.env.listen_ip : "0.0.0.0";
 
 //Define API Version
-const API_VERSION = 1.2;
+const API_VERSION = 1.3;
 
 //Get dummy cert files for https
 var fs = require('fs');
@@ -110,11 +110,9 @@ ioServer.sockets.on('connection', function (socket) {
     socket.on("sendMsg", function (msg) {
         if (typeof (msg) == "string") {
             if (msg != "") {
-                if (nameOfUser != "" && nameOfUser != "NA") {
-                    msg = nameOfUser + ': ' + msg;
-                }
-                socket.to(roomOfUser).emit('msg', msg);
-                socket.emit('msg', msg);
+                const name = nameOfUser != "NA" ? nameOfUser : "";
+                socket.to(roomOfUser).emit('msg', { name, msg });
+                socket.emit('msg', { name, msg });
             }
         }
     });
