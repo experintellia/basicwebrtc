@@ -53,8 +53,8 @@ console.log("--------------------------------------------");
 console.log("SIGNALINGSERVER RUNNING ON IP:PORT: " + HTTP_IP + ':' + HTTP_PORT);
 console.log("--------------------------------------------");
 
-var registerdUUIDs = {};
-var socketID_UUIDMatch = {};
+var registerdUUIDs = Object.create(null); // no prototype: "__proto__" etc. are plain keys
+var socketID_UUIDMatch = Object.create(null);
 
 //Listen for IO connections and do signaling
 ioServer.sockets.on('connection', function (socket) {
@@ -73,8 +73,8 @@ ioServer.sockets.on('connection', function (socket) {
             return callback("UUID or UUID_KEY invalid on registerUUID!");
         }
         if (MY_UUID && MY_UUID != UUID) return callback("Only one UUID per connection!");
-        if (!registerdUUIDs[UUID] || registerdUUIDs[UUID] == UUID_KEY) {
-            const alreadyRegistred = registerdUUIDs[UUID] == UUID_KEY;
+        if (!registerdUUIDs[UUID] || registerdUUIDs[UUID] === UUID_KEY) {
+            const alreadyRegistred = registerdUUIDs[UUID] === UUID_KEY;
             registerdUUIDs[UUID] = UUID_KEY;
             socketID_UUIDMatch[UUID] = socket.id;
             MY_UUID = UUID;
