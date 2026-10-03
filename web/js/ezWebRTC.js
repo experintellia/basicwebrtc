@@ -5,6 +5,7 @@ function initEzWebRTC(initiator, config) {
     this.isConnected = false;
     this.gotOffer = false;
     this.makingOffer = false;
+    var gen = Math.floor(Math.random() * 1e9); //counts offers; the answer echoes it, so answers to older offers are dropped
 
     var rtcConfig = { //Default Values
         offerOptions: {
@@ -25,6 +26,14 @@ function initEzWebRTC(initiator, config) {
 
     //Make new peer
     var pc = new wrtc.RTCPeerConnection({ iceServers: rtcConfig.iceServers });
+
+    // Peer-to-peer data (DTLS encrypted end to end). Negotiated: both sides create it, no extra offer.
+    var dc = pc.createDataChannel("data", { negotiated: true, id: 0 });
+    dc.onopen = () => _this.emitEvent("open");
+    dc.onclose = () => _this.emitEvent("close");
+    dc.onmessage = e => { try { var msg = JSON.parse(e.data) } catch (err) { return } if (msg && typeof msg == "object") _this.emitEvent("message", msg) };
+    this.send = obj => dc.readyState == "open" && (dc.send(JSON.stringify(obj)), true); // false: not open (yet)
+    this.iceUp = () => pc.iceConnectionState == "connected" || pc.iceConnectionState == "completed";
 
     pc.onsignalingstatechange = function (event) {
         _this.emitEvent("onsignalingstatechange", event);
@@ -73,12 +82,18 @@ function initEzWebRTC(initiator, config) {
     };
     var retrying = false;
 
-    async function restartIce() {
-        if (pc.signalingState == "have-local-offer") { //answer got lost: negotiationneeded never fires outside stable
+    function restartIce() {
+        pc.restartIce(); //before the rollback, whose negotiationneeded may already create the next offer
+        reoffer();
+    }
+
+    async function reoffer() { //answer lost, late or broken: negotiationneeded never fires outside stable
+        gen++; //answers to the old offer are stale now
+        if (pc.signalingState == "have-local-offer") {
             _this.makingOffer = false;
             await pc.setLocalDescription({ type: "rollback" }).catch(e => console.log("rollback error", e));
         }
-        pc.restartIce(); //triggers negotiationneeded -> negotiate()
+        negotiate();
     }
 
     pc.onnegotiationneeded = function () {
@@ -92,13 +107,17 @@ function initEzWebRTC(initiator, config) {
             _this.gotOffer = true;
             await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData)) //only the answerer gets offers; have-remote-offer -> have-remote-offer is valid
             await pc.setLocalDescription(await pc.createAnswer(rtcConfig.offerOptions));
-            var a_desc = pc.localDescription; //sdp is readonly per spec: send a munged copy
-            _this.emitEvent("signaling", { type: a_desc.type, sdp: opusParams(a_desc.sdp) })
+            _this.emitEvent("signaling", { type: "answer", sdp: opusParams(pc.localDescription.sdp), gen: signalData.gen }) //sdp is readonly per spec: send a munged copy
             if (!initiator)
                 requestMissingTransceivers()
         } else if (signalData && signalData.type == "answer" && initiator) { //Initiator: Setting answer and starting connection
+            if (signalData.gen !== undefined && signalData.gen != gen) return; //answer to an older offer (no gen: older client, accept)
+            try {
+                await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData))
+            } catch (e) {
+                return console.log("answer error", e); //the offer timeout re-offers; no tight loop on an always-bad answer
+            }
             _this.makingOffer = false;
-            await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData))
             if (offerPending) { offerPending = false; negotiate(); } //e.g. a "renegotiate" that came in meanwhile
         } else if (signalData && signalData.type == "transceive" && initiator) { //Got an request to transrecive
             _this.addTransceiver(signalData.kind, signalData.init)
@@ -193,8 +212,11 @@ function initEzWebRTC(initiator, config) {
                 _this.makingOffer = false;
                 return console.log("offer error", e);
             }
-            var o_desc = pc.localDescription;
-            _this.emitEvent("signaling", { type: o_desc.type, sdp: opusParams(o_desc.sdp) })
+            var myGen = ++gen;
+            _this.emitEvent("signaling", { type: "offer", sdp: opusParams(pc.localDescription.sdp), gen: myGen })
+            setTimeout(function () { //no answer in time: offer again
+                if (gen == myGen && pc.signalingState == "have-local-offer") reoffer();
+            }, 5000);
         } else if (_this.gotOffer) { //Dont send renegotiate req before getting at least one offer
             _this.emitEvent("signaling", "renegotiate");
         }
