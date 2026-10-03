@@ -5,6 +5,7 @@ function initEzWebRTC(initiator, config) {
     this.isConnected = false;
     this.gotOffer = false;
     this.makingOffer = false;
+    var gen = 0; //counts offers; the answer echoes it, so answers to older offers are dropped
 
     var rtcConfig = { //Default Values
         offerOptions: {
@@ -71,12 +72,18 @@ function initEzWebRTC(initiator, config) {
         }
     };
 
-    async function restartIce() {
-        if (pc.signalingState == "have-local-offer") { //answer got lost: negotiationneeded never fires outside stable
+    function restartIce() {
+        pc.restartIce(); //before the rollback, whose negotiationneeded may already create the next offer
+        reoffer();
+    }
+
+    async function reoffer() { //answer lost, late or broken: negotiationneeded never fires outside stable
+        gen++; //answers to the old offer are stale now
+        if (pc.signalingState == "have-local-offer") {
             _this.makingOffer = false;
             await pc.setLocalDescription({ type: "rollback" }).catch(e => console.log("rollback error", e));
         }
-        pc.restartIce(); //triggers negotiationneeded -> negotiate()
+        negotiate();
     }
 
     pc.onnegotiationneeded = function () {
@@ -90,13 +97,18 @@ function initEzWebRTC(initiator, config) {
             _this.gotOffer = true;
             await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData)) //only the answerer gets offers; have-remote-offer -> have-remote-offer is valid
             await pc.setLocalDescription(await pc.createAnswer(rtcConfig.offerOptions));
-            var a_desc = pc.localDescription; //sdp is readonly per spec: send a munged copy
-            _this.emitEvent("signaling", { type: a_desc.type, sdp: opusParams(a_desc.sdp) })
+            _this.emitEvent("signaling", { type: "answer", sdp: opusParams(pc.localDescription.sdp), gen: signalData.gen }) //sdp is readonly per spec: send a munged copy
             if (!initiator)
                 requestMissingTransceivers()
         } else if (signalData && signalData.type == "answer" && initiator) { //Initiator: Setting answer and starting connection
+            if (signalData.gen != gen) return; //answer to an older offer
+            try {
+                await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData))
+            } catch (e) {
+                console.log("answer error", e);
+                return reoffer();
+            }
             _this.makingOffer = false;
-            await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData))
             if (offerPending) { offerPending = false; negotiate(); } //e.g. a "renegotiate" that came in meanwhile
         } else if (signalData && signalData.type == "transceive" && initiator) { //Got an request to transrecive
             _this.addTransceiver(signalData.kind, signalData.init)
@@ -191,8 +203,11 @@ function initEzWebRTC(initiator, config) {
                 _this.makingOffer = false;
                 return console.log("offer error", e);
             }
-            var o_desc = pc.localDescription;
-            _this.emitEvent("signaling", { type: o_desc.type, sdp: opusParams(o_desc.sdp) })
+            var myGen = ++gen;
+            _this.emitEvent("signaling", { type: "offer", sdp: opusParams(pc.localDescription.sdp), gen: myGen })
+            setTimeout(function () { //no answer in time: offer again
+                if (gen == myGen && pc.signalingState == "have-local-offer") reoffer();
+            }, 5000);
         } else if (_this.gotOffer) { //Dont send renegotiate req before getting at least one offer
             _this.emitEvent("signaling", "renegotiate");
         }
