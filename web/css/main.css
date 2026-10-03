@@ -286,7 +286,7 @@ div#centerDiv{
 
 .peerStatus {
   position: absolute;
-  bottom: 10px;
+  top: 10px;
   width: 100%;
   text-align: center;
   color: white;

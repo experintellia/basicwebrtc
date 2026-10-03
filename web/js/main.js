@@ -148,10 +148,20 @@ socket.on("connect", function () {
     if (err) return console.log(err);
     await mediaReady;
     joinRoom();
+    setStatus(MY_UUID, "");
   })
 });
+socket.on("disconnect", () => setStatus(MY_UUID, "reconnecting…"));
+
+function setStatus(UUID, text) { // status line on a tile, e.g. "connecting…"; "" hides it
+  allUserStreams[UUID]["status"] = text;
+  const el = byId(UUID)?.querySelector(".peerStatus");
+  if (el) el.textContent = text;
+}
 
 var mediaReady = (async function () {
+  allUserStreams[MY_UUID] = { username: username, status: "connecting…" }; // own tile shows join progress
+  updateUserLayout();
   try {
     if (camOnAtStart) { // ask for both permissions at once
       (await navigator.mediaDevices.getUserMedia({ video: true, audio: true })).getTracks().forEach(t => t.stop());
@@ -166,7 +176,7 @@ var mediaReady = (async function () {
     return new Promise(() => { }); // never join without a mic
   }
   webRTCConfig["stream"] = stream;
-  allUserStreams[MY_UUID] = { audiostream: stream, username: username };
+  allUserStreams[MY_UUID]["audiostream"] = stream;
   calcCurrentVolumeLevel(stream, function (currentAudioLvl) {
     if (!micMuted) {
       socket.emit('currentAudioLvl', currentAudioLvl);
@@ -323,9 +333,7 @@ function createRemoteSocket(initiator, UUID) {
   updateUserLayout();
   pc.on("icestate", function (state) {
     if (pcs[UUID] !== pc) return; // already removed
-    allUserStreams[UUID]["status"] = ["connected", "completed"].includes(state) ? "" : pc.isConnected ? "reconnecting…" : "connecting…";
-    const el = byId(UUID)?.querySelector(".peerStatus");
-    if (el) el.textContent = allUserStreams[UUID]["status"];
+    setStatus(UUID, ["connected", "completed"].includes(state) ? "" : pc.isConnected ? "reconnecting…" : "connecting…");
   });
   pc.on("stream", function (stream) {
     gotRemoteStream(stream, UUID)
@@ -374,7 +382,7 @@ function updateUserLayout() {
     </div>`);
     userDiv.id = i;
     userDiv.querySelector(".userPlaceholder").textContent = (name || i).substr(0, 2).toUpperCase();
-    if (i != MY_UUID) userDiv.append(Object.assign(document.createElement("div"), { className: "peerStatus", textContent: userStream["status"] || "" }));
+    userDiv.append(Object.assign(document.createElement("div"), { className: "peerStatus", textContent: userStream["status"] || "" }));
 
     if (userStream["audiostream"] && i !== MY_UUID && !byId('audio' + i)) {
       const audio = fromHTML('<audio autoplay hidden></audio>');
