@@ -146,6 +146,57 @@ test('answerer camera change during an in-flight offer reaches the initiator', a
   await a.context().close(); await b.context().close();
 });
 
+// #25: one lost answer must not block all later renegotiation.
+test('a lost answer does not block later camera changes', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await a.evaluate(() => { // drop exactly one answer on alice
+    const pc = Object.values(pcs)[0], orig = pc.signaling;
+    let dropped = false;
+    pc.signaling = d => d && d.type == 'answer' && !dropped ? (dropped = true, Promise.resolve()) : orig(d);
+  });
+  await a.click('#addRemoveCameraBtn');
+  await b.click('#addRemoveCameraBtn');
+  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
+  await waitFor(() => remoteVideoShown(a), 'remote video on alice');
+  await a.context().close(); await b.context().close();
+});
+
+// Mid-deploy: an older answerer doesn't echo gen; its answers must still be applied.
+test('answers without gen (older client) are still accepted', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await a.evaluate(() => { // strip gen from every answer alice receives
+    const pc = Object.values(pcs)[0], orig = pc.signaling;
+    pc.signaling = d => orig(d && d.type == 'answer' ? { type: d.type, sdp: d.sdp } : d);
+  });
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
+  assert.strictEqual(await a.evaluate(() => Object.values(pcs)[0].makingOffer), false, 'answer applied');
+  await a.context().close(); await b.context().close();
+});
+
+// #6: bob's socket reconnects; alice's old pc still sends an offer to bob before alice rebuilds it.
+test('stale offer from the old connection after a fast reconnect', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await a.evaluate(() => {
+    window.__oldPc = Object.values(pcs)[0];
+    socket.off('userJoined');
+    socket.on('userJoined', c => { __oldPc.signaling('renegotiate'); setTimeout(() => createRemoteSocket(true, c.UUID), 1500); });
+  });
+  await b.evaluate(() => socket.io.engine.close());
+  await waitFor(() => a.evaluate(() => Object.values(pcs)[0] !== __oldPc), 'alice rebuilt the pc');
+  for (const p of [a, b]) await waitFor(async () => (await connectedPeers(p)) === 1 && (await liveRemoteAudio(p)) === 1, 'ICE and audio');
+  await a.context().close(); await b.context().close();
+});
+
 test('camera picker switches the camera sent to the other peer', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');
@@ -571,7 +622,7 @@ const UDP_DROP = 'OUTPUT -p udp ! --dport 53 -m comment --comment basicwebrtc-te
 const canDropUdp = (() => { try { require('child_process').execSync('iptables -L -n', { stdio: 'ignore' }); return true; } catch { return false; } })();
 const iptables = args => require('child_process').execSync('iptables ' + args);
 
-test('call recovers after the direct P2P path drops for a while', { skip: !canDropUdp && 'needs root + iptables' }, async () => {
+for (const outage of [15, 45]) test(`call recovers after the direct P2P path drops for ${outage}s`, { skip: !canDropUdp && 'needs root + iptables' }, async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice', trackPcs);
   const b = await join(room, 'bob', trackPcs);
@@ -582,7 +633,7 @@ test('call recovers after the direct P2P path drops for a while', { skip: !canDr
   try {
     await waitFor(async () => !(await iceUp(a)) && !(await iceUp(b)), 'ICE disconnected', 15000);
     await waitFor(async () => (await peerStatus(a)) === 'reconnecting…' && (await peerStatus(b)) === 'reconnecting…', 'reconnecting shown');
-    await new Promise(r => setTimeout(r, 15000)); // longer than any give-up timeout
+    await new Promise(r => setTimeout(r, outage * 1000)); // 15s: longer than any give-up timeout; 45s: #22
   } finally {
     iptables('-D ' + UDP_DROP);
   }
@@ -592,6 +643,35 @@ test('call recovers after the direct P2P path drops for a while', { skip: !canDr
     assert.strictEqual(await p.evaluate(() => __raw.length), 1, 'same connection, not rebuilt');
     await waitFor(async () => (await peerStatus(p)) === '', 'status cleared');
   }
+  await a.context().close(); await b.context().close();
+});
+
+// #25: an answer still in flight when ICE restarts must not be applied to the restart offer.
+test('late answer does not cancel an ICE restart', { skip: !canDropUdp && 'needs root + iptables' }, async () => {
+  const room = 'r' + Date.now();
+  const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
+  const a = await join(room, 'alice', trackPcs);
+  const b = await join(room, 'bob', trackPcs);
+  const iceUp = p => p.evaluate(() => __raw.some(x => ['connected', 'completed'].includes(x.iceConnectionState)));
+  await waitFor(async () => (await iceUp(a)) && (await liveRemoteAudio(a)) === 1, 'ICE connected');
+  const ufrag = (p, d) => p.evaluate(d => __raw[0][d].sdp.match(/a=ice-ufrag:(\S+)/)[1], d);
+  const bobUfrag = await ufrag(b, 'localDescription');
+  await a.evaluate(() => { // hold bob's answers on alice until alice has sent an ICE restart offer, then deliver them in order
+    const pc = Object.values(pcs)[0], orig = pc.signaling, uf = () => __raw[0].localDescription.sdp.match(/a=ice-ufrag:(\S+)/)[1], u0 = uf();
+    const restarted = new Promise(r => { const t = setInterval(() => uf() != u0 && (clearInterval(t), r()), 50); });
+    window.__answers = 0;
+    pc.signaling = d => d && d.type == 'answer' ? restarted.then(() => orig(d)).finally(() => __answers++) : orig(d);
+  });
+  await a.click('#addRemoveCameraBtn'); // offer whose answer is held back
+  try { for (;;) iptables('-D ' + UDP_DROP + ' 2>/dev/null'); } catch { }
+  iptables('-I ' + UDP_DROP);
+  try {
+    await waitFor(async () => (await a.evaluate(() => __answers >= 2 && __raw[0].signalingState == 'stable')) && (await ufrag(b, 'localDescription')) != bobUfrag, 'restart answered', 30000);
+    assert.strictEqual(await ufrag(a, 'currentRemoteDescription'), await ufrag(b, 'localDescription'), 'alice uses bob\'s new ICE credentials');
+  } finally {
+    iptables('-D ' + UDP_DROP);
+  }
+  for (const p of [a, b]) await waitFor(async () => (await iceUp(p)) && (await liveRemoteAudio(p)) === 1, 'ICE and audio back', 45000);
   await a.context().close(); await b.context().close();
 });
 
