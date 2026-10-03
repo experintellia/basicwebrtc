@@ -45,6 +45,9 @@ const liveRemoteAudio = page => page.evaluate(() =>
   [...document.querySelectorAll('#audioStreams audio')]
     .filter(a => a.srcObject && a.srcObject.getAudioTracks().some(t => t.readyState === 'live' && !t.muted)).length);
 
+// Init script: keeps the raw RTCPeerConnections in window.__raw.
+const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
+
 async function waitFor(fn, what, ms = 15000) {
   const end = Date.now() + ms;
   let last;
@@ -123,7 +126,6 @@ test('camera toggle reaches the other peer', async () => {
 // answer. His "renegotiate" then arrives while alice is still making an offer and must not be lost.
 test('answerer camera change during an in-flight offer reaches the initiator', async () => {
   const room = 'r' + Date.now();
-  const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
   const a = await join(room, 'alice', trackPcs); // already in the room -> initiator
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
@@ -196,9 +198,9 @@ test('camera turned on before the peer connects', async () => {
   // Start the camera right after the pc is created, before ICE connects.
   await a.evaluate(async () => {
     const cam = await navigator.mediaDevices.getUserMedia({ video: true });
-    socket.on('userJoined', () => { camActive = true; startVideo(cam, $('#addRemoveCameraBtn')); });
+    socket.once('userJoined', () => { camActive = true; startVideo(cam, $('#addRemoveCameraBtn')); });
   });
-  const b = await join(room, 'bob');
+  const b = await join(room, 'bob', trackPcs);
   await waitFor(() => remoteVideoShown(b), 'remote video on bob');
   await new Promise(r => setTimeout(r, 1000));
   assert.deepStrictEqual(errors, []);
@@ -206,7 +208,7 @@ test('camera turned on before the peer connects', async () => {
   await b.click('#addRemoveCameraBtn');
   await waitFor(() => remoteVideoShown(a), 'remote video on alice');
   await a.evaluate(() => window.__oldPc = Object.values(pcs)[0]);
-  await b.evaluate(() => { for (const id in pcs) removePeer(id); socket.io.engine.close(); });
+  await b.evaluate(() => { __raw[0].close(); socket.io.engine.close(); }); // bob's connection dies, his socket reconnects
   await waitFor(() => a.evaluate(() => Object.values(pcs)[0] && Object.values(pcs)[0] !== __oldPc), 'alice rebuilt the pc');
   await waitFor(() => remoteVideoShown(a), 'remote video on alice after reconnect');
   await a.context().close(); await b.context().close();
@@ -328,9 +330,13 @@ test('chat, mute state and username reach the peer without the server (#11)', as
   await a.click('#muteUnmuteMicBtn');
   await waitFor(() => b.locator('.audioMuted').count(), 'mute icon on bob');
   await waitFor(() => b.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('AL')), 'alice\'s initials on bob');
-  await b.evaluate(() => Object.values(pcs)[0].send({ username: 'x'.repeat(500), chat: 'long' })); // a peer can send anything
+  const errors = [];
+  a.on('pageerror', e => errors.push(e.message));
+  await b.evaluate(() => { const pc = Object.values(pcs)[0]; pc.send(null); pc.send(5); pc.send({ username: 'x'.repeat(500), chat: 'long' + 'y'.repeat(5000) }); }); // a peer can send anything
   await waitFor(() => a.evaluate(() => document.querySelector('#chatText').textContent.includes('long')), 'chat on alice');
   assert.ok(await a.evaluate(() => Object.values(allUserStreams).every(u => u.username.length <= 64)), 'username capped');
+  assert.ok(await a.evaluate(() => document.querySelector('#chatText div:last-child').textContent.length <= 2100), 'chat capped');
+  assert.deepStrictEqual(errors, []);
   await a.context().close(); await b.context().close();
 });
 
@@ -340,7 +346,7 @@ test('camera changes renegotiate without the server (#11)', async () => {
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(a)) === 1 && (await connectedPeers(b)) === 1, 'ICE connected');
   await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
-  for (const p of [a, b]) await p.evaluate(() => { socket.emit = () => { }; });
+  for (const p of [a, b]) await p.evaluate(() => socket.disconnect());
   await a.click('#addRemoveCameraBtn'); // initiator: offer over the data channel
   await waitFor(() => remoteVideoShown(b), 'remote video on bob');
   await b.click('#addRemoveCameraBtn'); // answerer: "transceive"/"renegotiate" over the data channel
@@ -372,6 +378,44 @@ test('call survives the signaling server going away and coming back (#11)', asyn
     assert.ok(await p.evaluate(() => Object.keys(pcs).length == 1 && Object.values(pcs)[0] === __pc), 'same peer connection kept');
     assert.strictEqual(await liveRemoteAudio(p), 1, 'audio live after rejoin');
   }
+  await a.context().close(); await b.context().close();
+});
+
+// Each side has exactly one peer, its ICE is up now, and its audio is live.
+const callUp = async p => (await p.evaluate(() => Object.values(pcs).length == 1 && Object.values(pcs)[0].iceUp())) && (await liveRemoteAudio(p)) === 1;
+
+test('network switch: ICE and socket lost together, the call comes back', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', trackPcs);
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  for (const p of [a, b]) await p.evaluate(() => Object.values(pcs)[0].mappedEvents.close = []); // a lost network sends no goodbye
+  await a.evaluate(() => { __raw[0].close(); socket.io.engine.close(); }); // old network gone: no ICE, socket drops and reconnects
+  for (const p of [a, b]) await waitFor(() => callUp(p), 'call up again', 30000);
+  await a.context().close(); await b.context().close();
+});
+
+test('signaling uses the socket while it is up, even if the data channel reads open', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
+  await b.evaluate(() => { const pc = Object.values(pcs)[0], send = pc.send; pc.send = m => m.signaling ? true : send(m); }); // one-way outage: bob's sends get lost
+  await a.click('#addRemoveCameraBtn');
+  await b.click('#addRemoveCameraBtn');
+  await waitFor(async () => (await remoteVideoShown(a)) && (await remoteVideoShown(b)), 'video both ways');
+  await a.context().close(); await b.context().close();
+});
+
+test('crashed peer (no goodbye) is removed once the server notices', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  const cdp = await b.context().newCDPSession(b);
+  cdp.send('Page.crash').catch(() => { }); // never resolves: the renderer is gone
+  await waitFor(async () => (await a.locator('#mediaDiv .videoplaceholder').count()) === 1, 'tile removed', 30000);
   await a.context().close(); await b.context().close();
 });
 
@@ -407,7 +451,6 @@ const iptables = args => require('child_process').execSync('iptables ' + args);
 
 test('call recovers after the direct P2P path drops for a while', { skip: !canDropUdp && 'needs root + iptables' }, async () => {
   const room = 'r' + Date.now();
-  const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
   const a = await join(room, 'alice', trackPcs);
   const b = await join(room, 'bob', trackPcs);
   const iceUp = p => p.evaluate(() => __raw.some(x => ['connected', 'completed'].includes(x.iceConnectionState)));

@@ -110,6 +110,7 @@ socket.on("API_VERSION", function (serverAPI_VERSION) {
 
 socket.on("signaling", function (data) {
   var fromUUID = data.fromUUID;
+  if (data.signalingData == "reset") return removePeer(fromUUID);
   if (!pcs[fromUUID]) {
     createRemoteSocket(false, fromUUID)
   }
@@ -135,14 +136,19 @@ function setAudioLevel(UUID, level) {
   }
 }
 
-// Only the peer's socket is gone: a connected peer stays until its data channel closes.
-socket.on("userDiscconected", UUID => pcs[UUID] && !pcs[UUID].isConnected && removePeer(UUID))
+// Peer left the server: keep the call while ICE is up, drop it once ICE goes down (crash, lost network).
+socket.on("userDiscconected", function (UUID) {
+  if (!pcs[UUID]) return;
+  if (pcs[UUID].iceUp()) pcs[UUID].left = true;
+  else removePeer(UUID);
+})
 
-// Every (re)connect registers and joins again; connected peers are kept.
+// Every (re)connect registers and joins again; peers with live ICE are kept, the rest rebuilt by the rejoin.
 socket.on("connect", function () {
   socket.emit("registerUUID", { "UUID": MY_UUID, "UUID_KEY": MY_UUID_KEY }, async function (err) {
     if (err) return console.log(err);
     await mediaReady;
+    for (const id in pcs) if (!pcs[id].iceUp()) removePeer(id);
     joinRoom();
     setStatus(MY_UUID, "");
   })
@@ -330,20 +336,28 @@ $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end sc
 }
 
 //This is where the WEBRTC Magic happens!!!
-function createRemoteSocket(initiator, UUID) {
-  if (pcs[UUID] && pcs[UUID].isConnected) return; // same user rejoined the server, call still up: keep it
+function createRemoteSocket(initiator, UUID, force) {
+  if (pcs[UUID] && pcs[UUID].iceUp() && !force) { // same user rejoined the server: keep the call if the peer still answers on it
+    const old = pcs[UUID];
+    old.left = old.pong = false;
+    old.send({ ping: true });
+    return setTimeout(() => pcs[UUID] === old && !old.pong && createRemoteSocket(initiator, UUID, true), 2000);
+  }
+  if (initiator) socket.emit("signaling", { destUUID: UUID, signalingData: "reset" }); // peer drops any old pc before our offer
   if (pcs[UUID]) removePeer(UUID); // same user rejoined: start over
   var pc = pcs[UUID] = new initEzWebRTC(initiator, webRTCConfig);
   if (allUserStreams[MY_UUID]["videostream"]) pc.addStream(allUserStreams[MY_UUID]["videostream"]);
   pc.on("signaling", function (data) {
-    // Data channel only while ICE is up: during an outage it can still read "open" but nothing gets through (ICE restart needs the socket).
-    if (!(pc.iceUp() && pc.send({ signaling: data }))) socket.emit("signaling", { destUUID: UUID, signalingData: data })
+    // Socket first: one ordered path, and a data channel can read "open" while nothing gets through. Channel only without a server.
+    if (socket.connected) socket.emit("signaling", { destUUID: UUID, signalingData: data });
+    else pc.send({ signaling: data });
   })
   allUserStreams[UUID] = allUserStreams[UUID] || {}; // show the tile right away, with its status
   allUserStreams[UUID]["status"] = "connecting…";
   updateUserLayout();
   pc.on("icestate", function (state) {
     if (pcs[UUID] !== pc) return; // already removed
+    if (pc.left && !pc.iceUp()) return removePeer(UUID); // gone from the server and from ICE
     setStatus(UUID, ["connected", "completed"].includes(state) ? "" : pc.isConnected ? "reconnecting…" : "connecting…");
   });
   pc.on("close", () => pcs[UUID] === pc && removePeer(UUID)); // peer left (or closed its connection)
@@ -355,8 +369,10 @@ function createRemoteSocket(initiator, UUID) {
       updateUserLayout();
     }
     if (typeof msg.audioLvl == "number") setAudioLevel(UUID, msg.audioLvl);
-    if (typeof msg.chat == "string") showMsg(nameOf(UUID), msg.chat);
+    if (typeof msg.chat == "string") showMsg(nameOf(UUID), msg.chat.slice(0, 2000));
     if (msg.bye) removePeer(UUID);
+    if (msg.ping) pc.send({ pong: true });
+    if (msg.pong) pc.pong = true;
     if (msg.signaling) pc.signaling(msg.signaling).catch(e => console.log("signaling error", e));
   });
   pc.on("stream", function (stream) {

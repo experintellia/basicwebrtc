@@ -30,7 +30,7 @@ function initEzWebRTC(initiator, config) {
     var dc = pc.createDataChannel("data", { negotiated: true, id: 0 });
     dc.onopen = () => _this.emitEvent("open");
     dc.onclose = () => _this.emitEvent("close");
-    dc.onmessage = e => { try { var msg = JSON.parse(e.data) } catch (err) { return } _this.emitEvent("message", msg) };
+    dc.onmessage = e => { try { var msg = JSON.parse(e.data) } catch (err) { return } if (msg && typeof msg == "object") _this.emitEvent("message", msg) };
     this.send = obj => dc.readyState == "open" && (dc.send(JSON.stringify(obj)), true); // false: not open (yet)
     this.iceUp = () => pc.iceConnectionState == "connected" || pc.iceConnectionState == "completed";
 
