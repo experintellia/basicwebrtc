@@ -88,17 +88,10 @@ function initEzWebRTC(initiator, config) {
             negotiate();
         } else if (signalData && signalData.type == "offer") { //Got an offer -> Create Answer)
             _this.gotOffer = true;
-            if (pc.signalingState != "stable") { //If not stable ask for renegotiation
-                await Promise.all([
-                    pc.setLocalDescription({ type: "rollback" }), //Be polite
-                    await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData))
-                ]);
-            } else {
-                await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData))
-            }
+            await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData)) //only the answerer gets offers; have-remote-offer -> have-remote-offer is valid
             await pc.setLocalDescription(await pc.createAnswer(rtcConfig.offerOptions));
             var a_desc = pc.localDescription; //sdp is readonly per spec: send a munged copy
-            _this.emitEvent("signaling", { type: a_desc.type, sdp: opusParams(removeDoubleSSRC(a_desc.sdp)) })
+            _this.emitEvent("signaling", { type: a_desc.type, sdp: opusParams(a_desc.sdp) })
             if (!initiator)
                 requestMissingTransceivers()
         } else if (signalData && signalData.type == "answer" && initiator) { //Initiator: Setting answer and starting connection
@@ -140,6 +133,14 @@ function initEzWebRTC(initiator, config) {
         delete trackSenders[oldTrack.id];
         trackSenders[newTrack.id] = sender;
         sender.replaceTrack(newTrack).catch(e => console.log("replaceTrack Error", e)); //e.g. closed pc
+    }
+
+    this.setDegradation = function (track, pref) { //What the encoder gives up under load, without renegotiation
+        var sender = trackSenders[track.id];
+        if (!sender) return;
+        var params = sender.getParameters();
+        params.degradationPreference = pref;
+        sender.setParameters(params).catch(e => console.log("setParameters Error", e));
     }
 
     this.addTransceiver = function (kind, init) {
@@ -229,34 +230,6 @@ function initEzWebRTC(initiator, config) {
     return this;
 }
 
-function removeDoubleSSRC(sdp) {
-    var lineSplit = sdp.split("\n");
-    var mediaWithSSRC = null;
-    var mediaCnt = 0;
-    var readyToRemove = false;
-    var res = [];
-    for (var i in lineSplit) {
-        if (lineSplit[i].startsWith("m=")) { //find the video line
-            mediaCnt++;
-        }
-        if (lineSplit[i].startsWith("a=ssrc")) { //find the video line
-            if (!mediaWithSSRC) {
-                mediaWithSSRC = mediaCnt;
-            }
-            if (mediaWithSSRC < mediaCnt) {
-                readyToRemove = true;
-            }
-        }
-        if (readyToRemove && lineSplit[i].startsWith("a=ssrc")) {
-            //Do nothing
-        } else {
-            res.push(lineSplit[i]);
-        }
-    }
-    return res.join("\n");
-}
-
-// Ask the sender for Opus DTX (near-silent when quiet/muted) and in-band FEC; fmtp is the receiver's wish.
 function opusParams(sdp) {
     var pt = (sdp.match(/a=rtpmap:(\d+) opus\//i) || [])[1];
     if (!pt) return sdp;
