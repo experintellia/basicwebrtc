@@ -460,6 +460,7 @@ test('URL params: exact keys, no double #, stray % does not break the page', asy
   assert.match(await a.evaluate(() => location.hash), /^#username=bob&roomname=r\d+$/);
   assert.deepStrictEqual(await a.evaluate(() => [username, getUrlParam('roomname', 'unknown') == roomname]), ['bob', true]);
   await a.goto(`${BASE}#roomname=camonday`);
+  await a.reload(); // a hash-only goto doesn't reload the page
   assert.strictEqual(await a.evaluate(() => camOnAtStart), false);
   await a.goto(`${BASE}#roomname=100%&username=50%`);
   await a.reload();
