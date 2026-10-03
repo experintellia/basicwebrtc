@@ -186,3 +186,25 @@ test('joinRoom before registerUUID is ignored', async () => {
   ghost.emit('joinRoom', { roomname: 'room-u', username: 'g' });
   await assert.rejects(got, 'no peer connection for a null UUID');
 });
+
+test('Object.prototype names are ordinary UUIDs', async () => {
+  // Held by a real owner, the key must not be guessable from Object.prototype.
+  assert.strictEqual((await client('__proto__')).err, null);
+  assert.ok((await client('__proto__', '[object Object]')).err);
+  assert.strictEqual((await client('constructor')).err, null);
+  assert.ok((await client('constructor', 'function Object() { [native code] }')).err);
+  assert.strictEqual((await client('hasOwnProperty')).err, null);
+  assert.strictEqual((await client('toString')).err, null);
+});
+
+test('signaling from an unregistered socket is ignored', async () => {
+  const a = await client('U2');
+  await join(a, 'room-u2');
+  const ghost = io(URL, { transports: ['websocket'], reconnection: false });
+  clients.push(ghost);
+  await new Promise(r => ghost.on('connect', r));
+  const got = nextEvent(a.c, 'signaling', 300);
+  ghost.emit('joinRoom', { roomname: 'room-u2', username: 'g' });
+  ghost.emit('signaling', { destUUID: 'U2', signalingData: 'hi' });
+  await assert.rejects(got);
+});
