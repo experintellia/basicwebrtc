@@ -71,14 +71,16 @@ function initEzWebRTC(initiator, config) {
                 _this.isConnected = true;
                 _this.emitEvent("connect", true)
             }
-        } else if (pc.iceConnectionState == 'disconnected') {
-            setTimeout(function () { //give it a few seconds to come back on its own
-                if (pc.iceConnectionState == "disconnected" && initiator) restartIce();
+        } else if (["disconnected", "failed"].includes(pc.iceConnectionState) && initiator && !retrying) {
+            retrying = true;
+            setTimeout(function retry() { //give it a few seconds to come back on its own, then keep restarting until it does
+                if (!["disconnected", "failed"].includes(pc.iceConnectionState)) return retrying = false;
+                restartIce();
+                setTimeout(retry, 5000); //one restart can fail while the path is still down, without any further state change (#22)
             }, 3000);
-        } else if (pc.iceConnectionState == 'failed' && initiator) {
-            restartIce();
         }
     };
+    var retrying = false;
 
     function restartIce() {
         pc.restartIce(); //before the rollback, whose negotiationneeded may already create the next offer
