@@ -647,3 +647,81 @@ test('all call buttons fit on screen from phone to small desktop widths', async 
     await ctx.close();
   }
 });
+
+// #26: local media state
+const noCamera = () => { const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); navigator.mediaDevices.getUserMedia = c => c.video ? Promise.reject(new DOMException('no camera', 'NotFoundError')) : gum(c); };
+const liveVideoLeft = page => page.evaluate(() => __streams.flatMap(s => s.getVideoTracks()).filter(t => t.readyState == 'live').length);
+const slowMedia = () => { // records every stream handed out; camera and screen take 500ms
+  const md = navigator.mediaDevices, gum = md.getUserMedia.bind(md), gdm = md.getDisplayMedia.bind(md);
+  window.__streams = [];
+  const slow = f => async c => { const s = await f(c); if (c.video) await new Promise(r => setTimeout(r, 500)); __streams.push(s); return s; };
+  md.getUserMedia = slow(gum); md.getDisplayMedia = slow(gdm);
+};
+
+test('camon=1 without a working camera still joins with audio', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', noCamera, '?camon=1');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await liveRemoteAudio(b)) === 1, 'alice heard by bob');
+  await a.context().close(); await b.context().close();
+});
+
+test('rapid camera/screen clicks leave no live stream behind', async () => {
+  const a = await join('r' + Date.now(), 'alice', slowMedia);
+  await waitFor(() => a.evaluate(() => !!allUserStreams[MY_UUID].audiostream), 'mic ready');
+  await a.click('#addRemoveCameraBtn'); await a.click('#addRemoveCameraBtn'); // double click
+  await waitFor(() => a.evaluate(() => camActive), 'camera on');
+  await new Promise(r => setTimeout(r, 1000));
+  await a.click('#addRemoveCameraBtn');
+  assert.strictEqual(await liveVideoLeft(a), 0, 'double click');
+  await a.click('#addRemoveScreenBtn'); await a.click('#addRemoveCameraBtn'); // camera while the screen picker is open
+  await new Promise(r => setTimeout(r, 1500));
+  assert.ok(!(await a.evaluate(() => camActive && screenActive)), 'not both active');
+  await a.evaluate(() => (camActive || screenActive) && stopVideo());
+  assert.strictEqual(await liveVideoLeft(a), 0, 'camera during screen picker');
+  await a.context().close();
+});
+
+test('cancelling the screen picker keeps the camera', async () => {
+  const a = await join('r' + Date.now(), 'alice', () => { navigator.mediaDevices.getDisplayMedia = () => Promise.reject(new DOMException('cancelled', 'NotAllowedError')); });
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => a.evaluate(() => camActive), 'camera on');
+  await a.click('#addRemoveScreenBtn');
+  await new Promise(r => setTimeout(r, 300));
+  assert.ok(await a.evaluate(() => camActive && allUserStreams[MY_UUID].videostream.getVideoTracks()[0].readyState == 'live'));
+  await a.context().close();
+});
+
+test('unplugged camera turns the camera off', async () => {
+  const a = await join('r' + Date.now(), 'alice');
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => a.evaluate(() => camActive), 'camera on');
+  await a.evaluate(() => allUserStreams[MY_UUID].videostream.getVideoTracks()[0].dispatchEvent(new Event('ended')));
+  assert.deepStrictEqual(await a.evaluate(() => [camActive, !!allUserStreams[MY_UUID].videostream, $('#addRemoveCameraBtn').style.color]), [false, false, 'black']);
+  await a.context().close();
+});
+
+test('hang up releases mic, camera and socket right away, once', async () => {
+  const a = await join('r' + Date.now(), 'alice');
+  await waitFor(() => a.evaluate(() => !!allUserStreams[MY_UUID].audiostream), 'mic ready');
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => a.evaluate(() => camActive), 'camera on');
+  await a.evaluate(() => { window.__tracks = [allUserStreams[MY_UUID].audiostream, allUserStreams[MY_UUID].videostream].flatMap(s => s.getTracks()); });
+  await a.evaluate(() => { $('#cancelCallBtn').click(); $('#cancelCallBtn').click(); });
+  assert.deepStrictEqual(await a.evaluate(() => [__tracks.map(t => t.readyState).join(), socket.disconnected, document.querySelectorAll('#topDiv').length]), ['ended,ended', true, 1]);
+  await a.context().close();
+});
+
+test('mic denied shows a message and "Try again" joins once allowed', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', () => {
+    const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = c => c.audio && !sessionStorage.micOk ? Promise.reject(new DOMException('denied', 'NotAllowedError')) : gum(c);
+  });
+  await waitFor(() => a.locator('#micError').isVisible(), 'message shown');
+  await a.evaluate(() => sessionStorage.micOk = 1); // user allows the mic
+  await a.click('#micError button');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await liveRemoteAudio(b)) === 1, 'alice heard by bob');
+  await a.context().close(); await b.context().close();
+});
