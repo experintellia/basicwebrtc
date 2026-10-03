@@ -476,7 +476,13 @@ function updateUserLayout() {
           </div>
         </div>`));
       userDiv.querySelector(".userName").textContent = name ? name.charAt(0).toUpperCase() + name.slice(1) : i.substr(0, 2).toUpperCase();
-      const video = userDiv.querySelector("video");
+      let video = userDiv.querySelector("video");
+      const old = [...document.querySelectorAll("#mediaDiv video")].find(v => v.srcObject == userStream["videostream"]);
+      if (old) { // reuse the element: replacing it would close picture-in-picture
+        old.style.transform = video.style.transform;
+        video.replaceWith(old);
+        video = old;
+      }
       video.srcObject = userStream["videostream"];
       userDiv.querySelector(".userPlaceholderContainer").hidden = true;
 
