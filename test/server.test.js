@@ -138,7 +138,7 @@ test('a second joinRoom cannot switch rooms', async () => {
   a.c.emit('joinRoom', { roomname: 'room-w2', username: 'mallory' });
   const echo = nextEvent(a.c, 'msg');
   a.c.emit('sendMsg', 'leak');
-  assert.strictEqual(await echo, 'u: leak', 'name unchanged');
+  assert.deepStrictEqual(await echo, { name: 'u', msg: 'leak' }, 'name unchanged');
   await new Promise(r => setTimeout(r, 200)); // nothing to wait for: asserting something does not arrive
   assert.deepStrictEqual(seen, []);
 });
@@ -149,4 +149,31 @@ test('an empty room name still allows signaling', async () => {
   const got = nextEvent(b.c, 'signaling');
   a.c.emit('signaling', { destUUID: 'E2', signalingData: 'hi' });
   assert.strictEqual((await got).signalingData, 'hi');
+});
+
+test('setName renames for chat and peers; junk payloads do not crash the server', async () => {
+  const a = await client('N1'), b = await client('N2');
+  await join(a, 'room-n', 'alice'); await join(b, 'room-n');
+  a.c.emit('setName', { toString: 1 });
+  a.c.emit('joinRoom', { roomname: { toString: 1 } }); // already joined: ignored, but must not throw either
+  const renamed = nextEvent(b.c, 'userName');
+  a.c.emit('setName', 'zoe');
+  assert.deepStrictEqual(await renamed, { fromUUID: 'N1', username: 'zoe' });
+  const msg = nextEvent(b.c, 'msg');
+  a.c.emit('sendMsg', 'hi');
+  assert.deepStrictEqual(await msg, { name: 'zoe', msg: 'hi' });
+  const c = await client('N3');
+  c.c.emit('joinRoom', { roomname: { toString: 1 }, username: { toString: 1 } });
+  await join(c, 'room-n'); // server still alive and c can still join
+});
+
+test('joinRoom before registerUUID is ignored', async () => {
+  const a = await client('U1');
+  await join(a, 'room-u');
+  const ghost = io(URL, { transports: ['websocket'], reconnection: false });
+  clients.push(ghost);
+  await new Promise(r => ghost.on('connect', r));
+  const got = nextEvent(a.c, 'userJoined', 300);
+  ghost.emit('joinRoom', { roomname: 'room-u', username: 'g' });
+  await assert.rejects(got, 'no peer connection for a null UUID');
 });
