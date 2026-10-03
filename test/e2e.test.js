@@ -451,6 +451,23 @@ test('rename keeps other URL params byte-identical and cannot switch them on', a
   await ctx.close();
 });
 
+test('URL params: exact keys, no double #, stray % does not break the page', async () => {
+  const ctx = await browser.newContext();
+  const a = await ctx.newPage();
+  const errors = [];
+  a.on('pageerror', e => errors.push(e.message));
+  await a.goto(`${BASE}#username=bob`); // no roomname: one gets added with &, not a second #
+  assert.match(await a.evaluate(() => location.hash), /^#username=bob&roomname=r\d+$/);
+  assert.deepStrictEqual(await a.evaluate(() => [username, getUrlParam('roomname', 'unknown') == roomname]), ['bob', true]);
+  await a.goto(`${BASE}#roomname=camonday`);
+  assert.strictEqual(await a.evaluate(() => camOnAtStart), false);
+  await a.goto(`${BASE}#roomname=100%&username=50%`);
+  await a.reload();
+  assert.deepStrictEqual(await a.evaluate(() => [getUrlParam('roomname'), username]), ['100%', '50%']);
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+
 test('share falls back to a copy dialog when Web Share fails', async () => {
   const a = await join('r' + Date.now(), 'alice', () => { navigator.share = () => Promise.reject(new DOMException('no', 'NotAllowedError')); });
   await a.click('#moreBtn'); await a.click('#shareBtn');
