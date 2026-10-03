@@ -74,7 +74,23 @@ test('two peers connect and exchange audio', async () => {
 
 // Status text on a remote peer's tile ("" when connected).
 const peerStatus = page => page.evaluate(() =>
-  [...document.querySelectorAll('#mediaDiv .peerStatus')].map(e => e.textContent).join('|'));
+  [...document.querySelectorAll('#mediaDiv .peerStatus')].filter(e => e.parentElement.id != MY_UUID).map(e => e.textContent).join('|'));
+const selfStatus = page => page.evaluate(() => byId(MY_UUID)?.querySelector('.peerStatus')?.textContent);
+
+test('own tile shows "connecting…" until joined and "reconnecting…" while the server is gone', async () => {
+  const ctx = await browser.newContext();
+  await ctx.route('**/socket.io/**', r => r.abort()); // server unreachable
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=r${Date.now()}&username=alice`);
+  await waitFor(async () => (await selfStatus(a)) === 'connecting…', 'connecting shown');
+  await ctx.unroute('**/socket.io/**');
+  await waitFor(async () => (await selfStatus(a)) === '', 'status cleared after join');
+  await a.evaluate(() => socket.disconnect());
+  await waitFor(async () => (await selfStatus(a)) === 'reconnecting…', 'reconnecting shown');
+  await a.evaluate(() => socket.connect());
+  await waitFor(async () => (await selfStatus(a)) === '', 'status cleared after rejoin');
+  await ctx.close();
+});
 
 test('peer tile shows "connecting" until ICE is up, then nothing', async () => {
   const room = 'r' + Date.now();
