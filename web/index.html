@@ -17,8 +17,9 @@
   <div id="unsupported">Your browser can't do video calls. Please update to a current Chrome, Firefox, Edge or Safari, and open this page via https.</div>
   <div id="micError" hidden>Could not get your microphone. Allow access to it, then <button onclick="location.reload()">Try again</button></div>
   <div id="mediaDiv"></div>
+  <div id="knocks"></div>
   <form id="lobby" hidden>
-    <p>Check your mic and camera, then join.</p>
+    <p id="lobbyMsg">Check your mic and camera, then join.</p>
     <input id="nameInput" placeholder="Your name" maxlength="64" aria-label="your name" autocomplete="nickname">
     <button id="joinBtn">Join</button>
   </form>
@@ -56,6 +57,7 @@
         <div id="moreMenu" hidden>
           <button id="addRemoveChatBtn"><i class="far fa-comment-dots"></i> Chat</button>
           <button id="changeNameBtn"><i class="fas fa-user-edit"></i> Change name</button>
+          <button id="lockBtn"><i class="fas fa-lock"></i> Lock room</button>
           <button id="shareBtn"><i class="fas fa-share-alt"></i> Share link</button>
         </div>
       </div>
