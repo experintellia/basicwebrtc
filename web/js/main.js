@@ -171,14 +171,14 @@ var mediaReady = (async function () {
   updateUserLayout();
   try {
     if (camOnAtStart) { // ask for both permissions at once
-      (await navigator.mediaDevices.getUserMedia({ video: true, audio: true })).getTracks().forEach(t => t.stop());
+      (await navigator.mediaDevices.getUserMedia({ video: true, audio: true }).catch(() => null))?.getTracks().forEach(t => t.stop()); // no camera: still join with the mic
     }
     var stream = await navigator.mediaDevices.getUserMedia({
       video: false,
       audio: { 'echoCancellation': true, 'noiseSuppression': true }
     });
   } catch (error) {
-    alert("Could not get your Mic! You need at least one Mic!")
+    $("#micError").hidden = false;
     console.log('getUserMedia error! Got this error: ', error);
     return new Promise(() => { }); // never join without a mic
   }
@@ -224,22 +224,28 @@ function sendMsg() {
   $("#chatInputText").value = "";
 }
 
-$("#addRemoveScreenBtn").onclick = async function () {
-  if (camActive) await toggleCamera();
+var mediaBusy = false; // one camera/screen change at a time: an overlapping one would leak a live stream
+async function exclusive(fn) {
+  if (mediaBusy) return;
+  mediaBusy = true;
+  try { await fn(); } finally { mediaBusy = false; }
+}
+
+$("#addRemoveScreenBtn").onclick = () => exclusive(async function () {
   if (screenActive) return stopVideo();
   try {
     var stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
   } catch (e) {
     console.log('getDisplayMedia error! Got this error: ', e);
-    alert("Could not get your Screen!")
+    if (e.name != "NotAllowedError") alert("Could not get your Screen!"); // NotAllowedError = picker cancelled
     return;
   }
+  if (camActive) stopVideo(); // only now: a cancelled picker keeps the camera
   screenActive = true;
-  stream.getVideoTracks()[0].onended = () => screenActive && stopVideo(); // browser's "Stop sharing" bar
   startVideo(stream, $("#addRemoveScreenBtn"));
   applyScreenMode();
   $("#screenModeBtn").hidden = false;
-}
+});
 
 $("#screenModeBtn").onclick = function () {
   screenMotion = !screenMotion;
@@ -269,6 +275,7 @@ $("#cameraSelect").onchange = async function () {
   try {
     var newTrack = (await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: selectedCameraId } } })).getVideoTracks()[0];
     if (!camActive) return newTrack.stop(); //camera was turned off meanwhile
+    newTrack.onended = oldTrack.onended;
     for (var i in pcs) pcs[i].replaceTrack(oldTrack, newTrack);
     stream.removeTrack(oldTrack);
     stream.addTrack(newTrack);
@@ -284,24 +291,27 @@ $("#cameraSelect").onchange = async function () {
   }
 }
 
-async function toggleCamera() {
-  if (screenActive) stopVideo();
-  if (camActive) return stopVideo();
-  try {
-    var stream = await navigator.mediaDevices.getUserMedia({ video: selectedCameraId ? { deviceId: { exact: selectedCameraId } } : { 'facingMode': "user" }, audio: false });
-  } catch (error) {
-    alert("Could not get your Camera! Be sure you have one connected and it is not used by any other process!")
-    console.log('getUserMedia error! Got this error: ', error);
-    return;
-  }
-  selectedCameraId = stream.getVideoTracks()[0].getSettings().deviceId || selectedCameraId;
-  updateCameraList(); //Labels are only available after permission is granted
-  camActive = true;
-  startVideo(stream, $("#addRemoveCameraBtn"));
+function toggleCamera() {
+  return exclusive(async function () {
+    if (screenActive) stopVideo();
+    if (camActive) return stopVideo();
+    try {
+      var stream = await navigator.mediaDevices.getUserMedia({ video: selectedCameraId ? { deviceId: { exact: selectedCameraId } } : { 'facingMode': "user" }, audio: false });
+    } catch (error) {
+      alert("Could not get your Camera! Be sure you have one connected and it is not used by any other process!")
+      console.log('getUserMedia error! Got this error: ', error);
+      return;
+    }
+    selectedCameraId = stream.getVideoTracks()[0].getSettings().deviceId || selectedCameraId;
+    updateCameraList(); //Labels are only available after permission is granted
+    camActive = true;
+    startVideo(stream, $("#addRemoveCameraBtn"));
+  });
 }
 
 function startVideo(stream, btn) {
   btn.style.color = "#030356";
+  stream.getVideoTracks()[0].onended = () => allUserStreams[MY_UUID]["videostream"] == stream && stopVideo(); // unplugged camera, browser's "Stop sharing" bar
   for (var i in pcs) pcs[i].addStream(stream); //Add stream to all peers
   allUserStreams[MY_UUID] = allUserStreams[MY_UUID] || {};
   allUserStreams[MY_UUID]["videostream"] = stream;
@@ -350,6 +360,9 @@ $("#copyLinkBtn").onclick = function () {
 $("#shareDialog").onclose = () => $("#copyLinkBtn").innerHTML = '<i class="far fa-copy"></i> Copy';
 
 $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end screen
+  this.onclick = null;
+  for (const s of [webRTCConfig["stream"], allUserStreams[MY_UUID]["videostream"]]) s?.getTracks().forEach(t => t.stop());
+  socket.disconnect();
   document.body.insertAdjacentHTML("beforeend", '<div id="topDiv"></div><div id="bottomDiv"></div>');
   setTimeout(() => document.body.insertAdjacentHTML("beforeend", '<div id="centerDiv"></div>'), 500);
   setTimeout(() => location = "./endcall.html", 1400);
