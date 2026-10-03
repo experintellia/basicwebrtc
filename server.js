@@ -9,7 +9,7 @@ const HTTP_PORT = parseInt(process.env.listen_port) > 0 ? parseInt(process.env.l
 const HTTP_IP = process.env.listen_ip ? process.env.listen_ip : "0.0.0.0";
 
 //Define API Version
-const API_VERSION = 1.2;
+const API_VERSION = 1.3;
 
 //Get dummy cert files for https
 var fs = require('fs');
@@ -92,22 +92,27 @@ ioServer.sockets.on('connection', function (socket) {
     });
 
     socket.on("joinRoom", function (content) {
-        if (!content || typeof content != "object" || roomOfUser !== null) return; // one room per connection
-        roomOfUser = socket.data.room = String(content["roomname"] || "").slice(0, 64);
-        nameOfUser = String(content["username"] || "").slice(0, 64);
+        if (!MY_UUID || !content || typeof content != "object" || roomOfUser !== null) return; // registered first, one room per connection
+        const str = v => typeof v == "string" ? v : ""; // String() of an object can throw and kill the server
+        roomOfUser = socket.data.room = str(content["roomname"]).slice(0, 64);
+        nameOfUser = str(content["username"]).slice(0, 64);
         socket.to(roomOfUser).emit('userJoined', { UUID: MY_UUID });
         console.log("joinRoom", roomOfUser, MY_UUID);
         socket.join(roomOfUser);
     })
 
+    socket.on("setName", function (name) {
+        if (typeof name != "string") return;
+        nameOfUser = name.slice(0, 64);
+        if (roomOfUser !== null) socket.to(roomOfUser).emit('userName', { fromUUID: MY_UUID, username: nameOfUser });
+    });
+
     socket.on("sendMsg", function (msg) {
         if (typeof (msg) == "string") {
             if (msg != "") {
-                if (nameOfUser != "" && nameOfUser != "NA") {
-                    msg = nameOfUser + ': ' + msg;
-                }
-                socket.to(roomOfUser).emit('msg', msg);
-                socket.emit('msg', msg);
+                const name = nameOfUser != "NA" ? nameOfUser : "";
+                socket.to(roomOfUser).emit('msg', { name, msg });
+                socket.emit('msg', { name, msg });
             }
         }
     });
