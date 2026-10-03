@@ -61,7 +61,6 @@ ioServer.sockets.on('connection', function (socket) {
     socket.emit('API_VERSION', API_VERSION);
 
     let roomOfUser = null;
-    let nameOfUser = "NA";
     let MY_UUID = null;
     console.log("NEW USER!");
 
@@ -77,7 +76,7 @@ ioServer.sockets.on('connection', function (socket) {
             const alreadyRegistred = registerdUUIDs[UUID] === UUID_KEY;
             registerdUUIDs[UUID] = UUID_KEY;
             socketID_UUIDMatch[UUID] = socket.id;
-            MY_UUID = UUID;
+            MY_UUID = socket.data.uuid = UUID;
             callback(null, alreadyRegistred);
         } else {
             callback("UUID_KEY was not correct!")
@@ -91,35 +90,17 @@ ioServer.sockets.on('connection', function (socket) {
         delete socketID_UUIDMatch[MY_UUID];
     });
 
-    socket.on("joinRoom", function (content) {
+    socket.on("joinRoom", function (content, callback) {
         if (!MY_UUID || !content || typeof content != "object" || roomOfUser !== null) return; // registered first, one room per connection
         const str = v => typeof v == "string" ? v : ""; // String() of an object can throw and kill the server
         roomOfUser = socket.data.room = str(content["roomname"]).slice(0, 64);
-        nameOfUser = str(content["username"]).slice(0, 64);
-        socket.to(roomOfUser).emit('userJoined', { UUID: MY_UUID });
+        const keep = Array.isArray(content["keep"]) ? content["keep"].filter(k => typeof k == "string").slice(0, 8) : []; // peers a rejoining page still has a live call with
+        socket.to(roomOfUser).emit('userJoined', { UUID: MY_UUID, keep });
+        const members = [...(ioServer.sockets.adapter.rooms.get(roomOfUser) || [])].map(id => ioServer.sockets.sockets.get(id)?.data.uuid);
+        if (typeof callback == "function") callback(members); // who is in the room, so a rejoining page can resync
         console.log("joinRoom", roomOfUser, MY_UUID);
         socket.join(roomOfUser);
     })
-
-    socket.on("setName", function (name) {
-        if (typeof name != "string") return;
-        nameOfUser = name.slice(0, 64);
-        if (roomOfUser !== null) socket.to(roomOfUser).emit('userName', { fromUUID: MY_UUID, username: nameOfUser });
-    });
-
-    socket.on("sendMsg", function (msg) {
-        if (typeof (msg) == "string") {
-            if (msg != "") {
-                const name = nameOfUser != "NA" ? nameOfUser : "";
-                socket.to(roomOfUser).emit('msg', { name, msg });
-                socket.emit('msg', { name, msg });
-            }
-        }
-    });
-
-    socket.on("currentAudioLvl", function (currentAudioLvl) {
-        socket.to(roomOfUser).emit('currentAudioLvl', { currentAudioLvl: currentAudioLvl, fromUUID: MY_UUID });
-    });
 
     socket.on("signaling", function (content) {
         if (!content || typeof content != "object" || roomOfUser === null) return;
@@ -127,7 +108,7 @@ ioServer.sockets.on('connection', function (socket) {
         var signalingData = content.signalingData;
         if (ioServer.sockets.sockets.get(destSocketId)?.data.room !== roomOfUser) return; // same room only
 
-        ioServer.to(destSocketId).emit('signaling', { signalingData: signalingData, fromUUID: MY_UUID, username: nameOfUser });
+        ioServer.to(destSocketId).emit('signaling', { signalingData: signalingData, fromUUID: MY_UUID }); // chat, names etc. go peer-to-peer
     });
 
     //Return the current iceServers
