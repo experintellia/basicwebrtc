@@ -97,9 +97,8 @@ function initEzWebRTC(initiator, config) {
                 await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData))
             }
             await pc.setLocalDescription(await pc.createAnswer(rtcConfig.offerOptions));
-            var a_desc = pc.localDescription;
-            a_desc.sdp = opusParams(removeDoubleSSRC(a_desc.sdp));
-            _this.emitEvent("signaling", a_desc)
+            var a_desc = pc.localDescription; //sdp is readonly per spec: send a munged copy
+            _this.emitEvent("signaling", { type: a_desc.type, sdp: opusParams(removeDoubleSSRC(a_desc.sdp)) })
             if (!initiator)
                 requestMissingTransceivers()
         } else if (signalData && signalData.type == "answer" && initiator) { //Initiator: Setting answer and starting connection
@@ -192,8 +191,7 @@ function initEzWebRTC(initiator, config) {
                 return console.log("offer error", e);
             }
             var o_desc = pc.localDescription;
-            o_desc.sdp = opusParams(o_desc.sdp);
-            _this.emitEvent("signaling", o_desc)
+            _this.emitEvent("signaling", { type: o_desc.type, sdp: opusParams(o_desc.sdp) })
         } else if (_this.gotOffer) { //Dont send renegotiate req before getting at least one offer
             _this.emitEvent("signaling", "renegotiate");
         }
@@ -262,7 +260,7 @@ function removeDoubleSSRC(sdp) {
 function opusParams(sdp) {
     var pt = (sdp.match(/a=rtpmap:(\d+) opus\//i) || [])[1];
     if (!pt) return sdp;
-    return sdp.replace(new RegExp("(a=fmtp:" + pt + " [^\\r\\n]*)"), function (line) {
+    return sdp.replace(new RegExp("(a=fmtp:" + pt + " [^\\r\\n]*)", "g"), function (line) {
         if (!/usedtx=/.test(line)) line += ";usedtx=1";
         if (!/useinbandfec=/.test(line)) line += ";useinbandfec=1";
         return line;

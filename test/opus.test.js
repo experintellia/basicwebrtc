@@ -13,3 +13,8 @@ test('opusParams leaves the SDP unchanged if the params are already there', () =
   const sdp = 'a=rtpmap:111 opus/48000/2\r\na=fmtp:111 minptime=10;useinbandfec=1;usedtx=1\r\n';
   assert.strictEqual(ctx.opusParams(sdp), sdp);
 });
+
+test('opusParams patches every audio section (bundled sections share the opus PT)', () => {
+  const sdp = 'm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\na=fmtp:111 minptime=10\r\n'.repeat(2);
+  assert.strictEqual(ctx.opusParams(sdp), sdp.replaceAll('minptime=10', 'minptime=10;usedtx=1;useinbandfec=1'));
+});

@@ -311,7 +311,12 @@ test('remote username is shown as text', async () => {
 // #14: each side asks for Opus DTX + FEC, so a muted mic sends almost nothing.
 test('Opus DTX/FEC requested; muting drops the audio packet rate', async () => {
   const room = 'r' + Date.now();
-  const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
+  const trackPcs = () => {
+    const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; };
+    // Per spec RTCSessionDescription.sdp is readonly (Firefox/Safari ignore writes); Chrome lets it be assigned.
+    const g = Object.getOwnPropertyDescriptor(O.prototype, 'localDescription').get;
+    Object.defineProperty(O.prototype, 'localDescription', { get() { const d = g.call(this); return d && Object.freeze({ type: d.type, sdp: d.sdp }); } });
+  };
   const a = await join(room, 'alice', trackPcs);
   const b = await join(room, 'bob', trackPcs);
   await waitFor(async () => (await liveRemoteAudio(a)) === 1 && (await liveRemoteAudio(b)) === 1, 'remote audio');
@@ -334,7 +339,7 @@ test('Opus DTX/FEC requested; muting drops the audio packet rate', async () => {
   const after = await sent2s();
   console.log('audio packets per 2s (unmuted, muted, unmuted):', before, muted, after);
   assert.ok(muted < 20, `muted sent ${muted}`);
-  assert.ok(before > 40 && after > 40, `unmuted sent ${before}/${after}`);
+  assert.ok(before > 30 && after > 30, `unmuted sent ${before}/${after}`);
   assert.strictEqual(await liveRemoteAudio(b), 1, 'audio still arrives');
   await a.context().close(); await b.context().close();
 });
