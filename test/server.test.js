@@ -110,6 +110,13 @@ test('userJoined forwards the rejoining peer\'s keep list, strings only, at most
   assert.deepStrictEqual(await again, { UUID: 'K3', keep: [] });
 });
 
+test('joinRoom acks with the UUIDs already in the room', async () => {
+  const a = await client('Q1'), b = await client('Q2'), other = await client('Q3');
+  await join(a, 'room-q'); await join(other, 'room-q2');
+  const members = await b.c.timeout(1000).emitWithAck('joinRoom', { roomname: 'room-q' });
+  assert.deepStrictEqual(members, ['Q1']);
+});
+
 test('malformed payloads are ignored and signaling keeps working', async () => {
   const a = await client('M1'), b = await client('M2');
   a.c.emit('signaling', null);

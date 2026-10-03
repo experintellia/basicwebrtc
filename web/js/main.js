@@ -154,8 +154,10 @@ socket.on("connect", function () {
     if (err) return console.log(err);
     await mediaReady;
     for (const id in pcs) if (!pcs[id].iceUp()) removePeer(id);
-    joinRoom();
-    setStatus(MY_UUID, "");
+    joinRoom(members => { // userJoined/userDiscconected missed while offline: resync who left the server
+      for (const id in pcs) if ((pcs[id].left = !members.includes(id)) && !pcs[id].iceUp()) removePeer(id);
+      setStatus(MY_UUID, "");
+    });
   })
 });
 socket.on("disconnect", () => setStatus(MY_UUID, "reconnecting…"));
@@ -518,8 +520,8 @@ function updateUserLayout() {
   }
 }
 
-function joinRoom() {
-  socket.emit("joinRoom", { roomname: getUrlParam("roomname", "unknown"), keep: Object.keys(pcs) });
+function joinRoom(onJoined) {
+  socket.emit("joinRoom", { roomname: getUrlParam("roomname", "unknown"), keep: Object.keys(pcs) }, onJoined);
 }
 
 // iOS Safari can block autoplay of remote audio: any tap retries it

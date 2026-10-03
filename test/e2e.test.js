@@ -463,6 +463,37 @@ test('signaling uses the socket while it is up, even if the data channel reads o
   await a.context().close(); await b.context().close();
 });
 
+// Both sockets blip: bob sees alice leave, then is offline himself while she rejoins. His view must resync on rejoin.
+test('stale "left the server" mark is cleared when rejoining a room the peer is in', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  await a.evaluate(() => socket.disconnect());
+  await waitFor(() => b.evaluate(() => Object.values(pcs)[0].left), 'bob saw alice leave');
+  await b.evaluate(() => socket.disconnect());
+  await a.evaluate(() => socket.connect());
+  await waitFor(async () => (await selfStatus(a)) === '', 'alice rejoined');
+  await b.evaluate(() => socket.connect());
+  await waitFor(async () => (await selfStatus(b)) === '', 'bob rejoined');
+  // short ICE blip on bob's side
+  await b.evaluate(() => { const pc = Object.values(pcs)[0], up = pc.iceUp; pc.iceUp = () => false; pc.emitEvent('icestate', 'disconnected'); pc.iceUp = up; });
+  assert.ok(await callUp(b), 'call kept through the blip');
+  await a.context().close(); await b.context().close();
+});
+
+test('peer that crashed while we were off the server is removed after we rejoin', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  await a.evaluate(() => socket.disconnect());
+  (await b.context().newCDPSession(b)).send('Page.crash').catch(() => { }); // never resolves: the renderer is gone
+  await a.evaluate(() => socket.connect());
+  await waitFor(async () => (await a.locator('#mediaDiv .videoplaceholder').count()) === 1, 'tile removed', 30000);
+  await a.context().close(); await b.context().close();
+});
+
 test('crashed peer (no goodbye) is removed once the server notices', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');

@@ -76,7 +76,7 @@ ioServer.sockets.on('connection', function (socket) {
             const alreadyRegistred = registerdUUIDs[UUID] == UUID_KEY;
             registerdUUIDs[UUID] = UUID_KEY;
             socketID_UUIDMatch[UUID] = socket.id;
-            MY_UUID = UUID;
+            MY_UUID = socket.data.uuid = UUID;
             callback(null, alreadyRegistred);
         } else {
             callback("UUID_KEY was not correct!")
@@ -90,12 +90,14 @@ ioServer.sockets.on('connection', function (socket) {
         delete socketID_UUIDMatch[MY_UUID];
     });
 
-    socket.on("joinRoom", function (content) {
+    socket.on("joinRoom", function (content, callback) {
         if (!MY_UUID || !content || typeof content != "object" || roomOfUser !== null) return; // registered first, one room per connection
         const str = v => typeof v == "string" ? v : ""; // String() of an object can throw and kill the server
         roomOfUser = socket.data.room = str(content["roomname"]).slice(0, 64);
         const keep = Array.isArray(content["keep"]) ? content["keep"].filter(k => typeof k == "string").slice(0, 8) : []; // peers a rejoining page still has a live call with
         socket.to(roomOfUser).emit('userJoined', { UUID: MY_UUID, keep });
+        const members = [...(ioServer.sockets.adapter.rooms.get(roomOfUser) || [])].map(id => ioServer.sockets.sockets.get(id)?.data.uuid);
+        if (typeof callback == "function") callback(members); // who is in the room, so a rejoining page can resync
         console.log("joinRoom", roomOfUser, MY_UUID);
         socket.join(roomOfUser);
     })
