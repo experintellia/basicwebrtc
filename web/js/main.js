@@ -94,7 +94,7 @@ socket.on("msg", function ({ name, msg }) {
   $("#chatText").append(line);
   $("#chatText").scrollTop = $("#chatText").scrollHeight;
   if ($("#chatDiv").hidden) {
-    $("#addRemoveChatBtn").style.color = "#730303";
+    $("#moreBtn").classList.add("unread");
   }
 })
 
@@ -198,9 +198,12 @@ $("#muteUnmuteMicBtn").onclick = function () {
 $("#addRemoveChatBtn").onclick = function () {
   const open = $("#chatDiv").hidden;
   $("#chatDiv").hidden = !open;
-  this.style.color = open ? "#030356" : "black";
+  if (open) $("#moreBtn").classList.remove("unread");
   if (open && !matchMedia("(pointer: coarse)").matches) $("#chatInputText").focus(); // no keyboard covering the chat on phones
 }
+$("#moreBtn").onclick = () => $("#moreMenu").hidden = !$("#moreMenu").hidden;
+$("#moreMenu").onclick = () => $("#moreMenu").hidden = true; // picking an item closes it
+addEventListener("click", e => $("#moreGroup").contains(e.target) || ($("#moreMenu").hidden = true));
 $("#chatCloseBtn").onclick = () => $("#addRemoveChatBtn").click();
 
 $("#chatSendBtn").onclick = sendMsg;

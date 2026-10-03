@@ -65,6 +65,62 @@ video {
   background: #fff;
 }
 
+#moreGroup {
+  position: relative;
+}
+
+#moreMenu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  padding: 6px;
+  font: 16px sans-serif;
+  text-align: left;
+}
+
+#moreMenu[hidden] {
+  display: none;
+}
+
+#moreMenu button {
+  display: block;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  text-align: left;
+  cursor: pointer;
+}
+
+#moreMenu button:hover {
+  background: #ffffff1a;
+}
+
+#moreMenu i {
+  width: 1.4em;
+}
+
+/* unread chat dot */
+#moreBtn.unread {
+  position: relative;
+}
+
+#moreBtn.unread::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e53935;
+}
+
 /* invisible native select over the icon, so the OS picker opens on click */
 #cameraSelect {
   position: absolute;
@@ -99,7 +155,7 @@ video {
   display: none;
 }
 
-#chatDiv, #shareDialog {
+#chatDiv, #shareDialog, #moreMenu {
   border: 1px solid #80808087;
   border-radius: 12px;
   background: rgb(43, 42, 42);
