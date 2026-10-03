@@ -245,11 +245,13 @@ $("#screenModeBtn").onclick = function () {
   screenMotion = !screenMotion;
   applyScreenMode();
 }
+$("#screenModeBtn").onkeydown = e => (e.key == "Enter" || e.key == " ") && (e.preventDefault(), e.target.click());
 
 function applyScreenMode() { //contentHint is the main effect, degradationPreference makes it explicit for the encoder
   const track = allUserStreams[MY_UUID]["videostream"].getVideoTracks()[0];
   track.contentHint = screenMotion ? "motion" : "detail";
   for (var i in pcs) pcs[i].setDegradation(track, screenMotion ? "maintain-framerate" : "maintain-resolution");
+  $("#screenModeBtn").setAttribute("aria-pressed", screenMotion);
   $("#screenModeBtn i").className = screenMotion ? "fas fa-running" : "fas fa-font";
   $("#screenModeBtn").title = screenMotion ? "screen share: smooth motion (click for sharp text)" : "screen share: sharp text (click for smooth motion)";
 }

@@ -197,8 +197,15 @@ test('screen share mode: detail by default, performance on toggle, applied to la
   await waitFor(async () => (await screenMode(a)).join() === 'detail,maintain-resolution', 'detail mode');
   const offers = () => b.evaluate(() => window.__offers);
   await b.evaluate(() => { const pc = Object.values(pcs)[0], orig = pc.signaling; window.__offers = 0; pc.signaling = d => { if (d && d.type == 'offer') __offers++; return orig(d); }; });
+  const pressed = () => a.getAttribute('#screenModeBtn', 'aria-pressed');
+  assert.strictEqual(await pressed(), 'false', 'aria-pressed off in detail mode');
   await a.click('#screenModeBtn');
   await waitFor(async () => (await screenMode(a)).join() === 'motion,maintain-framerate', 'performance mode');
+  assert.strictEqual(await pressed(), 'true', 'aria-pressed on in performance mode');
+  await a.focus('#screenModeBtn'); await a.keyboard.press('Enter');
+  await waitFor(async () => (await screenMode(a)).join() === 'detail,maintain-resolution', 'Enter toggles');
+  await a.keyboard.press(' ');
+  await waitFor(async () => (await screenMode(a)).join() === 'motion,maintain-framerate', 'Space toggles');
   const frames = () => b.evaluate(() => [...document.querySelectorAll('#mediaDiv video')].map(v => v.getVideoPlaybackQuality().totalVideoFrames).reduce((x, y) => x + y, 0));
   const before = await frames();
   await waitFor(async () => (await frames()) > before, 'remote video keeps playing');
@@ -573,6 +580,7 @@ test('all call buttons fit on screen from phone to small desktop widths', async 
     const a = await ctx.newPage();
     await a.goto(`${BASE}#roomname=r${Date.now()}`);
     await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'camera picker shown (2 fake cams)');
+    await a.evaluate(() => { document.getElementById('screenModeBtn').hidden = false; }); // shown while sharing
     const overflow = await a.evaluate(() => [...document.querySelectorAll('.callBtn')]
       .filter(b => b.offsetParent && b.getBoundingClientRect().right > innerWidth).map(b => b.id));
     assert.deepStrictEqual(overflow, [], `${width}x${height}`);
