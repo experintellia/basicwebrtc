@@ -1,9 +1,6 @@
 function getUrlParam(parameter, defaultvalue) {
-    var urlparameter = defaultvalue;
-    if (window.location.href.indexOf(parameter) > -1) {
-        urlparameter = getUrlVars()[parameter];
-    }
-    let ret = decodeURIComponent(urlparameter);
+    const vars = getUrlVars(); // exact key match: "camon" inside a username must not count
+    let ret = parameter in vars ? decodeURIComponent(vars[parameter]) : defaultvalue; // bare "#camon" -> "undefined", truthy as before
     ret = ret == "false" ? false : ret;
     return ret;
 }

@@ -1,4 +1,4 @@
-const API_VERSION = 1.2;
+const API_VERSION = 1.3;
 
 // The notice in index.html is visible by default; browsers that can't parse or run this script keep seeing it.
 if (!window.RTCPeerConnection || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -12,7 +12,7 @@ const byId = id => document.getElementById(id); // ids are peer-supplied UUIDs: 
 const MY_UUID = uuidv4();
 const MY_UUID_KEY = uuidv4();
 
-var subdir = window.location.pathname.endsWith("/") ? window.location.pathname : window.location.pathname + "/";
+var subdir = location.pathname.replace(/[^/]*$/, ""); // folder of the page: "/basicwebrtc/index.html" -> "/basicwebrtc/"
 
 var base64Domain = getUrlParam("base64domain", false);
 
@@ -48,7 +48,7 @@ if (socketDomain) {
   subdir = subdir.endsWith('/') ? subdir : subdir + '/';
   socket = io(socketDomain, { "path": subdir + "socket.io", ...SocketIO_Options })
 } else {
-  socket = subdir == "/" ? io("", SocketIO_Options) : io("", { "path": subdir + "/socket.io", ...SocketIO_Options }); //Connect to socketIo even on subpaths
+  socket = io("", { "path": subdir + "socket.io", ...SocketIO_Options }); //Connect to socketIo even on subpaths
 }
 
 var webRTCConfig = {};
@@ -72,8 +72,14 @@ async function updateCameraList() { //Show camera picker only if there is more t
 navigator.mediaDevices.addEventListener("devicechange", updateCameraList);
 updateCameraList();
 
-socket.on("msg", function (msg) {
+socket.on("msg", function ({ name, msg }) {
   const line = document.createElement("div");
+  if (name) {
+    const b = document.createElement("b");
+    b.className = "chatName";
+    b.textContent = name;
+    line.append(b, ": ");
+  }
   msg.split(/(https?:\/\/\S+)/).forEach((part, i) => { // odd parts are links
     if (i % 2) {
       const a = document.createElement("a");
@@ -87,8 +93,8 @@ socket.on("msg", function (msg) {
   });
   $("#chatText").append(line);
   $("#chatText").scrollTop = $("#chatText").scrollHeight;
-  if ($("#chatDiv").style.display != "block") {
-    $("#addRemoveChatBtn").style.color = "#730303";
+  if ($("#chatDiv").hidden) {
+    for (const b of [$("#moreBtn"), $("#addRemoveChatBtn")]) b.dataset.unread = (+b.dataset.unread || 0) + 1;
   }
 })
 
@@ -104,19 +110,24 @@ socket.on("API_VERSION", function (serverAPI_VERSION) {
 
 socket.on("signaling", function (data) {
   var fromUUID = data.fromUUID;
+  if (data.username) { // before createRemoteSocket, so the new tile shows the name
+    allUserStreams[fromUUID] = allUserStreams[fromUUID] || {};
+    allUserStreams[fromUUID]["username"] = data.username;
+  }
   if (!pcs[fromUUID]) {
     createRemoteSocket(false, fromUUID)
   }
   pcs[fromUUID].signaling(data.signalingData).catch(e => console.log("signaling error", e));
-
-  if (data.username) {
-    allUserStreams[fromUUID] = allUserStreams[fromUUID] || {};
-    allUserStreams[fromUUID]["username"] = data.username;
-  }
 })
 
 socket.on("userJoined", function (content) {
   createRemoteSocket(true, content["UUID"] || null)
+})
+
+socket.on("userName", function (content) {
+  if (!allUserStreams[content.fromUUID]) return;
+  allUserStreams[content.fromUUID].username = content.username;
+  updateUserLayout();
 })
 
 socket.on("currentAudioLvl", function (content) {
@@ -143,10 +154,20 @@ socket.on("connect", function () {
     if (err) return console.log(err);
     await mediaReady;
     joinRoom();
+    setStatus(MY_UUID, "");
   })
 });
+socket.on("disconnect", () => setStatus(MY_UUID, "reconnecting…"));
+
+function setStatus(UUID, text) { // status line on a tile, e.g. "connecting…"; "" hides it
+  allUserStreams[UUID]["status"] = text;
+  const el = byId(UUID)?.querySelector(".peerStatus");
+  if (el) el.textContent = text;
+}
 
 var mediaReady = (async function () {
+  allUserStreams[MY_UUID] = { username: username, status: "connecting…" }; // own tile shows join progress
+  updateUserLayout();
   try {
     if (camOnAtStart) { // ask for both permissions at once
       (await navigator.mediaDevices.getUserMedia({ video: true, audio: true })).getTracks().forEach(t => t.stop());
@@ -161,7 +182,7 @@ var mediaReady = (async function () {
     return new Promise(() => { }); // never join without a mic
   }
   webRTCConfig["stream"] = stream;
-  allUserStreams[MY_UUID] = { audiostream: stream, username: username };
+  allUserStreams[MY_UUID]["audiostream"] = stream;
   calcCurrentVolumeLevel(stream, function (currentAudioLvl) {
     if (!micMuted) {
       socket.emit('currentAudioLvl', currentAudioLvl);
@@ -184,11 +205,15 @@ $("#muteUnmuteMicBtn").onclick = function () {
 }
 
 $("#addRemoveChatBtn").onclick = function () {
-  const open = $("#chatDiv").style.display != "block";
-  $("#chatDiv").style.display = open ? "block" : "none";
-  this.style.color = open ? "#030356" : "black";
-  if (open) $("#chatInputText").focus();
+  const open = $("#chatDiv").hidden;
+  $("#chatDiv").hidden = !open;
+  if (open) for (const b of [$("#moreBtn"), this]) delete b.dataset.unread;
+  if (open && !matchMedia("(pointer: coarse)").matches) $("#chatInputText").focus(); // no keyboard covering the chat on phones
 }
+$("#moreBtn").onclick = () => $("#moreMenu").hidden = !$("#moreMenu").hidden;
+$("#moreMenu").onclick = () => $("#moreMenu").hidden = true; // picking an item closes it
+addEventListener("click", e => $("#moreGroup").contains(e.target) || ($("#moreMenu").hidden = true));
+$("#chatCloseBtn").onclick = () => $("#addRemoveChatBtn").click();
 
 $("#chatSendBtn").onclick = sendMsg;
 $("#chatInputText").onkeydown = e => { if (e.key == "Enter") sendMsg() };
@@ -275,6 +300,36 @@ function stopVideo() { // camera and screen share use the same slot
   updateUserLayout();
 }
 
+// Hash minus `drop` plus `add`; other params stay byte-identical (getUrlVars parses them raw)
+function hashWithout(drop, add = {}) {
+  const kept = location.hash.slice(1).split("&").filter(p => p && !drop.includes(p.split("=")[0]));
+  for (const k in add) kept.push(k + "=" + encodeURIComponent(add[k]));
+  return "#" + kept.join("&");
+}
+
+$("#changeNameBtn").onclick = function () {
+  const name = prompt("Your name:", username == "NA" ? "" : username);
+  if (name === null) return;
+  username = name.trim().slice(0, 64) || "NA";
+  history.replaceState(null, "", hashWithout(["username"], { username })); // survives reloads
+  if (allUserStreams[MY_UUID]) allUserStreams[MY_UUID].username = username;
+  socket.emit("setName", username);
+  updateUserLayout();
+}
+
+$("#shareBtn").onclick = function () {
+  const url = location.origin + location.pathname + location.search + hashWithout(["username", "camon"]);
+  const copy = () => { $("#shareLink").value = url; $("#shareDialog").showModal(); $("#shareLink").select(); };
+  if (!navigator.share) return copy();
+  navigator.share({ title: "Join my call", url }).catch(e => e.name != "AbortError" && copy()); // AbortError = user cancelled
+}
+
+$("#copyLinkBtn").onclick = function () {
+  if (!navigator.clipboard) return $("#shareLink").select();
+  navigator.clipboard.writeText($("#shareLink").value).then(() => this.innerHTML = '<i class="fas fa-check"></i> Copied!', () => $("#shareLink").select());
+}
+$("#shareDialog").onclose = () => $("#copyLinkBtn").innerHTML = '<i class="far fa-copy"></i> Copy';
+
 $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end screen
   document.body.insertAdjacentHTML("beforeend", '<div id="topDiv"></div><div id="bottomDiv"></div>');
   setTimeout(() => document.body.insertAdjacentHTML("beforeend", '<div id="centerDiv"></div>'), 500);
@@ -289,6 +344,13 @@ function createRemoteSocket(initiator, UUID) {
   pc.on("signaling", function (data) {
     socket.emit("signaling", { destUUID: UUID, signalingData: data })
   })
+  allUserStreams[UUID] = allUserStreams[UUID] || {}; // show the tile right away, with its status
+  allUserStreams[UUID]["status"] = "connecting…";
+  updateUserLayout();
+  pc.on("icestate", function (state) {
+    if (pcs[UUID] !== pc) return; // already removed
+    setStatus(UUID, ["connected", "completed"].includes(state) ? "" : pc.isConnected ? "reconnecting…" : "connecting…");
+  });
   pc.on("stream", function (stream) {
     gotRemoteStream(stream, UUID)
   });
@@ -311,6 +373,12 @@ function removePeer(UUID) {
 function gotRemoteStream(stream, UUID) {
   allUserStreams[UUID] = allUserStreams[UUID] || {};
   allUserStreams[UUID][stream.getVideoTracks().length ? "videostream" : "audiostream"] = stream;
+  if (!stream.getVideoTracks().length && !byId('audio' + UUID)) { // not in updateUserLayout: that skips while fullscreen
+    const audio = fromHTML('<audio autoplay hidden></audio>');
+    audio.id = 'audio' + UUID;
+    audio.srcObject = stream;
+    $("#audioStreams").append(audio);
+  }
   updateUserLayout();
 }
 
@@ -336,13 +404,7 @@ function updateUserLayout() {
     </div>`);
     userDiv.id = i;
     userDiv.querySelector(".userPlaceholder").textContent = (name || i).substr(0, 2).toUpperCase();
-
-    if (userStream["audiostream"] && i !== MY_UUID && !byId('audio' + i)) {
-      const audio = fromHTML('<audio autoplay hidden></audio>');
-      audio.id = 'audio' + i;
-      audio.srcObject = userStream["audiostream"];
-      $("#audioStreams").append(audio);
-    }
+    userDiv.append(Object.assign(document.createElement("div"), { className: "peerStatus", textContent: userStream["status"] || "" }));
 
     if (userStream["videostream"]) {
       var mirror = i == MY_UUID && !screenActive && userStream["videostream"].getVideoTracks()[0].getSettings().facingMode != "environment"; //Don't mirror rear cameras
@@ -418,6 +480,9 @@ function updateUserLayout() {
 function joinRoom() {
   socket.emit("joinRoom", { roomname: getUrlParam("roomname", "unknown"), username: username });
 }
+
+// iOS Safari can block autoplay of remote audio: any tap retries it
+addEventListener("click", () => document.querySelectorAll("#audioStreams audio").forEach(a => a.paused && a.play().catch(() => { })), true);
 
 var resizeTimeout = null;
 window.onresize = function () {
