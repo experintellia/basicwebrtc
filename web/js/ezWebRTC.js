@@ -90,7 +90,8 @@ function initEzWebRTC(initiator, config) {
             _this.gotOffer = true;
             await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData)) //only the answerer gets offers; have-remote-offer -> have-remote-offer is valid
             await pc.setLocalDescription(await pc.createAnswer(rtcConfig.offerOptions));
-            _this.emitEvent("signaling", pc.localDescription)
+            var a_desc = pc.localDescription; //sdp is readonly per spec: send a munged copy
+            _this.emitEvent("signaling", { type: a_desc.type, sdp: opusParams(a_desc.sdp) })
             if (!initiator)
                 requestMissingTransceivers()
         } else if (signalData && signalData.type == "answer" && initiator) { //Initiator: Setting answer and starting connection
@@ -191,7 +192,7 @@ function initEzWebRTC(initiator, config) {
                 return console.log("offer error", e);
             }
             var o_desc = pc.localDescription;
-            _this.emitEvent("signaling", o_desc)
+            _this.emitEvent("signaling", { type: o_desc.type, sdp: opusParams(o_desc.sdp) })
         } else if (_this.gotOffer) { //Dont send renegotiate req before getting at least one offer
             _this.emitEvent("signaling", "renegotiate");
         }
@@ -227,6 +228,16 @@ function initEzWebRTC(initiator, config) {
         }
     };
     return this;
+}
+
+function opusParams(sdp) {
+    var pt = (sdp.match(/a=rtpmap:(\d+) opus\//i) || [])[1];
+    if (!pt) return sdp;
+    return sdp.replace(new RegExp("(a=fmtp:" + pt + " [^\\r\\n]*)", "g"), function (line) {
+        if (!/usedtx=/.test(line)) line += ";usedtx=1";
+        if (!/useinbandfec=/.test(line)) line += ";useinbandfec=1";
+        return line;
+    });
 }
 
 function calcCurrentVolumeLevel(stream, callback) { //Returns audio levels for audio stream from 0 - silent; to 2 loud
