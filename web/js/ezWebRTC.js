@@ -5,7 +5,7 @@ function initEzWebRTC(initiator, config) {
     this.isConnected = false;
     this.gotOffer = false;
     this.makingOffer = false;
-    var gen = 0; //counts offers; the answer echoes it, so answers to older offers are dropped
+    var gen = Math.floor(Math.random() * 1e9); //counts offers; the answer echoes it, so answers to older offers are dropped
 
     var rtcConfig = { //Default Values
         offerOptions: {
@@ -101,12 +101,11 @@ function initEzWebRTC(initiator, config) {
             if (!initiator)
                 requestMissingTransceivers()
         } else if (signalData && signalData.type == "answer" && initiator) { //Initiator: Setting answer and starting connection
-            if (signalData.gen != gen) return; //answer to an older offer
+            if (signalData.gen !== undefined && signalData.gen != gen) return; //answer to an older offer (no gen: older client, accept)
             try {
                 await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData))
             } catch (e) {
-                console.log("answer error", e);
-                return reoffer();
+                return console.log("answer error", e); //the offer timeout re-offers; no tight loop on an always-bad answer
             }
             _this.makingOffer = false;
             if (offerPending) { offerPending = false; negotiate(); } //e.g. a "renegotiate" that came in meanwhile

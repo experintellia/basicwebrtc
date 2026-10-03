@@ -161,6 +161,22 @@ test('a lost answer does not block later camera changes', async () => {
   await a.context().close(); await b.context().close();
 });
 
+// Mid-deploy: an older answerer doesn't echo gen; its answers must still be applied.
+test('answers without gen (older client) are still accepted', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await a.evaluate(() => { // strip gen from every answer alice receives
+    const pc = Object.values(pcs)[0], orig = pc.signaling;
+    pc.signaling = d => orig(d && d.type == 'answer' ? { type: d.type, sdp: d.sdp } : d);
+  });
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
+  assert.strictEqual(await a.evaluate(() => Object.values(pcs)[0].makingOffer), false, 'answer applied');
+  await a.context().close(); await b.context().close();
+});
+
 // #6: bob's socket reconnects; alice's old pc still sends an offer to bob before alice rebuilds it.
 test('stale offer from the old connection after a fast reconnect', async () => {
   const room = 'r' + Date.now();
