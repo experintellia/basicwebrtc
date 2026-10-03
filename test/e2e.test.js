@@ -264,13 +264,14 @@ test('chat shows messages as text and keeps links clickable', async () => {
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
   const msg = `<img src=x onerror="window.__xss=1"> it's "ok" https://example.com/a?b=1`;
-  await a.click('#addRemoveChatBtn');
+  await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
   await a.fill('#chatInputText', msg);
   await a.press('#chatInputText', 'Enter');
   await waitFor(() => b.evaluate(() => document.querySelector('#chatText').textContent.includes('example.com')), 'message on bob');
   await new Promise(r => setTimeout(r, 300));
   assert.strictEqual(await b.evaluate(() => window.__xss), undefined, 'no script execution');
   assert.strictEqual(await b.evaluate(() => document.querySelector('#chatText div:last-child').textContent), 'alice: ' + msg);
+  assert.strictEqual(await b.evaluate(() => document.querySelector('#chatText div:last-child .chatName').textContent), 'alice', 'sender name styled apart');
   assert.strictEqual(await b.evaluate(() => document.querySelector('#chatText a').href), 'https://example.com/a?b=1');
   assert.strictEqual(await a.inputValue('#chatInputText'), '', 'input cleared');
   await a.context().close(); await b.context().close();
@@ -283,7 +284,7 @@ test('quote-free chat payload does not execute (bypasses old server escaping)', 
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
   // No ' " \\ $ chars, so the upstream server's escaping leaves it intact.
   const payload = '<img src=x onerror=window.__xss=1>';
-  await a.click('#addRemoveChatBtn');
+  await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
   await a.fill('#chatInputText', payload);
   await a.press('#chatInputText', 'Enter');
   await waitFor(() => b.evaluate(() => document.querySelectorAll('#chatText > div').length > 0), 'message on bob');
@@ -368,7 +369,7 @@ test('rename updates the name for peers, chat and the URL', async () => {
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
   a.once('dialog', d => d.accept('zoe smith'));
-  await a.click('#changeNameBtn');
+  await a.click('#moreBtn'); await a.click('#changeNameBtn');
   await waitFor(() => b.evaluate(() => Object.values(allUserStreams).some(s => s.username == 'zoe smith')), 'new name on bob');
   assert.strictEqual(await b.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('ZO')), true, 'initials updated');
   assert.strictEqual(await a.evaluate(() => getUrlParam('username', 'NA')), 'zoe smith', 'kept in URL for reloads');
@@ -380,7 +381,7 @@ test('rename updates the name for peers, chat and the URL', async () => {
 test('share button shares the room link without the username', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice', () => { navigator.share = d => { window.__shared = d; return Promise.resolve(); }; });
-  await a.click('#shareBtn');
+  await a.click('#moreBtn'); await a.click('#shareBtn');
   const shared = await a.evaluate(() => window.__shared);
   assert.strictEqual(shared.url, `${BASE}#roomname=${room}`);
   await a.context().close();
@@ -391,7 +392,7 @@ test('rename keeps other URL params byte-identical and cannot switch them on', a
   const a = await ctx.newPage();
   await a.goto(`${BASE}#roomname=a+b=c&username=alice`);
   a.once('dialog', d => d.accept('my camon socketdomain name'));
-  await a.click('#changeNameBtn');
+  await a.click('#moreBtn'); await a.click('#changeNameBtn');
   assert.strictEqual(await a.evaluate(() => location.hash), '#roomname=a+b=c&username=my%20camon%20socketdomain%20name');
   await a.reload();
   assert.deepStrictEqual(await a.evaluate(() => [getUrlParam('camon', false), getUrlParam('socketdomain', false), getUrlParam('username', 'NA')]),
@@ -399,13 +400,131 @@ test('rename keeps other URL params byte-identical and cannot switch them on', a
   await ctx.close();
 });
 
-test('share falls back to the copy prompt when Web Share fails', async () => {
+test('share falls back to a copy dialog when Web Share fails', async () => {
   const a = await join('r' + Date.now(), 'alice', () => { navigator.share = () => Promise.reject(new DOMException('no', 'NotAllowedError')); });
-  let shown;
-  a.once('dialog', d => { shown = d.defaultValue(); d.dismiss(); });
-  await a.click('#shareBtn');
-  await waitFor(() => shown, 'copy prompt');
-  assert.match(shown, /#roomname=r\d+$/);
+  await a.click('#moreBtn'); await a.click('#shareBtn');
+  await waitFor(() => a.locator('#shareDialog').isVisible(), 'share dialog');
+  assert.match(await a.inputValue('#shareLink'), /#roomname=r\d+$/);
+  await a.context().close();
+});
+
+test('without Web Share the dialog copies the link', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', () => {
+    delete Navigator.prototype.share;
+    navigator.clipboard.writeText = t => { window.__copied = t; return Promise.resolve(); };
+  });
+  await a.click('#moreBtn'); await a.click('#shareBtn');
+  await a.click('#copyLinkBtn');
+  assert.strictEqual(await a.evaluate(() => window.__copied), `${BASE}#roomname=${room}`);
+  await a.click('#shareDialog button[value=close]');
+  assert.strictEqual(await a.locator('#shareDialog').isVisible(), false);
+  await a.context().close();
+});
+
+test('camera picker is a touch-sized tab on top of the camera button', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true });
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=r${Date.now()}`);
+  await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'picker visible');
+  const [cam, pick] = await Promise.all(['#addRemoveCameraBtn', '#selectCameraBtn'].map(s => a.locator(s).boundingBox()));
+  assert.ok(pick.y + pick.height <= cam.y + 1 && Math.abs(pick.x - cam.x) <= 1 && Math.abs(pick.width - cam.width) <= 1, 'tab right above the camera button');
+  assert.ok(pick.height >= 24 && pick.width >= 40, `touch-sized (${pick.width}x${pick.height})`);
+  await a.mouse.click(cam.x + cam.width - 4, cam.y + cam.height / 2); // the button's right edge still toggles the camera
+  await waitFor(() => a.evaluate(() => camActive), 'camera on');
+  await ctx.close();
+});
+
+test('peer joining during fullscreen is still heard', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', () => Object.defineProperty(document, 'fullscreenElement', { get: () => document.body }));
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await liveRemoteAudio(a)) === 1, 'remote audio on alice');
+  await a.context().close(); await b.context().close();
+});
+
+// iOS Safari may refuse to start remote audio without a user gesture: the next tap must start it.
+test('remote audio blocked by autoplay starts on the next tap', async () => {
+  const blockAutoplay = () => { // not userActivation: page.evaluate counts as a gesture
+    let tapped = false;
+    window.addEventListener('click', () => tapped = true, true);
+    document.addEventListener('play', e => { if (!tapped) e.target.pause(); }, true);
+  };
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', blockAutoplay);
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await liveRemoteAudio(a)) === 1, 'remote audio element');
+  const paused = () => a.evaluate(() => document.querySelector('#audioStreams audio').paused);
+  await waitFor(paused, 'autoplay blocked');
+  await a.mouse.click(5, 5);
+  await waitFor(async () => !(await paused()), 'audio playing after tap');
+  await a.context().close(); await b.context().close();
+});
+
+test('chat opens fullscreen on phones and closes again', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true });
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=r${Date.now()}`);
+  await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
+  assert.notStrictEqual(await a.evaluate(() => document.activeElement.id), 'chatInputText', 'no keyboard popping up on touch');
+  const box = await a.locator('#chatDiv').boundingBox();
+  assert.deepStrictEqual([box.x, box.y, box.width, box.height], [0, 0, 320, 568]);
+  assert.ok(parseFloat(await a.$eval('#chatInputText', e => getComputedStyle(e).fontSize)) >= 16, 'no iOS zoom on focus');
+  await a.click('#chatCloseBtn');
+  assert.strictEqual(await a.locator('#chatDiv').isVisible(), false);
+  await ctx.close();
+});
+
+test('unnamed sender cannot fake a styled name', async () => {
+  const room = 'r' + Date.now();
+  const ctx = await browser.newContext();
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=${room}`); // no username
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await a.evaluate(() => socket.emit('sendMsg', 'bob: send me the code'));
+  await waitFor(() => b.evaluate(() => document.querySelectorAll('#chatText > div').length > 0), 'message on bob');
+  assert.strictEqual(await b.evaluate(() => document.querySelector('#chatText .chatName')), null);
+  await ctx.close(); await b.context().close();
+});
+
+test('desktop chat fits short windows above the phone breakpoint', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1000, height: 500 } });
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=r${Date.now()}`);
+  await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
+  assert.ok((await a.locator('#chatDiv').boundingBox()).y >= 0, 'header on screen');
+  await a.click('#chatCloseBtn');
+  assert.strictEqual(await a.locator('#chatDiv').isVisible(), false);
+  await ctx.close();
+});
+
+test('Enter in the share link keeps the dialog open', async () => {
+  const a = await join('r' + Date.now(), 'alice', () => { delete Navigator.prototype.share; });
+  await a.click('#moreBtn'); await a.click('#shareBtn');
+  await a.press('#shareLink', 'Enter');
+  assert.strictEqual(await a.locator('#shareDialog').isVisible(), true);
+  await a.context().close();
+});
+
+test('chat, rename and share live in the more menu', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const items = ['#addRemoveChatBtn', '#changeNameBtn', '#shareBtn'];
+  const visible = () => Promise.all(items.map(s => a.locator(s).isVisible()));
+  assert.deepStrictEqual(await visible(), [false, false, false], 'not in the bar');
+  await a.click('#moreBtn');
+  assert.deepStrictEqual(await visible(), [true, true, true], 'menu open');
+  await a.mouse.click(5, 5);
+  assert.deepStrictEqual(await visible(), [false, false, false], 'outside click closes');
+  // unread chat is flagged on the more button while chat is closed
+  const unread = () => a.evaluate(() => [document.querySelector('#moreBtn').dataset.unread, document.querySelector('#addRemoveChatBtn').dataset.unread]);
+  await a.evaluate(() => { socket.emit('sendMsg', 'ping'); socket.emit('sendMsg', 'pong'); });
+  await waitFor(async () => (await unread())[0] === '2', 'unread count badge');
+  assert.deepStrictEqual(await unread(), ['2', '2'], 'count on the button and the chat item');
+  await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
+  assert.strictEqual(await a.locator('#moreMenu').isVisible(), false, 'picking an item closes the menu');
+  assert.deepStrictEqual(await unread(), [undefined, undefined], 'read');
   await a.context().close();
 });
 

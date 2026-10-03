@@ -11,25 +11,9 @@ body {
   background: rgb(43, 42, 42);;
 }
 
-div#container {
-  margin: 0 auto 0 auto;
-  max-width: 40em;
-  padding: 0em 1.5em 1.3em 1.5em;
-}
-
 video {
   background: #222;
   width: 100%;
-}
-
-.htext {
-  color: #fff;
-  text-shadow: 1px 0 0 #000, 0 -1px 0 #000, 0 1px 0 #000, -1px 0 0 #000;
-  position: relative;
-  top: 24px;
-  left: 10px;
-  font-size: 0.9em;
-  z-index: 10;
 }
 
 .userPlaceholder {
@@ -47,22 +31,8 @@ video {
   top: 25%;
 }
 
-ul {
-  list-style-type: none;
-  margin: 0;
-  padding: 0;
-}
-
-ul>li {
-  display: inline-block;
-  margin: 0px;
-  padding: 0;
-}
-
 .callBtn {
-  padding: 10px;
-  padding-left: 15px;
-  padding-right: 15px;
+  padding: 10px 15px;
   width: 45px;
   cursor: pointer;
 }
@@ -71,17 +41,109 @@ ul>li {
   background: #ababad40;
 }
 
-#selectCameraBtn {
+#cameraGroup {
   position: relative;
+}
+
+/* caret tab on top of the camera button: opens the camera list */
+#selectCameraBtn {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  height: 28px;
+  line-height: 28px;
+  font-size: 20px;
+  border-radius: 5px 5px 0 0;
+  border: 1px solid #fff;
+  border-bottom: 0;
+  box-sizing: border-box;
+  background: #ffffffc0;
+}
+
+#selectCameraBtn:hover {
+  background: #fff;
+}
+
+#moreGroup {
+  position: relative;
+}
+
+#moreMenu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  padding: 6px;
+  font: 16px sans-serif;
+  text-align: left;
+}
+
+#moreMenu[hidden] {
+  display: none;
+}
+
+#moreMenu button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  text-align: left;
+  cursor: pointer;
+}
+
+#moreMenu button:hover {
+  background: #ffffff1a;
+}
+
+#moreMenu i {
+  width: 1.4em;
+}
+
+/* unread chat count badge */
+#moreBtn {
+  position: relative;
+}
+
+#moreBtn[data-unread]::after, #addRemoveChatBtn[data-unread]::after {
+  content: attr(data-unread);
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  background: #e53935;
+  color: #fff;
+  font: bold 12px/20px sans-serif;
+  text-align: center;
+}
+
+#moreBtn[data-unread]::after {
+  position: absolute;
+  top: -10px;
+  right: -2px;
+  min-width: 26px;
+  height: 26px;
+  border: 2px solid #fff;
+  border-radius: 13px;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+#addRemoveChatBtn[data-unread]::after {
+  margin-left: auto;
 }
 
 /* invisible native select over the icon, so the OS picker opens on click */
 #cameraSelect {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  inset: 0;
   opacity: 0;
   cursor: pointer;
 }
@@ -95,65 +157,189 @@ ul>li {
 }
 
 #chatDiv {
-  width: 250px;
-  height: 330px;
+  width: 320px;
+  height: 420px;
+  max-height: calc(100vh - 150px); /* short desktop windows above the phone breakpoint */
   position: absolute;
   right: 20px;
   bottom: 130px;
-  border-radius: 7px;
-  background: #7b79798c;
-  border: 1px solid #80808087;
-  color: #c7c6c6;
+  z-index: 20;
+  font: 15px sans-serif;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#chatDiv[hidden] {
   display: none;
 }
 
-#chatInputText {
-  width: 100%;
-  position: absolute;
-  bottom: 0;
-  background: #0000ff00;
-  border: 0px;
-  border-top: 1px solid #8080804f;
-  outline: none;
-  color: #bbb;
-  padding: 5px;
-  padding-right: 30px;
+#chatDiv, #shareDialog, #moreMenu {
+  border: 1px solid #80808087;
+  border-radius: 12px;
+  background: rgb(43, 42, 42);
+  color: #ddd;
+  box-shadow: 0 10px 40px #000a;
 }
 
-#chatSendBtn {
-  font-size: 1em;
-  position: absolute;
-  bottom: 5px;
-  right: 7px;
-  color: #c1bebe;
-  width: 20px;
-  height: 17px;
+#chatDiv button, #shareDialog button {
+  border: 0;
   cursor: pointer;
+  font: inherit;
+}
+
+#chatInputText, #shareLink {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #555;
+  background: #1e1e1e;
+  color: #fff;
+}
+
+#chatSendBtn, #copyLinkBtn {
+  background: #3b6fd6;
+  color: #fff;
+}
+
+#chatSendBtn:hover, #copyLinkBtn:hover {
+  background: #4c80e8;
+}
+
+#chatHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 6px 6px 16px;
+  border-bottom: 1px solid #ffffff1a;
+  font-weight: bold;
+  color: #fff;
+}
+
+#chatDiv #chatCloseBtn {
+  padding: 4px 10px;
+  background: none;
+  color: #aaa;
+  font-size: 1.6em;
 }
 
 #chatText {
-  height: 303px;
+  flex: 1;
   overflow-y: auto;
-  padding-left: 3px;
+  padding: 8px 12px;
 }
 
-/* SCROLLBAR */
-/* width */
+#chatText:empty::before {
+  content: "No messages yet";
+  display: block;
+  margin-top: 40%;
+  text-align: center;
+  color: #777;
+}
+
+#chatText > div {
+  width: fit-content;
+  max-width: 85%;
+  margin: 6px 0;
+  padding: 7px 11px;
+  border-radius: 12px;
+  background: #3a3939;
+  line-height: 1.35;
+}
+
+.chatName {
+  color: #a9a9ff;
+}
+
+#chatText a {
+  color: #9cf;
+}
+
+#chatInputRow {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid #ffffff1a;
+}
+
+#chatInputText {
+  padding: 9px 14px;
+  border-radius: 20px;
+  outline: none;
+  font: 16px sans-serif; /* below 16px iOS zooms in on focus */
+}
+
+#chatInputText:focus {
+  border-color: #3b6fd6;
+}
+
+#chatSendBtn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+#shareDialog {
+  width: min(420px, 90vw);
+  box-sizing: border-box;
+  padding: 20px;
+  font: 16px sans-serif;
+}
+
+#shareDialog::backdrop {
+  background: #0008;
+  backdrop-filter: blur(3px);
+}
+
+#shareDialog h2 {
+  margin: 0 0 8px;
+  font-size: 1.2em;
+  color: #fff;
+}
+
+#shareDialog p {
+  margin: 0 0 16px;
+  color: #aaa;
+  line-height: 1.4;
+}
+
+#shareDialog div {
+  display: flex;
+  gap: 8px;
+}
+
+#shareDialog button[value=close] {
+  float: right;
+  margin: -10px -8px 0 0;
+  padding: 4px 10px;
+  background: none;
+  color: #aaa;
+  font-size: 1.5em;
+}
+
+#shareLink {
+  padding: 10px;
+  border-radius: 6px;
+  font: 14px monospace;
+}
+
+#copyLinkBtn {
+  padding: 10px 16px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
 ::-webkit-scrollbar {
   width: 10px;
 }
 
-/* Track */
 ::-webkit-scrollbar-track {
   background: #f1f1f1; 
 }
  
-/* Handle */
 ::-webkit-scrollbar-thumb {
   background: #888; 
 }
 
-/* Handle on hover */
 ::-webkit-scrollbar-thumb:hover {
   background: #555; 
 }
@@ -189,22 +375,15 @@ div#centerDiv {
   to { width: 0%; left: 50%; }
 }
 
-div#topDiv{
+div#topDiv, div#bottomDiv {
   width:100%;
   height:0%;
   opacity:0.9;
   background:black;
   position:absolute;
-  top: 0%;
 }
-div#bottomDiv{
-  width:100%;
-  height:0%;
-  opacity:0.9;
-  background:black;
-  position:absolute;
-  bottom: 0%;
-}
+div#topDiv { top: 0%; }
+div#bottomDiv { bottom: 0%; }
 div#centerDiv{
   position:absolute;
   height: 1px;
@@ -269,9 +448,14 @@ div#centerDiv{
     min-width: 34px; /* 44px tap target incl. padding, 7 buttons fit 320px */
   }
 
-
-  .videoplaceholder {
-    min-width: 126px;
+  #chatDiv {
+    position: fixed;
+    inset: 0;
+    width: auto;
+    height: auto;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
   }
 
   .selfPreview .userPlaceholder {

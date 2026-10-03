@@ -138,7 +138,7 @@ test('a second joinRoom cannot switch rooms', async () => {
   a.c.emit('joinRoom', { roomname: 'room-w2', username: 'mallory' });
   const echo = nextEvent(a.c, 'msg');
   a.c.emit('sendMsg', 'leak');
-  assert.strictEqual(await echo, 'u: leak', 'name unchanged');
+  assert.deepStrictEqual(await echo, { name: 'u', msg: 'leak' }, 'name unchanged');
   await new Promise(r => setTimeout(r, 200)); // nothing to wait for: asserting something does not arrive
   assert.deepStrictEqual(seen, []);
 });
@@ -161,7 +161,7 @@ test('setName renames for chat and peers; junk payloads do not crash the server'
   assert.deepStrictEqual(await renamed, { fromUUID: 'N1', username: 'zoe' });
   const msg = nextEvent(b.c, 'msg');
   a.c.emit('sendMsg', 'hi');
-  assert.strictEqual(await msg, 'zoe: hi');
+  assert.deepStrictEqual(await msg, { name: 'zoe', msg: 'hi' });
   const c = await client('N3');
   c.c.emit('joinRoom', { roomname: { toString: 1 }, username: { toString: 1 } });
   await join(c, 'room-n'); // server still alive and c can still join
