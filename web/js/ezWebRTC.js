@@ -56,6 +56,7 @@ function initEzWebRTC(initiator, config) {
 
     // Tiles are removed only when the server says the peer left; until then keep restarting ICE.
     pc.oniceconnectionstatechange = function () {
+        _this.emitEvent("icestate", pc.iceConnectionState);
         if (pc.iceConnectionState == "connected" || pc.iceConnectionState == "completed") {
             if (!_this.isConnected) {
                 _this.isConnected = true;
