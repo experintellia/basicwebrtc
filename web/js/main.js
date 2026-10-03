@@ -74,6 +74,14 @@ updateCameraList();
 
 socket.on("msg", function (msg) {
   const line = document.createElement("div");
+  const named = msg.match(/^([^:]{1,64}): ([\s\S]*)$/); // server prefixes "name: "
+  if (named) {
+    const b = document.createElement("b");
+    b.className = "chatName";
+    b.textContent = named[1];
+    line.append(b, ": ");
+    msg = named[2];
+  }
   msg.split(/(https?:\/\/\S+)/).forEach((part, i) => { // odd parts are links
     if (i % 2) {
       const a = document.createElement("a");

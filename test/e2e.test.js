@@ -226,6 +226,7 @@ test('chat shows messages as text and keeps links clickable', async () => {
   await new Promise(r => setTimeout(r, 300));
   assert.strictEqual(await b.evaluate(() => window.__xss), undefined, 'no script execution');
   assert.strictEqual(await b.evaluate(() => document.querySelector('#chatText div:last-child').textContent), 'alice: ' + msg);
+  assert.strictEqual(await b.evaluate(() => document.querySelector('#chatText div:last-child .chatName').textContent), 'alice', 'sender name styled apart');
   assert.strictEqual(await b.evaluate(() => document.querySelector('#chatText a').href), 'https://example.com/a?b=1');
   assert.strictEqual(await a.inputValue('#chatInputText'), '', 'input cleared');
   await a.context().close(); await b.context().close();
