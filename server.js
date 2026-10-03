@@ -9,7 +9,7 @@ const HTTP_PORT = parseInt(process.env.listen_port) > 0 ? parseInt(process.env.l
 const HTTP_IP = process.env.listen_ip ? process.env.listen_ip : "0.0.0.0";
 
 //Define API Version
-const API_VERSION = 1.3;
+const API_VERSION = 1.4;
 
 //Get dummy cert files for https
 var fs = require('fs');
@@ -55,12 +55,21 @@ console.log("--------------------------------------------");
 
 var registerdUUIDs = Object.create(null); // no prototype: "__proto__" etc. are plain keys
 var socketID_UUIDMatch = Object.create(null);
+// Closed rooms, while they have members: any member locks, newcomers knock, any member admits or rejects.
+// ponytail: the reject cooldown is keyed by the knocker's per-tab id, so it slows down honest retries, not a determined knocker.
+var rooms = Object.create(null);
+const roomState = name => rooms[name] ||= { locked: false, approved: new Set(), knocks: new Map(), rejects: new Map() };
+function forgetRoom(name) { // last member gone: open again, knockers still waiting are sent in
+    for (const k of rooms[name]?.knocks.values() || []) ioServer.to(k.socketId).emit("knockAnswer", { accept: true });
+    delete rooms[name];
+}
 
 //Listen for IO connections and do signaling
 ioServer.sockets.on('connection', function (socket) {
     socket.emit('API_VERSION', API_VERSION);
 
     let roomOfUser = null;
+    let knockRoom = null; // room this socket knocks at
     let MY_UUID = null;
     console.log("NEW USER!");
 
@@ -84,6 +93,12 @@ ioServer.sockets.on('connection', function (socket) {
     });
 
     socket.on('disconnect', function () {
+        const knocked = knockRoom !== null && rooms[knockRoom];
+        if (knocked && knocked.knocks.get(MY_UUID)?.socketId === socket.id) {
+            knocked.knocks.delete(MY_UUID);
+            ioServer.to(knockRoom).emit("knockDone", MY_UUID);
+        }
+        if (roomOfUser !== null && !ioServer.sockets.adapter.rooms.get(roomOfUser)) forgetRoom(roomOfUser);
         if (socketID_UUIDMatch[MY_UUID] !== socket.id) return; // a newer socket already took over this UUID
         socket.to(roomOfUser).emit('userDiscconected', MY_UUID);
         delete registerdUUIDs[MY_UUID];
@@ -93,14 +108,52 @@ ioServer.sockets.on('connection', function (socket) {
     socket.on("joinRoom", function (content, callback) {
         if (!MY_UUID || !content || typeof content != "object" || roomOfUser !== null) return; // registered first, one room per connection
         const str = v => typeof v == "string" ? v : ""; // String() of an object can throw and kill the server
-        roomOfUser = socket.data.room = str(content["roomname"]).slice(0, 64);
+        const ack = typeof callback == "function" ? callback : () => { };
+        const name = str(content["roomname"]).slice(0, 64);
+        if (knockRoom !== null && knockRoom !== name) return;
+        const room = roomState(name);
+        if (room.locked && !room.approved.has(MY_UUID)) { // knock: members decide
+            const knockId = /^[\w-]{1,64}$/.test(str(content["knockId"])) ? content["knockId"] : MY_UUID;
+            const wait = Math.ceil(((room.rejects.get(knockId)?.until || 0) - Date.now()) / 1000);
+            if (wait > 0) return ack({ wait });
+            knockRoom = name;
+            room.knocks.set(MY_UUID, { socketId: socket.id, name: str(content["name"]).slice(0, 64), knockId });
+            ioServer.to(name).emit("knock", { UUID: MY_UUID, name: room.knocks.get(MY_UUID).name });
+            return ack({ wait: 0 });
+        }
+        room.approved.add(MY_UUID); // also when it reconnects later
+        roomOfUser = socket.data.room = name;
         const keep = Array.isArray(content["keep"]) ? content["keep"].filter(k => typeof k == "string").slice(0, 8) : []; // peers a rejoining page still has a live call with
         socket.to(roomOfUser).emit('userJoined', { UUID: MY_UUID, keep });
         const members = [...(ioServer.sockets.adapter.rooms.get(roomOfUser) || [])].map(id => ioServer.sockets.sockets.get(id)?.data.uuid);
-        if (typeof callback == "function") callback(members); // who is in the room, so a rejoining page can resync
+        ack(members); // who is in the room, so a rejoining page can resync
         console.log("joinRoom", roomOfUser, MY_UUID);
         socket.join(roomOfUser);
+        if (room.locked) socket.emit("locked", { locked: true });
+        for (const [UUID, k] of room.knocks) socket.emit("knock", { UUID, name: k.name });
     })
+
+    socket.on("setLocked", function (locked) {
+        if (roomOfUser === null || typeof locked != "boolean") return; // members only
+        roomState(roomOfUser).locked = locked;
+        ioServer.to(roomOfUser).emit("locked", { locked, by: MY_UUID });
+    });
+
+    socket.on("answerKnock", function (content) {
+        const room = roomOfUser !== null && rooms[roomOfUser]; // members only
+        const k = room && content && room.knocks.get(content.UUID);
+        if (!k) return;
+        room.knocks.delete(content.UUID);
+        ioServer.to(roomOfUser).emit("knockDone", content.UUID);
+        if (content.accept === true) {
+            room.approved.add(content.UUID);
+            return ioServer.to(k.socketId).emit("knockAnswer", { accept: true });
+        }
+        const r = room.rejects.get(k.knockId) || { count: 0 };
+        const wait = Math.min(15 * 2 ** r.count++, 600); // 15s, 30s, 60s ... 10min
+        room.rejects.set(k.knockId, { count: r.count, until: Date.now() + wait * 1000 });
+        ioServer.to(k.socketId).emit("knockAnswer", { wait });
+    });
 
     socket.on("signaling", function (content) {
         if (!content || typeof content != "object" || roomOfUser === null) return;
