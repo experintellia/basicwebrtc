@@ -31,14 +31,14 @@ async function client(uuid, key = uuid + '-key') {
   clients.push(c);
   await new Promise(r => c.on('connect', r));
   const [err, already] = await new Promise(r => c.emit('registerUUID', { UUID: uuid, UUID_KEY: key }, (...a) => r(a)));
-  return { c, err, already };
+  return { c, err, already, uuid, key };
 }
-async function join(cl, roomname, username = 'u') {
-  const joined = nextEvent(cl.c, 'msg'); // a socket's events are handled in order: the echo means the join is done
-  cl.c.emit('joinRoom', { roomname, username });
-  cl.c.emit('sendMsg', 'joined');
-  await joined;
+async function join(cl, roomname) {
+  cl.c.emit('joinRoom', { roomname });
+  await sync(cl);
 }
+// A socket's events are handled in order: the ack of a repeated registerUUID means all earlier ones are done.
+const sync = cl => new Promise(r => cl.c.emit('registerUUID', { UUID: cl.uuid, UUID_KEY: cl.key }, r));
 const nextEvent = (c, ev, ms = 1000) => new Promise((res, rej) => {
   const t = setTimeout(() => rej(new Error(`no '${ev}' within ${ms}ms`)), ms);
   c.once(ev, d => { clearTimeout(t); res(d); });
@@ -91,11 +91,30 @@ test('room members get userJoined / userDiscconected', async () => {
   const a = await client('J1'), b = await client('J2');
   await join(a, 'room-j');
   const joined = nextEvent(a.c, 'userJoined');
-  b.c.emit('joinRoom', { roomname: 'room-j', username: 'b' });
-  assert.deepStrictEqual(await joined, { UUID: 'J2' });
+  b.c.emit('joinRoom', { roomname: 'room-j' });
+  assert.deepStrictEqual(await joined, { UUID: 'J2', keep: [] });
   const left = nextEvent(a.c, 'userDiscconected');
   b.c.close();
   assert.strictEqual(await left, 'J2');
+});
+
+test('userJoined forwards the rejoining peer\'s keep list, strings only, at most 8', async () => {
+  const a = await client('K1'), b = await client('K2');
+  await join(a, 'room-k');
+  const joined = nextEvent(a.c, 'userJoined');
+  b.c.emit('joinRoom', { roomname: 'room-k', keep: ['K1', { toString: 1 }, 5, ...'abcdefghij'] });
+  assert.deepStrictEqual(await joined, { UUID: 'K2', keep: ['K1', ...'abcdefg'] });
+  const c = await client('K3');
+  const again = nextEvent(a.c, 'userJoined');
+  c.c.emit('joinRoom', { roomname: 'room-k', keep: 'K1' });
+  assert.deepStrictEqual(await again, { UUID: 'K3', keep: [] });
+});
+
+test('joinRoom acks with the UUIDs already in the room', async () => {
+  const a = await client('Q1'), b = await client('Q2'), other = await client('Q3');
+  await join(a, 'room-q'); await join(other, 'room-q2');
+  const members = await b.c.timeout(1000).emitWithAck('joinRoom', { roomname: 'room-q' });
+  assert.deepStrictEqual(members, ['Q1']);
 });
 
 test('malformed payloads are ignored and signaling keeps working', async () => {
@@ -105,13 +124,23 @@ test('malformed payloads are ignored and signaling keeps working', async () => {
   a.c.emit('registerUUID', null);
   a.c.emit('registerUUID', null, () => { });
   a.c.emit('registerUUID', { UUID: 'M9', UUID_KEY: 'k' }); // no ack callback
-  a.c.emit('currentAudioLvl', null);
-  await join(a, 'room-m', { evil: 1 }); await join(b, 'room-m');
+  a.c.emit('joinRoom', { roomname: { toString: 1 } }); // String() of it would throw
+  await sync(a); await join(b, '');
   const got = nextEvent(b.c, 'signaling');
   a.c.emit('signaling', { destUUID: 'M2', signalingData: 'hi' });
-  const d = await got;
-  assert.strictEqual(d.fromUUID, 'M1');
-  assert.strictEqual(typeof d.username, 'string');
+  assert.strictEqual((await got).fromUUID, 'M1');
+});
+
+test('chat, mic levels and usernames do not go through the server (#11)', async () => {
+  const a = await client('P1'), b = await client('P2');
+  await join(a, 'room-p'); await join(b, 'room-p');
+  const seen = [];
+  b.c.onAny(ev => seen.push(ev));
+  a.c.emit('sendMsg', 'secret'); a.c.emit('currentAudioLvl', 2);
+  const got = nextEvent(b.c, 'signaling');
+  a.c.emit('signaling', { destUUID: 'P2', signalingData: 'hi' });
+  assert.ok(!('username' in await got), 'no username in signaling');
+  assert.deepStrictEqual(seen, ['signaling']);
 });
 
 test('only well-formed UUIDs are accepted, one per socket', async () => {
@@ -133,14 +162,10 @@ test('signaling is not routed across rooms', async () => {
 test('a second joinRoom cannot switch rooms', async () => {
   const a = await client('W1'), spy = await client('W2');
   await join(a, 'room-w1'); await join(spy, 'room-w2');
-  const seen = [];
-  spy.c.on('msg', m => seen.push(m));
-  a.c.emit('joinRoom', { roomname: 'room-w2', username: 'mallory' });
-  const echo = nextEvent(a.c, 'msg');
-  a.c.emit('sendMsg', 'leak');
-  assert.deepStrictEqual(await echo, { name: 'u', msg: 'leak' }, 'name unchanged');
-  await new Promise(r => setTimeout(r, 200)); // nothing to wait for: asserting something does not arrive
-  assert.deepStrictEqual(seen, []);
+  a.c.emit('joinRoom', { roomname: 'room-w2' });
+  const got = nextEvent(spy.c, 'signaling', 300);
+  a.c.emit('signaling', { destUUID: 'W2', signalingData: 'leak' });
+  await assert.rejects(got);
 });
 
 test('an empty room name still allows signaling', async () => {
@@ -149,22 +174,6 @@ test('an empty room name still allows signaling', async () => {
   const got = nextEvent(b.c, 'signaling');
   a.c.emit('signaling', { destUUID: 'E2', signalingData: 'hi' });
   assert.strictEqual((await got).signalingData, 'hi');
-});
-
-test('setName renames for chat and peers; junk payloads do not crash the server', async () => {
-  const a = await client('N1'), b = await client('N2');
-  await join(a, 'room-n', 'alice'); await join(b, 'room-n');
-  a.c.emit('setName', { toString: 1 });
-  a.c.emit('joinRoom', { roomname: { toString: 1 } }); // already joined: ignored, but must not throw either
-  const renamed = nextEvent(b.c, 'userName');
-  a.c.emit('setName', 'zoe');
-  assert.deepStrictEqual(await renamed, { fromUUID: 'N1', username: 'zoe' });
-  const msg = nextEvent(b.c, 'msg');
-  a.c.emit('sendMsg', 'hi');
-  assert.deepStrictEqual(await msg, { name: 'zoe', msg: 'hi' });
-  const c = await client('N3');
-  c.c.emit('joinRoom', { roomname: { toString: 1 }, username: { toString: 1 } });
-  await join(c, 'room-n'); // server still alive and c can still join
 });
 
 test('joinRoom before registerUUID is ignored', async () => {
@@ -176,4 +185,26 @@ test('joinRoom before registerUUID is ignored', async () => {
   const got = nextEvent(a.c, 'userJoined', 300);
   ghost.emit('joinRoom', { roomname: 'room-u', username: 'g' });
   await assert.rejects(got, 'no peer connection for a null UUID');
+});
+
+test('Object.prototype names are ordinary UUIDs', async () => {
+  // Held by a real owner, the key must not be guessable from Object.prototype.
+  assert.strictEqual((await client('__proto__')).err, null);
+  assert.ok((await client('__proto__', '[object Object]')).err);
+  assert.strictEqual((await client('constructor')).err, null);
+  assert.ok((await client('constructor', 'function Object() { [native code] }')).err);
+  assert.strictEqual((await client('hasOwnProperty')).err, null);
+  assert.strictEqual((await client('toString')).err, null);
+});
+
+test('signaling from an unregistered socket is ignored', async () => {
+  const a = await client('U2');
+  await join(a, 'room-u2');
+  const ghost = io(URL, { transports: ['websocket'], reconnection: false });
+  clients.push(ghost);
+  await new Promise(r => ghost.on('connect', r));
+  const got = nextEvent(a.c, 'signaling', 300);
+  ghost.emit('joinRoom', { roomname: 'room-u2', username: 'g' });
+  ghost.emit('signaling', { destUUID: 'U2', signalingData: 'hi' });
+  await assert.rejects(got);
 });

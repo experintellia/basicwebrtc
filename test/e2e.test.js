@@ -45,6 +45,9 @@ const liveRemoteAudio = page => page.evaluate(() =>
   [...document.querySelectorAll('#audioStreams audio')]
     .filter(a => a.srcObject && a.srcObject.getAudioTracks().some(t => t.readyState === 'live' && !t.muted)).length);
 
+// Init script: keeps the raw RTCPeerConnections in window.__raw.
+const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
+
 async function waitFor(fn, what, ms = 15000) {
   const end = Date.now() + ms;
   let last;
@@ -230,7 +233,6 @@ const screenMode = page => page.evaluate(() => {
 
 test('screen share mode: detail by default, performance on toggle, applied to late joiners', async () => {
   const room = 'r' + Date.now();
-  const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
   const a = await join(room, 'alice', trackPcs);
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
@@ -289,9 +291,9 @@ test('camera turned on before the peer connects', async () => {
   // Start the camera right after the pc is created, before ICE connects.
   await a.evaluate(async () => {
     const cam = await navigator.mediaDevices.getUserMedia({ video: true });
-    socket.on('userJoined', () => { camActive = true; startVideo(cam, $('#addRemoveCameraBtn')); });
+    socket.once('userJoined', () => { camActive = true; startVideo(cam, $('#addRemoveCameraBtn')); });
   });
-  const b = await join(room, 'bob');
+  const b = await join(room, 'bob', trackPcs);
   await waitFor(() => remoteVideoShown(b), 'remote video on bob');
   await new Promise(r => setTimeout(r, 1000));
   assert.deepStrictEqual(errors, []);
@@ -299,7 +301,7 @@ test('camera turned on before the peer connects', async () => {
   await b.click('#addRemoveCameraBtn');
   await waitFor(() => remoteVideoShown(a), 'remote video on alice');
   await a.evaluate(() => window.__oldPc = Object.values(pcs)[0]);
-  await b.evaluate(() => socket.io.engine.close());
+  await b.evaluate(() => { __raw[0].close(); socket.io.engine.close(); }); // bob's connection dies, his socket reconnects
   await waitFor(() => a.evaluate(() => Object.values(pcs)[0] && Object.values(pcs)[0] !== __oldPc), 'alice rebuilt the pc');
   await waitFor(() => remoteVideoShown(a), 'remote video on alice after reconnect');
   await a.context().close(); await b.context().close();
@@ -329,13 +331,18 @@ test('signaling socket reconnect keeps the call working', async () => {
   const a = await join(room, 'alice');
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
+  for (const p of [a, b]) await p.evaluate(() => window.__pc = Object.values(pcs)[0]);
   // Simulate a network blip / proxy idle timeout on alice's signaling socket.
   await a.evaluate(() => socket.io.engine.close());
   await waitFor(() => a.evaluate(() => socket.connected), 'socket reconnected');
   await new Promise(r => setTimeout(r, 1000));
   assert.strictEqual(await a.evaluate(() => socket.listeners('signaling').length), 1, 'signaling handler registered once');
   // A chat line sent once must arrive once.
-  await b.evaluate(() => socket.emit('sendMsg', 'ping'));
+  await b.click('#moreBtn'); await b.click('#addRemoveChatBtn');
+  await b.fill('#chatInputText', 'ping');
+  await b.press('#chatInputText', 'Enter');
+  await waitFor(() => a.locator('#chatText div', { hasText: 'ping' }).count(), 'chat on alice');
   await new Promise(r => setTimeout(r, 500));
   assert.strictEqual(await a.locator('#chatText div', { hasText: 'ping' }).count(), 1, 'chat delivered once');
   // After the blip alice must still be able to renegotiate (turn on cam) and chat.
@@ -344,6 +351,7 @@ test('signaling socket reconnect keeps the call working', async () => {
   for (const p of [a, b]) {
     await waitFor(async () => (await connectedPeers(p)) === 1 && (await liveRemoteAudio(p)) === 1, 'one live peer each');
     assert.strictEqual(await p.evaluate(() => Object.keys(pcs).length), 1, 'no stale peer connections');
+    assert.ok(await p.evaluate(() => Object.values(pcs)[0] === __pc), 'working pc not replaced');
   }
   await a.context().close(); await b.context().close();
 });
@@ -398,6 +406,153 @@ test('remote username is shown as text', async () => {
   await new Promise(r => setTimeout(r, 300));
   assert.strictEqual(await b.evaluate(() => window.__xss), undefined, 'no script execution');
   assert.ok(await b.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('<img src=x')), 'name shown literally');
+  await a.context().close(); await b.context().close();
+});
+
+test('chat, mute state and username reach the peer without the server (#11)', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(a)) === 1 && (await connectedPeers(b)) === 1, 'ICE connected');
+  await a.evaluate(() => { socket.emit = () => { }; }); // alice can no longer reach the server
+  await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
+  await a.fill('#chatInputText', 'hi via p2p');
+  await a.press('#chatInputText', 'Enter');
+  await waitFor(() => b.evaluate(() => document.querySelector('#chatText').textContent == 'alice: hi via p2p'), 'chat on bob');
+  assert.strictEqual(await a.evaluate(() => document.querySelector('#chatText').textContent), 'alice: hi via p2p', 'shown locally');
+  await a.click('#muteUnmuteMicBtn');
+  await waitFor(() => b.locator('.audioMuted').count(), 'mute icon on bob');
+  await waitFor(() => b.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('AL')), 'alice\'s initials on bob');
+  const errors = [];
+  a.on('pageerror', e => errors.push(e.message));
+  await b.evaluate(() => { const pc = Object.values(pcs)[0]; pc.send(null); pc.send(5); pc.send({ username: 'x'.repeat(500), chat: 'long' + 'y'.repeat(5000) }); }); // a peer can send anything
+  await waitFor(() => a.evaluate(() => document.querySelector('#chatText').textContent.includes('long')), 'chat on alice');
+  assert.ok(await a.evaluate(() => Object.values(allUserStreams).every(u => u.username.length <= 64)), 'username capped');
+  assert.ok(await a.evaluate(() => document.querySelector('#chatText div:last-child').textContent.length <= 2100), 'chat capped');
+  assert.deepStrictEqual(errors, []);
+  await a.context().close(); await b.context().close();
+});
+
+test('camera changes renegotiate without the server (#11)', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(a)) === 1 && (await connectedPeers(b)) === 1, 'ICE connected');
+  await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
+  for (const p of [a, b]) await p.evaluate(() => socket.disconnect());
+  await a.click('#addRemoveCameraBtn'); // initiator: offer over the data channel
+  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
+  await b.click('#addRemoveCameraBtn'); // answerer: "transceive"/"renegotiate" over the data channel
+  await waitFor(() => remoteVideoShown(a), 'remote video on alice');
+  await a.context().close(); await b.context().close();
+});
+
+test('call survives the signaling server going away and coming back (#11)', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await liveRemoteAudio(a)) === 1 && (await liveRemoteAudio(b)) === 1, 'remote audio');
+  await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
+  for (const p of [a, b]) await p.evaluate(() => window.__pc = Object.values(pcs)[0]);
+  await b.evaluate(() => socket.on('userJoined', () => window.__rejoined = true)); // runs after the app's handler
+  await a.evaluate(() => socket.disconnect()); // server tells bob "userDiscconected"
+  await waitFor(() => b.evaluate(() => __pc.left), 'bob saw alice leave the server');
+  for (const p of [a, b]) {
+    assert.strictEqual(await liveRemoteAudio(p), 1, 'audio still live');
+    assert.strictEqual(await p.locator('#mediaDiv .videoplaceholder').count(), 2, 'no tile removed');
+  }
+  await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
+  await a.fill('#chatInputText', 'still here');
+  await a.press('#chatInputText', 'Enter');
+  await waitFor(() => b.evaluate(() => document.querySelector('#chatText').textContent.includes('still here')), 'chat while server is gone');
+  await a.evaluate(() => socket.connect()); // rejoin: bob gets "userJoined" for alice's UUID
+  await waitFor(() => b.evaluate(() => window.__rejoined), 'bob handled alice\'s rejoin');
+  for (const p of [a, b]) {
+    assert.ok(await p.evaluate(() => Object.keys(pcs).length == 1 && Object.values(pcs)[0] === __pc), 'same peer connection kept');
+    assert.strictEqual(await liveRemoteAudio(p), 1, 'audio live after rejoin');
+  }
+  await a.context().close(); await b.context().close();
+});
+
+// Each side has exactly one peer, its ICE is up now, and its audio is live.
+const callUp = async p => (await p.evaluate(() => Object.values(pcs).length == 1 && Object.values(pcs)[0].iceUp())) && (await liveRemoteAudio(p)) === 1;
+
+test('network switch: ICE and socket lost together, the call comes back', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', trackPcs);
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  for (const p of [a, b]) await p.evaluate(() => Object.values(pcs)[0].mappedEvents.close = []); // a lost network sends no goodbye
+  await a.evaluate(() => { __raw[0].close(); socket.io.engine.close(); }); // old network gone: no ICE, socket drops and reconnects
+  for (const p of [a, b]) await waitFor(() => callUp(p), 'call up again', 30000);
+  await a.context().close(); await b.context().close();
+});
+
+test('rejoining peer that still has the call gets a reset when the other side rebuilds', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  for (const p of [a, b]) await p.evaluate(() => window.__pc = Object.values(pcs)[0]);
+  await b.evaluate(() => __pc.iceUp = () => false); // bob's side of the call is dead, alice's looks fine
+  await a.evaluate(() => __pc.mappedEvents.close = []); // no close event reaches alice either
+  await a.evaluate(() => socket.io.engine.close()); // alice rejoins, keeping bob
+  for (const p of [a, b]) await waitFor(async () => (await p.evaluate(() => Object.values(pcs)[0] !== __pc)) && (await callUp(p)), 'new call on both sides');
+  await a.context().close(); await b.context().close();
+});
+
+test('signaling uses the socket while it is up, even if the data channel reads open', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
+  await b.evaluate(() => { const pc = Object.values(pcs)[0], send = pc.send; pc.send = m => m.signaling ? true : send(m); }); // one-way outage: bob's sends get lost
+  await a.click('#addRemoveCameraBtn');
+  await b.click('#addRemoveCameraBtn');
+  await waitFor(async () => (await remoteVideoShown(a)) && (await remoteVideoShown(b)), 'video both ways');
+  await a.context().close(); await b.context().close();
+});
+
+// Both sockets blip: bob sees alice leave, then is offline himself while she rejoins. His view must resync on rejoin.
+test('stale "left the server" mark is cleared when rejoining a room the peer is in', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  await a.evaluate(() => socket.disconnect());
+  await waitFor(() => b.evaluate(() => Object.values(pcs)[0].left), 'bob saw alice leave');
+  await b.evaluate(() => socket.disconnect());
+  await a.evaluate(() => socket.connect());
+  await waitFor(async () => (await selfStatus(a)) === '', 'alice rejoined');
+  await b.evaluate(() => socket.connect());
+  await waitFor(async () => (await selfStatus(b)) === '', 'bob rejoined');
+  // short ICE blip on bob's side
+  await b.evaluate(() => { const pc = Object.values(pcs)[0], up = pc.iceUp; pc.iceUp = () => false; pc.emitEvent('icestate', 'disconnected'); pc.iceUp = up; });
+  assert.ok(await callUp(b), 'call kept through the blip');
+  await a.context().close(); await b.context().close();
+});
+
+test('peer that crashed while we were off the server is removed after we rejoin', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  await a.evaluate(() => socket.disconnect());
+  (await b.context().newCDPSession(b)).send('Page.crash').catch(() => { }); // never resolves: the renderer is gone
+  await a.evaluate(() => socket.connect());
+  await waitFor(async () => (await a.locator('#mediaDiv .videoplaceholder').count()) === 1, 'tile removed', 30000);
+  await a.context().close(); await b.context().close();
+});
+
+test('crashed peer (no goodbye) is removed once the server notices', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  const cdp = await b.context().newCDPSession(b);
+  cdp.send('Page.crash').catch(() => { }); // never resolves: the renderer is gone
+  await waitFor(async () => (await a.locator('#mediaDiv .videoplaceholder').count()) === 1, 'tile removed', 30000);
   await a.context().close(); await b.context().close();
 });
 
@@ -469,7 +624,6 @@ const iptables = args => require('child_process').execSync('iptables ' + args);
 
 test('call recovers after the direct P2P path drops for a while', { skip: !canDropUdp && 'needs root + iptables' }, async () => {
   const room = 'r' + Date.now();
-  const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
   const a = await join(room, 'alice', trackPcs);
   const b = await join(room, 'bob', trackPcs);
   const iceUp = p => p.evaluate(() => __raw.some(x => ['connected', 'completed'].includes(x.iceConnectionState)));
@@ -531,7 +685,9 @@ test('rename updates the name for peers, chat and the URL', async () => {
   await waitFor(() => b.evaluate(() => Object.values(allUserStreams).some(s => s.username == 'zoe smith')), 'new name on bob');
   assert.strictEqual(await b.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('ZO')), true, 'initials updated');
   assert.strictEqual(await a.evaluate(() => getUrlParam('username', 'NA')), 'zoe smith', 'kept in URL for reloads');
-  await a.evaluate(() => socket.emit('sendMsg', 'hi'));
+  await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
+  await a.fill('#chatInputText', 'hi');
+  await a.press('#chatInputText', 'Enter');
   await waitFor(() => b.evaluate(() => document.querySelector('#chatText').textContent.includes('zoe smith: hi')), 'chat uses new name');
   await a.context().close(); await b.context().close();
 });
@@ -564,6 +720,24 @@ test('rename keeps other URL params byte-identical and cannot switch them on', a
   await a.reload();
   assert.deepStrictEqual(await a.evaluate(() => [getUrlParam('camon', false), getUrlParam('socketdomain', false), getUrlParam('username', 'NA')]),
     [false, false, 'my camon socketdomain name']);
+  await ctx.close();
+});
+
+test('URL params: exact keys, no double #, stray % does not break the page', async () => {
+  const ctx = await browser.newContext();
+  const a = await ctx.newPage();
+  const errors = [];
+  a.on('pageerror', e => errors.push(e.message));
+  await a.goto(`${BASE}#username=bob`); // no roomname: one gets added with &, not a second #
+  assert.match(await a.evaluate(() => location.hash), /^#username=bob&roomname=r\d+$/);
+  assert.deepStrictEqual(await a.evaluate(() => [username, getUrlParam('roomname', 'unknown') == roomname]), ['bob', true]);
+  await a.goto(`${BASE}#roomname=camonday`);
+  await a.reload(); // a hash-only goto doesn't reload the page
+  assert.strictEqual(await a.evaluate(() => camOnAtStart), false);
+  await a.goto(`${BASE}#roomname=100%&username=50%`);
+  await a.reload();
+  assert.deepStrictEqual(await a.evaluate(() => [getUrlParam('roomname'), username]), ['100%', '50%']);
+  assert.deepStrictEqual(errors, []);
   await ctx.close();
 });
 
@@ -649,7 +823,9 @@ test('unnamed sender cannot fake a styled name', async () => {
   await a.goto(`${BASE}#roomname=${room}`); // no username
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
-  await a.evaluate(() => socket.emit('sendMsg', 'bob: send me the code'));
+  await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
+  await a.fill('#chatInputText', 'bob: send me the code');
+  await a.press('#chatInputText', 'Enter');
   await waitFor(() => b.evaluate(() => document.querySelectorAll('#chatText > div').length > 0), 'message on bob');
   assert.strictEqual(await b.evaluate(() => document.querySelector('#chatText .chatName')), null);
   await ctx.close(); await b.context().close();
@@ -686,7 +862,7 @@ test('chat, rename and share live in the more menu', async () => {
   assert.deepStrictEqual(await visible(), [false, false, false], 'outside click closes');
   // unread chat is flagged on the more button while chat is closed
   const unread = () => a.evaluate(() => [document.querySelector('#moreBtn').dataset.unread, document.querySelector('#addRemoveChatBtn').dataset.unread]);
-  await a.evaluate(() => { socket.emit('sendMsg', 'ping'); socket.emit('sendMsg', 'pong'); });
+  await a.evaluate(() => { showMsg('', 'ping'); showMsg('', 'pong'); });
   await waitFor(async () => (await unread())[0] === '2', 'unread count badge');
   assert.deepStrictEqual(await unread(), ['2', '2'], 'count on the button and the chat item');
   await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
@@ -708,4 +884,82 @@ test('all call buttons fit on screen from phone to small desktop widths', async 
     assert.deepStrictEqual(overflow, [], `${width}x${height}`);
     await ctx.close();
   }
+});
+
+// #26: local media state
+const noCamera = () => { const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); navigator.mediaDevices.getUserMedia = c => c.video ? Promise.reject(new DOMException('no camera', 'NotFoundError')) : gum(c); };
+const liveVideoLeft = page => page.evaluate(() => __streams.flatMap(s => s.getVideoTracks()).filter(t => t.readyState == 'live').length);
+const slowMedia = () => { // records every stream handed out; camera and screen take 500ms
+  const md = navigator.mediaDevices, gum = md.getUserMedia.bind(md), gdm = md.getDisplayMedia.bind(md);
+  window.__streams = [];
+  const slow = f => async c => { const s = await f(c); if (c.video) await new Promise(r => setTimeout(r, 500)); __streams.push(s); return s; };
+  md.getUserMedia = slow(gum); md.getDisplayMedia = slow(gdm);
+};
+
+test('camon=1 without a working camera still joins with audio', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', noCamera, '?camon=1');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await liveRemoteAudio(b)) === 1, 'alice heard by bob');
+  await a.context().close(); await b.context().close();
+});
+
+test('rapid camera/screen clicks leave no live stream behind', async () => {
+  const a = await join('r' + Date.now(), 'alice', slowMedia);
+  await waitFor(() => a.evaluate(() => !!allUserStreams[MY_UUID].audiostream), 'mic ready');
+  await a.click('#addRemoveCameraBtn'); await a.click('#addRemoveCameraBtn'); // double click
+  await waitFor(() => a.evaluate(() => camActive), 'camera on');
+  await new Promise(r => setTimeout(r, 1000));
+  await a.click('#addRemoveCameraBtn');
+  assert.strictEqual(await liveVideoLeft(a), 0, 'double click');
+  await a.click('#addRemoveScreenBtn'); await a.click('#addRemoveCameraBtn'); // camera while the screen picker is open
+  await new Promise(r => setTimeout(r, 1500));
+  assert.ok(!(await a.evaluate(() => camActive && screenActive)), 'not both active');
+  await a.evaluate(() => (camActive || screenActive) && stopVideo());
+  assert.strictEqual(await liveVideoLeft(a), 0, 'camera during screen picker');
+  await a.context().close();
+});
+
+test('cancelling the screen picker keeps the camera', async () => {
+  const a = await join('r' + Date.now(), 'alice', () => { navigator.mediaDevices.getDisplayMedia = () => Promise.reject(new DOMException('cancelled', 'NotAllowedError')); });
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => a.evaluate(() => camActive), 'camera on');
+  await a.click('#addRemoveScreenBtn');
+  await new Promise(r => setTimeout(r, 300));
+  assert.ok(await a.evaluate(() => camActive && allUserStreams[MY_UUID].videostream.getVideoTracks()[0].readyState == 'live'));
+  await a.context().close();
+});
+
+test('unplugged camera turns the camera off', async () => {
+  const a = await join('r' + Date.now(), 'alice');
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => a.evaluate(() => camActive), 'camera on');
+  await a.evaluate(() => allUserStreams[MY_UUID].videostream.getVideoTracks()[0].dispatchEvent(new Event('ended')));
+  assert.deepStrictEqual(await a.evaluate(() => [camActive, !!allUserStreams[MY_UUID].videostream, $('#addRemoveCameraBtn').style.color]), [false, false, 'black']);
+  await a.context().close();
+});
+
+test('hang up releases mic, camera and socket right away, once', async () => {
+  const a = await join('r' + Date.now(), 'alice');
+  await waitFor(() => a.evaluate(() => !!allUserStreams[MY_UUID].audiostream), 'mic ready');
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => a.evaluate(() => camActive), 'camera on');
+  await a.evaluate(() => { window.__tracks = [allUserStreams[MY_UUID].audiostream, allUserStreams[MY_UUID].videostream].flatMap(s => s.getTracks()); });
+  await a.evaluate(() => { $('#cancelCallBtn').click(); $('#cancelCallBtn').click(); });
+  assert.deepStrictEqual(await a.evaluate(() => [__tracks.map(t => t.readyState).join(), socket.disconnected, document.querySelectorAll('#topDiv').length]), ['ended,ended', true, 1]);
+  await a.context().close();
+});
+
+test('mic denied shows a message and "Try again" joins once allowed', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', () => {
+    const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = c => c.audio && !sessionStorage.micOk ? Promise.reject(new DOMException('denied', 'NotAllowedError')) : gum(c);
+  });
+  await waitFor(() => a.locator('#micError').isVisible(), 'message shown');
+  await a.evaluate(() => sessionStorage.micOk = 1); // user allows the mic
+  await a.click('#micError button');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await liveRemoteAudio(b)) === 1, 'alice heard by bob');
+  await a.context().close(); await b.context().close();
 });

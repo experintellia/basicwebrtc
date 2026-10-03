@@ -24,7 +24,7 @@ var roomname = getUrlParam("roomname", false);
 
 if (!roomname) {
   roomname = "r" + Math.random().toString().replace(".", "")
-  window.location = location.href + "#roomname=" + roomname
+  location.hash = paramsWithout("#", location.hash, [], { roomname }) // & not a 2nd "#"
 }
 
 if (base64Domain && socketDomain) {
@@ -73,7 +73,7 @@ async function updateCameraList() { //Show camera picker only if there is more t
 navigator.mediaDevices.addEventListener("devicechange", updateCameraList);
 updateCameraList();
 
-socket.on("msg", function ({ name, msg }) {
+function showMsg(name, msg) {
   const line = document.createElement("div");
   if (name) {
     const b = document.createElement("b");
@@ -97,7 +97,7 @@ socket.on("msg", function ({ name, msg }) {
   if ($("#chatDiv").hidden) {
     for (const b of [$("#moreBtn"), $("#addRemoveChatBtn")]) b.dataset.unread = (+b.dataset.unread || 0) + 1;
   }
-})
+}
 
 socket.on("currentIceServers", function (newIceServers) {
   webRTCConfig["iceServers"] = newIceServers;
@@ -111,29 +111,24 @@ socket.on("API_VERSION", function (serverAPI_VERSION) {
 
 socket.on("signaling", function (data) {
   var fromUUID = data.fromUUID;
-  if (data.username) { // before createRemoteSocket, so the new tile shows the name
-    allUserStreams[fromUUID] = allUserStreams[fromUUID] || {};
-    allUserStreams[fromUUID]["username"] = data.username;
-  }
+  if (data.signalingData == "reset") return removePeer(fromUUID);
   if (!pcs[fromUUID]) {
     createRemoteSocket(false, fromUUID)
   }
   pcs[fromUUID].signaling(data.signalingData).catch(e => console.log("signaling error", e));
 })
 
+// MY_UUID is new per page load: a known UUID means that page's socket reconnected. It already dropped
+// peers whose ICE is down and lists the rest in keep; keep the call only if both sides still have it.
 socket.on("userJoined", function (content) {
-  createRemoteSocket(true, content["UUID"] || null)
+  const UUID = content["UUID"] || null;
+  if (pcs[UUID]?.iceUp() && content.keep?.includes(MY_UUID)) return pcs[UUID].left = false;
+  createRemoteSocket(true, UUID);
 })
 
-socket.on("userName", function (content) {
-  if (!allUserStreams[content.fromUUID]) return;
-  allUserStreams[content.fromUUID].username = content.username;
-  updateUserLayout();
-})
-
-socket.on("currentAudioLvl", function (content) {
-  setAudioLevel(content["fromUUID"], content["currentAudioLvl"] || 0);
-})
+const sendToPeers = obj => { for (var i in pcs) pcs[i].send(obj) };
+window.addEventListener("pagehide", () => sendToPeers({ bye: true })); // hang up, tab closed or reload
+const nameOf = UUID => { const n = allUserStreams[UUID] && allUserStreams[UUID]["username"]; return n && n != "NA" ? n : "" };
 
 function setAudioLevel(UUID, level) {
   const tile = byId(UUID);
@@ -146,16 +141,23 @@ function setAudioLevel(UUID, level) {
   }
 }
 
-socket.on("userDiscconected", removePeer)
+// Peer left the server: keep the call while ICE is up, drop it once ICE goes down (crash, lost network).
+socket.on("userDiscconected", function (UUID) {
+  if (!pcs[UUID]) return;
+  if (pcs[UUID].iceUp()) pcs[UUID].left = true;
+  else removePeer(UUID);
+})
 
-// Every (re)connect is a fresh join, like a page reload: drop all peers, register, join again.
+// Every (re)connect registers and joins again; peers with live ICE are kept, the rest rebuilt by the rejoin.
 socket.on("connect", function () {
-  for (var id in pcs) removePeer(id);
   socket.emit("registerUUID", { "UUID": MY_UUID, "UUID_KEY": MY_UUID_KEY }, async function (err) {
     if (err) return console.log(err);
     await mediaReady;
-    joinRoom();
-    setStatus(MY_UUID, "");
+    for (const id in pcs) if (!pcs[id].iceUp()) removePeer(id);
+    joinRoom(members => { // userJoined/userDiscconected missed while offline: resync who left the server
+      for (const id in pcs) if ((pcs[id].left = !members.includes(id)) && !pcs[id].iceUp()) removePeer(id);
+      setStatus(MY_UUID, "");
+    });
   })
 });
 socket.on("disconnect", () => setStatus(MY_UUID, "reconnecting…"));
@@ -171,14 +173,14 @@ var mediaReady = (async function () {
   updateUserLayout();
   try {
     if (camOnAtStart) { // ask for both permissions at once
-      (await navigator.mediaDevices.getUserMedia({ video: true, audio: true })).getTracks().forEach(t => t.stop());
+      (await navigator.mediaDevices.getUserMedia({ video: true, audio: true }).catch(() => null))?.getTracks().forEach(t => t.stop()); // no camera: still join with the mic
     }
     var stream = await navigator.mediaDevices.getUserMedia({
       video: false,
       audio: { 'echoCancellation': true, 'noiseSuppression': true }
     });
   } catch (error) {
-    alert("Could not get your Mic! You need at least one Mic!")
+    $("#micError").hidden = false;
     console.log('getUserMedia error! Got this error: ', error);
     return new Promise(() => { }); // never join without a mic
   }
@@ -186,7 +188,7 @@ var mediaReady = (async function () {
   allUserStreams[MY_UUID]["audiostream"] = stream;
   calcCurrentVolumeLevel(stream, function (currentAudioLvl) {
     if (!micMuted) {
-      socket.emit('currentAudioLvl', currentAudioLvl);
+      sendToPeers({ audioLvl: currentAudioLvl });
       setAudioLevel(MY_UUID, currentAudioLvl);
     }
   });
@@ -201,7 +203,7 @@ $("#muteUnmuteMicBtn").onclick = function () {
   this.innerHTML = micMuted ? '<i class="fas fa-microphone-alt-slash"></i>' : '<i class="fas fa-microphone-alt"></i>';
   if (allUserStreams[MY_UUID] && allUserStreams[MY_UUID]["audiostream"]) {
     allUserStreams[MY_UUID]["audiostream"].getAudioTracks()[0].enabled = !micMuted;
-    if (micMuted) socket.emit('currentAudioLvl', -1);
+    if (micMuted) sendToPeers({ audioLvl: -1 });
   }
 }
 
@@ -220,26 +222,35 @@ $("#chatSendBtn").onclick = sendMsg;
 $("#chatInputText").onkeydown = e => { if (e.key == "Enter") sendMsg() };
 
 function sendMsg() {
-  socket.emit('sendMsg', $("#chatInputText").value.trim());
+  const chat = $("#chatInputText").value.trim();
   $("#chatInputText").value = "";
+  if (!chat) return;
+  sendToPeers({ chat: chat });
+  showMsg(nameOf(MY_UUID), chat);
 }
 
-$("#addRemoveScreenBtn").onclick = async function () {
-  if (camActive) await toggleCamera();
+var mediaBusy = false; // one camera/screen change at a time: an overlapping one would leak a live stream
+async function exclusive(fn) {
+  if (mediaBusy) return;
+  mediaBusy = true;
+  try { await fn(); } finally { mediaBusy = false; }
+}
+
+$("#addRemoveScreenBtn").onclick = () => exclusive(async function () {
   if (screenActive) return stopVideo();
   try {
     var stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
   } catch (e) {
     console.log('getDisplayMedia error! Got this error: ', e);
-    alert("Could not get your Screen!")
+    if (e.name != "NotAllowedError") alert("Could not get your Screen!"); // NotAllowedError = picker cancelled
     return;
   }
+  if (camActive) stopVideo(); // only now: a cancelled picker keeps the camera
   screenActive = true;
-  stream.getVideoTracks()[0].onended = () => screenActive && stopVideo(); // browser's "Stop sharing" bar
   startVideo(stream, $("#addRemoveScreenBtn"));
   applyScreenMode();
   $("#screenModeBtn").hidden = false;
-}
+});
 
 $("#screenModeBtn").onclick = function () {
   screenMotion = !screenMotion;
@@ -269,6 +280,7 @@ $("#cameraSelect").onchange = async function () {
   try {
     var newTrack = (await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: selectedCameraId } } })).getVideoTracks()[0];
     if (!camActive) return newTrack.stop(); //camera was turned off meanwhile
+    newTrack.onended = oldTrack.onended;
     for (var i in pcs) pcs[i].replaceTrack(oldTrack, newTrack);
     stream.removeTrack(oldTrack);
     stream.addTrack(newTrack);
@@ -277,31 +289,34 @@ $("#cameraSelect").onchange = async function () {
     alert("Could not switch camera!")
     console.log('getUserMedia error! Got this error: ', error);
     selectedCameraId = null;
-    await toggleCamera(); //Turn the dead camera off
+    if (camActive) stopVideo(); //Turn the dead camera off (not via toggleCamera: its busy guard could skip it; skip if turned off or replaced by a screen share meanwhile)
     updateCameraList();
   } finally {
     this.disabled = false;
   }
 }
 
-async function toggleCamera() {
-  if (screenActive) stopVideo();
-  if (camActive) return stopVideo();
-  try {
-    var stream = await navigator.mediaDevices.getUserMedia({ video: selectedCameraId ? { deviceId: { exact: selectedCameraId } } : { 'facingMode': "user" }, audio: false });
-  } catch (error) {
-    alert("Could not get your Camera! Be sure you have one connected and it is not used by any other process!")
-    console.log('getUserMedia error! Got this error: ', error);
-    return;
-  }
-  selectedCameraId = stream.getVideoTracks()[0].getSettings().deviceId || selectedCameraId;
-  updateCameraList(); //Labels are only available after permission is granted
-  camActive = true;
-  startVideo(stream, $("#addRemoveCameraBtn"));
+function toggleCamera() {
+  return exclusive(async function () {
+    if (screenActive) stopVideo();
+    if (camActive) return stopVideo();
+    try {
+      var stream = await navigator.mediaDevices.getUserMedia({ video: selectedCameraId ? { deviceId: { exact: selectedCameraId } } : { 'facingMode': "user" }, audio: false });
+    } catch (error) {
+      alert("Could not get your Camera! Be sure you have one connected and it is not used by any other process!")
+      console.log('getUserMedia error! Got this error: ', error);
+      return;
+    }
+    selectedCameraId = stream.getVideoTracks()[0].getSettings().deviceId || selectedCameraId;
+    updateCameraList(); //Labels are only available after permission is granted
+    camActive = true;
+    startVideo(stream, $("#addRemoveCameraBtn"));
+  });
 }
 
 function startVideo(stream, btn) {
   btn.style.color = "#030356";
+  stream.getVideoTracks()[0].onended = () => allUserStreams[MY_UUID]["videostream"] == stream && stopVideo(); // unplugged camera, browser's "Stop sharing" bar
   for (var i in pcs) pcs[i].addStream(stream); //Add stream to all peers
   allUserStreams[MY_UUID] = allUserStreams[MY_UUID] || {};
   allUserStreams[MY_UUID]["videostream"] = stream;
@@ -332,7 +347,7 @@ $("#changeNameBtn").onclick = function () {
   username = name.trim().slice(0, 64) || "NA";
   history.replaceState(null, "", paramsWithout("#", location.hash, ["username"], { username })); // survives reloads
   if (allUserStreams[MY_UUID]) allUserStreams[MY_UUID].username = username;
-  socket.emit("setName", username);
+  sendToPeers({ username });
   updateUserLayout();
 }
 
@@ -350,6 +365,9 @@ $("#copyLinkBtn").onclick = function () {
 $("#shareDialog").onclose = () => $("#copyLinkBtn").innerHTML = '<i class="far fa-copy"></i> Copy';
 
 $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end screen
+  this.onclick = null;
+  for (const s of [webRTCConfig["stream"], allUserStreams[MY_UUID]["videostream"]]) s?.getTracks().forEach(t => t.stop());
+  socket.disconnect();
   document.body.insertAdjacentHTML("beforeend", '<div id="topDiv"></div><div id="bottomDiv"></div>');
   setTimeout(() => document.body.insertAdjacentHTML("beforeend", '<div id="centerDiv"></div>'), 500);
   setTimeout(() => location = "./endcall.html", 1400);
@@ -357,19 +375,37 @@ $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end sc
 
 //This is where the WEBRTC Magic happens!!!
 function createRemoteSocket(initiator, UUID) {
+  if (initiator) socket.emit("signaling", { destUUID: UUID, signalingData: "reset" }); // peer drops any old pc before our offer
   if (pcs[UUID]) removePeer(UUID); // same user rejoined: start over
   var pc = pcs[UUID] = new initEzWebRTC(initiator, webRTCConfig);
   if (allUserStreams[MY_UUID]["videostream"]) pc.addStream(allUserStreams[MY_UUID]["videostream"]);
   if (screenActive) applyScreenMode(); //late joiner gets the current mode
   pc.on("signaling", function (data) {
-    socket.emit("signaling", { destUUID: UUID, signalingData: data })
+    // Socket first: one ordered path, and a data channel can read "open" while nothing gets through. Channel only without a server.
+    if (socket.connected) socket.emit("signaling", { destUUID: UUID, signalingData: data });
+    else pc.send({ signaling: data });
   })
   allUserStreams[UUID] = allUserStreams[UUID] || {}; // show the tile right away, with its status
   allUserStreams[UUID]["status"] = "connecting…";
   updateUserLayout();
   pc.on("icestate", function (state) {
     if (pcs[UUID] !== pc) return; // already removed
+    // Gone from the server and from ICE. ponytail: a short ICE blip while the peer is off the server also drops it; accepted for fast crash cleanup.
+    if (pc.left && !pc.iceUp()) return removePeer(UUID);
     setStatus(UUID, ["connected", "completed"].includes(state) ? "" : pc.isConnected ? "reconnecting…" : "connecting…");
+  });
+  pc.on("close", () => pcs[UUID] === pc && removePeer(UUID)); // peer left (or closed its connection)
+  pc.on("open", () => pc.send({ username: username, audioLvl: micMuted ? -1 : 0 }));
+  pc.on("message", function (msg) { // from the peer: untrusted
+    if (typeof msg.username == "string") {
+      allUserStreams[UUID] = allUserStreams[UUID] || {};
+      allUserStreams[UUID]["username"] = msg.username.slice(0, 64);
+      updateUserLayout();
+    }
+    if (typeof msg.audioLvl == "number") setAudioLevel(UUID, msg.audioLvl);
+    if (typeof msg.chat == "string") showMsg(nameOf(UUID), msg.chat.slice(0, 2000));
+    if (msg.bye) removePeer(UUID);
+    if (msg.signaling) pc.signaling(msg.signaling).catch(e => console.log("signaling error", e));
   });
   pc.on("stream", function (stream) {
     gotRemoteStream(stream, UUID)
@@ -497,8 +533,8 @@ function updateUserLayout() {
   }
 }
 
-function joinRoom() {
-  socket.emit("joinRoom", { roomname: getUrlParam("roomname", "unknown"), username: username });
+function joinRoom(onJoined) {
+  socket.emit("joinRoom", { roomname: getUrlParam("roomname", "unknown"), keep: Object.keys(pcs) }, onJoined);
 }
 
 // iOS Safari can block autoplay of remote audio: any tap retries it
