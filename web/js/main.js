@@ -284,7 +284,7 @@ $("#cameraSelect").onchange = async function () {
     alert("Could not switch camera!")
     console.log('getUserMedia error! Got this error: ', error);
     selectedCameraId = null;
-    await toggleCamera(); //Turn the dead camera off
+    stopVideo(); //Turn the dead camera off (not via toggleCamera: its busy guard could skip it)
     updateCameraList();
   } finally {
     this.disabled = false;
