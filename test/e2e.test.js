@@ -429,6 +429,15 @@ test('share button shares the room link without the username', async () => {
   await a.context().close();
 });
 
+test('share link also drops username and camon from the query string', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', () => { navigator.share = d => { window.__shared = d; return Promise.resolve(); }; }, '?username=bob&camon=true&x=1');
+  await a.click('#moreBtn'); await a.click('#shareBtn');
+  const shared = await a.evaluate(() => window.__shared);
+  assert.strictEqual(shared.url, `${BASE}?x=1#roomname=${room}`);
+  await a.context().close();
+});
+
 test('rename keeps other URL params byte-identical and cannot switch them on', async () => {
   const ctx = await browser.newContext();
   const a = await ctx.newPage();

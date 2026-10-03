@@ -319,25 +319,25 @@ function stopVideo() { // camera and screen share use the same slot
   updateUserLayout();
 }
 
-// Hash minus `drop` plus `add`; other params stay byte-identical (getUrlVars parses them raw)
-function hashWithout(drop, add = {}) {
-  const kept = location.hash.slice(1).split("&").filter(p => p && !drop.includes(p.split("=")[0]));
+// `part` (location.hash/search) minus `drop` plus `add`; other params stay byte-identical (getUrlVars parses them raw)
+function paramsWithout(sep, part, drop, add = {}) {
+  const kept = part.slice(1).split("&").filter(p => p && !drop.includes(p.split("=")[0]));
   for (const k in add) kept.push(k + "=" + encodeURIComponent(add[k]));
-  return "#" + kept.join("&");
+  return kept.length ? sep + kept.join("&") : "";
 }
 
 $("#changeNameBtn").onclick = function () {
   const name = prompt("Your name:", username == "NA" ? "" : username);
   if (name === null) return;
   username = name.trim().slice(0, 64) || "NA";
-  history.replaceState(null, "", hashWithout(["username"], { username })); // survives reloads
+  history.replaceState(null, "", paramsWithout("#", location.hash, ["username"], { username })); // survives reloads
   if (allUserStreams[MY_UUID]) allUserStreams[MY_UUID].username = username;
   socket.emit("setName", username);
   updateUserLayout();
 }
 
 $("#shareBtn").onclick = function () {
-  const url = location.origin + location.pathname + location.search + hashWithout(["username", "camon"]);
+  const url = location.origin + location.pathname + paramsWithout("?", location.search, ["username", "camon"]) + paramsWithout("#", location.hash, ["username", "camon"]);
   const copy = () => { $("#shareLink").value = url; $("#shareDialog").showModal(); $("#shareLink").select(); };
   if (!navigator.share) return copy();
   navigator.share({ title: "Join my call", url }).catch(e => e.name != "AbortError" && copy()); // AbortError = user cancelled
