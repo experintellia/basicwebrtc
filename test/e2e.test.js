@@ -27,12 +27,19 @@ after(async () => {
   await browser?.close();
 });
 
-async function join(room, name, initScript, file = '') {
+// Page in the lobby, not joined yet.
+async function open(room, name, initScript, file = '') {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   if (initScript) await page.addInitScript(initScript);
   page.on('pageerror', e => console.log(`[${name}] pageerror`, e.message));
   await page.goto(`${BASE}${file}#roomname=${room}&username=${encodeURIComponent(name)}`);
+  return page;
+}
+
+async function join(...args) {
+  const page = await open(...args);
+  await page.click('#joinBtn'); // lobby: sound and camera check first
   return page;
 }
 
@@ -85,6 +92,8 @@ test('own tile shows "connecting…" until joined and "reconnecting…" while th
   await ctx.route('**/socket.io/**', r => r.abort()); // server unreachable
   const a = await ctx.newPage();
   await a.goto(`${BASE}#roomname=r${Date.now()}&username=alice`);
+  assert.strictEqual(await selfStatus(a), '', 'nothing while in the lobby');
+  await a.click('#joinBtn');
   await waitFor(async () => (await selfStatus(a)) === 'connecting…', 'connecting shown');
   await ctx.unroute('**/socket.io/**');
   await waitFor(async () => (await selfStatus(a)) === '', 'status cleared after join');
@@ -612,7 +621,7 @@ test('hang up leads to the end screen', async () => {
 });
 
 test('browsers without WebRTC get an upgrade notice', async () => {
-  const a = await join('r' + Date.now(), 'alice', () => { delete window.RTCPeerConnection; });
+  const a = await open('r' + Date.now(), 'alice', () => { delete window.RTCPeerConnection; });
   await waitFor(() => a.locator('#unsupported').isVisible(), 'notice visible', 5000);
   await a.context().close();
 });
@@ -788,7 +797,7 @@ test('peer joining during fullscreen is still heard', async () => {
 test('remote audio blocked by autoplay starts on the next tap', async () => {
   const blockAutoplay = () => { // not userActivation: page.evaluate counts as a gesture
     let tapped = false;
-    window.addEventListener('click', () => tapped = true, true);
+    window.addEventListener('click', e => tapped ||= e.target.id != 'joinBtn', true); // Join is a tap too: this tests a later one
     document.addEventListener('play', e => { if (!tapped) e.target.pause(); }, true);
   };
   const room = 'r' + Date.now();
@@ -821,6 +830,7 @@ test('unnamed sender cannot fake a styled name', async () => {
   const ctx = await browser.newContext();
   const a = await ctx.newPage();
   await a.goto(`${BASE}#roomname=${room}`); // no username
+  await a.click('#joinBtn');
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
   await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
@@ -952,13 +962,14 @@ test('hang up releases mic, camera and socket right away, once', async () => {
 
 test('mic denied shows a message and "Try again" joins once allowed', async () => {
   const room = 'r' + Date.now();
-  const a = await join(room, 'alice', () => {
+  const a = await open(room, 'alice', () => {
     const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
     navigator.mediaDevices.getUserMedia = c => c.audio && !sessionStorage.micOk ? Promise.reject(new DOMException('denied', 'NotAllowedError')) : gum(c);
   });
   await waitFor(() => a.locator('#micError').isVisible(), 'message shown');
   await a.evaluate(() => sessionStorage.micOk = 1); // user allows the mic
   await a.click('#micError button');
+  await a.click('#joinBtn');
   const b = await join(room, 'bob');
   await waitFor(async () => (await liveRemoteAudio(b)) === 1, 'alice heard by bob');
   await a.context().close(); await b.context().close();
@@ -1029,4 +1040,66 @@ test('picture-in-picture survives a re-layout (#27)', async () => {
   await new Promise(r => setTimeout(r, 500));
   assert.ok(await b.evaluate(() => document.pictureInPictureElement?.isConnected && !document.pictureInPictureElement.paused), 'still in PiP and playing');
   for (const p of [a, b, c]) await p.context().close();
+});
+
+test('lobby: nobody joins until Join, then with the name typed there', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await (await browser.newContext()).newPage();
+  await b.goto(`${BASE}#roomname=${room}`);
+  await waitFor(() => b.locator('#lobby').isVisible(), 'lobby shown');
+  await new Promise(r => setTimeout(r, 1500));
+  assert.strictEqual(await a.evaluate(() => Object.keys(pcs).length), 0, 'not joined from the lobby');
+  await b.fill('#nameInput', 'carol');
+  await b.click('#joinBtn');
+  assert.strictEqual(await b.locator('#lobby').isVisible(), false, 'lobby closed');
+  await waitFor(async () => (await connectedPeers(a)) === 1, 'ICE connected');
+  await waitFor(() => a.evaluate(() => Object.values(allUserStreams).some(s => s.username == 'carol')), 'name from the lobby');
+  await a.context().close(); await b.context().close();
+});
+
+// The track the sender actually transmits, on the raw RTCPeerConnection.
+const sentMicId = page => page.evaluate(() => __raw.at(-1).getSenders().find(s => s.track?.kind == 'audio')?.track.getSettings().deviceId);
+
+test('mic picker switches the mic sent to the other peer', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', trackPcs);
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1 && (await liveRemoteAudio(b)) === 1, 'ICE and audio');
+  await waitFor(() => a.locator('#selectMicBtn').isVisible(), 'mic picker visible');
+  const cur = await sentMicId(a);
+  const other = await a.evaluate(cur => [...document.querySelectorAll('#micSelect option')].find(o => o.value != cur && o.value != 'default').value, cur);
+  await a.selectOption('#micSelect', other);
+  await waitFor(async () => (await sentMicId(a)) === other, 'sent mic switched');
+  assert.strictEqual(await a.evaluate(() => webRTCConfig.stream.getAudioTracks().length), 1, 'one mic track');
+  await waitFor(async () => (await liveRemoteAudio(b)) === 1, 'remote audio after switch');
+  await a.context().close(); await b.context().close();
+});
+
+test('name, mic and camera choice survive a reload of the tab, not a new tab', async () => {
+  const ctx = await browser.newContext();
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=r${Date.now()}`);
+  await a.fill('#nameInput', 'dora');
+  await a.click('#joinBtn');
+  const mic = await a.evaluate(() => [...document.querySelectorAll('#micSelect option')].find(o => o.value != webRTCConfig.stream.getAudioTracks()[0].getSettings().deviceId && o.value != 'default').value);
+  await a.selectOption('#micSelect', mic);
+  await waitFor(() => a.evaluate(m => webRTCConfig.stream.getAudioTracks()[0].getSettings().deviceId == m, mic), 'mic switched');
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => a.evaluate(() => camActive), 'camera on');
+  const cam = await a.evaluate(() => [...document.querySelectorAll('#cameraSelect option')].find(o => o.value != selectedCameraId).value);
+  await a.selectOption('#cameraSelect', cam);
+  await waitFor(() => a.evaluate(c => allUserStreams[MY_UUID].videostream?.getVideoTracks()[0].getSettings().deviceId == c, cam), 'camera switched');
+  await a.goto(`${BASE}#roomname=r${Date.now()}x`); // other room, same tab
+  await a.reload();
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown');
+  assert.strictEqual(await a.inputValue('#nameInput'), 'dora');
+  assert.strictEqual(await a.evaluate(() => webRTCConfig.stream.getAudioTracks()[0].getSettings().deviceId), mic, 'mic kept');
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => a.evaluate(c => allUserStreams[MY_UUID].videostream?.getVideoTracks()[0].getSettings().deviceId == c, cam), 'camera kept');
+  const fresh = await ctx.newPage();
+  await fresh.goto(`${BASE}#roomname=r${Date.now()}`);
+  await waitFor(() => fresh.locator('#lobby').isVisible(), 'lobby shown');
+  assert.strictEqual(await fresh.inputValue('#nameInput'), '', 'new tab starts empty');
+  await ctx.close();
 });

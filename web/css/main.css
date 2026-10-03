@@ -41,12 +41,12 @@ video {
   background: #ababad40;
 }
 
-#cameraGroup {
+.deviceGroup {
   position: relative;
 }
 
-/* caret tab on top of the camera button: opens the camera list */
-#selectCameraBtn {
+/* caret tab on top of the mic/camera button: opens the device list */
+.selectDeviceBtn {
   position: absolute;
   bottom: 100%;
   left: 0;
@@ -61,7 +61,7 @@ video {
   background: #ffffffc0;
 }
 
-#selectCameraBtn:hover {
+.selectDeviceBtn:hover {
   background: #fff;
 }
 
@@ -141,7 +141,7 @@ video {
 }
 
 /* invisible native select over the icon, so the OS picker opens on click */
-#cameraSelect {
+.selectDeviceBtn select {
   position: absolute;
   inset: 0;
   opacity: 0;
@@ -174,7 +174,7 @@ video {
   display: none;
 }
 
-#chatDiv, #shareDialog, #moreMenu {
+#chatDiv, #shareDialog, #moreMenu, #lobby {
   border: 1px solid #80808087;
   border-radius: 12px;
   background: rgb(43, 42, 42);
@@ -182,13 +182,13 @@ video {
   box-shadow: 0 10px 40px #000a;
 }
 
-#chatDiv button, #shareDialog button {
+#chatDiv button, #shareDialog button, #lobby button {
   border: 0;
   cursor: pointer;
   font: inherit;
 }
 
-#chatInputText, #shareLink {
+#chatInputText, #shareLink, #nameInput {
   flex: 1;
   min-width: 0;
   border: 1px solid #555;
@@ -196,12 +196,12 @@ video {
   color: #fff;
 }
 
-#chatSendBtn, #copyLinkBtn {
+#chatSendBtn, #copyLinkBtn, #joinBtn {
   background: #3b6fd6;
   color: #fff;
 }
 
-#chatSendBtn:hover, #copyLinkBtn:hover {
+#chatSendBtn:hover, #copyLinkBtn:hover, #joinBtn:hover {
   background: #4c80e8;
 }
 
@@ -479,4 +479,35 @@ div#centerDiv{
 
 .peerStatus:empty {
   display: none;
+}
+
+/* pre-join panel over the own tile: sound and camera check with the normal call buttons. No z-index: the more menu and chat stay on top */
+#lobby {
+  position: absolute;
+  left: 50%;
+  bottom: 130px;
+  transform: translateX(-50%);
+  width: min(420px, 90vw);
+  box-sizing: border-box;
+  padding: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font: 16px sans-serif;
+}
+
+#lobby[hidden] {
+  display: none;
+}
+
+#lobby p {
+  flex-basis: 100%;
+  margin: 0 0 4px;
+  color: #aaa;
+}
+
+#nameInput, #joinBtn {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font: 16px sans-serif; /* below 16px iOS zooms in on focus */
 }
