@@ -307,9 +307,9 @@ $("#shareBtn").onclick = function () {
 }
 
 $("#copyLinkBtn").onclick = function () {
-  navigator.clipboard?.writeText($("#shareLink").value).then(() => this.textContent = "Copied!", () => $("#shareLink").select());
+  navigator.clipboard?.writeText($("#shareLink").value).then(() => this.innerHTML = '<i class="fas fa-check"></i> Copied!', () => $("#shareLink").select());
 }
-$("#shareDialog").onclose = () => $("#copyLinkBtn").textContent = "Copy";
+$("#shareDialog").onclose = () => $("#copyLinkBtn").innerHTML = '<i class="far fa-copy"></i> Copy';
 
 $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end screen
   document.body.insertAdjacentHTML("beforeend", '<div id="topDiv"></div><div id="bottomDiv"></div>');

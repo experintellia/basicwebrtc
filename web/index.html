@@ -26,10 +26,13 @@
   </div>
   <dialog id="shareDialog">
     <form method="dialog">
-      <p>Send this link to who you want to talk to.<br>The room is the part after #: anyone with the link can join.</p>
-      <input id="shareLink" readonly aria-label="room link">
-      <button id="copyLinkBtn" type="button">Copy</button>
-      <button value="close">Close</button>
+      <button value="close" aria-label="close">&times;</button>
+      <h2>Invite to this call</h2>
+      <p>Send this link to the people you want to talk to. Anyone with it can join: the room is the part after #.</p>
+      <div>
+        <input id="shareLink" readonly aria-label="room link">
+        <button id="copyLinkBtn" type="button"><i class="far fa-copy"></i> Copy</button>
+      </div>
     </form>
   </dialog>
   <div id="mediaControllContainer">
