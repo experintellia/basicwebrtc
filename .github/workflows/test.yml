@@ -15,13 +15,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # root so the P2P-outage test can drop UDP with iptables
-      - run: sudo -E env "PATH=$PATH" CHROMIUM_PATH=/usr/bin/google-chrome npm test
-      # Firefox does not run as root: its cross-browser test gets a step of its own
+      # Firefox does not run as root: its cross-browser test gets a step of its own,
+      # before the root run, which leaves root-owned Chrome files in $HOME
       - run: npx playwright-core install --with-deps firefox
       - run: node --test --test-force-exit test/crossbrowser.test.js
         env:
           CHROMIUM_PATH: /usr/bin/google-chrome
+      # root so the P2P-outage test can drop UDP with iptables
+      - run: sudo -E env "PATH=$PATH" CHROMIUM_PATH=/usr/bin/google-chrome npm test
   safari:
     # ponytail: macOS minutes cost 10x; push only (not again for the PR) and capped
     if: github.event_name == 'push'
