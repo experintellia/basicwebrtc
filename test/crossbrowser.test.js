@@ -73,18 +73,33 @@ after(async () => {
 });
 
 // Chromium joins `room`, the other browser joins via `go`; both must see the peer and hear its audio.
+// On failure both sides' ICE state and candidates are printed, since the other browser is not available locally.
+const STATE = `JSON.stringify((window.__raw || []).map(p => ({ sig: p.signalingState, ice: p.iceConnectionState, gather: p.iceGatheringState,
+  local: p.localDescription?.sdp.match(/a=candidate.*/g), remote: p.remoteDescription?.sdp.match(/a=candidate.*/g) })))`;
+// Init script (as in e2e.test.js): keeps the raw RTCPeerConnections in window.__raw.
+const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
 async function call(room, go, evaluate) {
   const page = await (await chrome.newContext()).newPage();
+  page.on('console', m => console.log('[chromium]', m.text()));
+  await page.addInitScript(trackPcs);
   await page.goto(`${BASE}#roomname=${room}&username=chromium`);
   await go(`${BASE}#roomname=${room}&username=other`);
-  await waitFor(() => page.evaluate(CONNECTED), 'chromium connected');
-  await waitFor(() => evaluate(CONNECTED), 'other browser connected');
-  await waitFor(() => page.evaluate(LIVE_AUDIO), 'audio at chromium');
-  await waitFor(() => evaluate(LIVE_AUDIO), 'audio at other browser');
+  try {
+    await waitFor(() => page.evaluate(CONNECTED), 'chromium connected');
+    await waitFor(() => evaluate(CONNECTED), 'other browser connected');
+    await waitFor(() => page.evaluate(LIVE_AUDIO), 'audio at chromium');
+    await waitFor(() => evaluate(LIVE_AUDIO), 'audio at other browser');
+  } catch (e) {
+    console.log('[chromium state]', await page.evaluate(STATE).catch(String));
+    console.log('[other state]', await evaluate(STATE).catch(String));
+    throw e;
+  }
 }
 
 test('Chromium and Firefox connect and exchange audio', { skip: !hasFirefox && 'npx playwright-core install firefox' }, async () => {
   const page = await (await fox.newContext()).newPage();
+  page.on('console', m => console.log('[firefox]', m.text()));
+  await page.addInitScript(trackPcs);
   await call('f' + Date.now(), url => page.goto(url), expr => page.evaluate(expr));
 });
 
