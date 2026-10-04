@@ -15,7 +15,10 @@ jobs:
       # root so the P2P-outage test can drop UDP with iptables
       - run: sudo -E env "PATH=$PATH" CHROMIUM_PATH=/usr/bin/google-chrome npm test
   safari:
+    # ponytail: macOS minutes cost 10x; push only (not again for the PR) and capped
+    if: github.event_name == 'push'
     runs-on: macos-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
