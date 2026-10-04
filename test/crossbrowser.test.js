@@ -9,7 +9,7 @@ const { chromium, firefox } = require('playwright-core');
 const PORT = 3100 + Math.floor(Math.random() * 500);
 const BASE = `http://127.0.0.1:${PORT}/`;
 const WD = `http://127.0.0.1:${PORT + 1000}`;
-const hasFirefox = fs.existsSync(firefox.executablePath());
+const hasFirefox = fs.existsSync(firefox.executablePath()) && process.getuid?.() !== 0; // Firefox refuses to run as root
 let chrome, fox, driver, session;
 
 async function wd(method, path, body) {
@@ -112,7 +112,7 @@ async function call(room, go, evaluate) {
   }
 }
 
-test('Chromium and Firefox connect and exchange audio', { skip: !hasFirefox && 'npx playwright-core install firefox' }, async () => {
+test('Chromium and Firefox connect and exchange audio', { skip: !hasFirefox && 'needs Playwright\'s Firefox (npx playwright-core install firefox), not as root' }, async () => {
   const page = await (await fox.newContext()).newPage();
   page.on('console', m => console.log('[firefox]', m.text()));
   await page.addInitScript(trackPcs);
