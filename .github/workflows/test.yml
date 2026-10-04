@@ -4,7 +4,7 @@ permissions:
   contents: read
 concurrency: # a new push cancels the old run (saves macOS minutes)
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }} # every master commit keeps its result
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -20,6 +20,7 @@ jobs:
       - run: npx playwright-core install --with-deps firefox
       - run: node --test --test-force-exit test/crossbrowser.test.js
         env:
+          FIREFOX: 1
           CHROMIUM_PATH: /usr/bin/google-chrome
       # root so the P2P-outage test can drop UDP with iptables
       - run: sudo -E env "PATH=$PATH" CHROMIUM_PATH=/usr/bin/google-chrome npm test

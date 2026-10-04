@@ -1,15 +1,13 @@
-// Cross-browser calls: Chromium <-> Firefox (Playwright's Firefox, if installed) and Chromium <-> real Safari (SAFARI=1, macOS).
+// Cross-browser calls: Chromium <-> Firefox (FIREFOX=1, Playwright's Firefox, not as root) and Chromium <-> real Safari (SAFARI=1, macOS).
 // Safari is driven through safaridriver's WebDriver HTTP API with plain fetch, no extra dependency.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
-const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 const { chromium, firefox } = require('playwright-core');
 
 const PORT = 3100 + Math.floor(Math.random() * 500);
 const BASE = `http://127.0.0.1:${PORT}/`;
 const WD = `http://127.0.0.1:${PORT + 1000}`;
-const hasFirefox = fs.existsSync(firefox.executablePath()) && process.getuid?.() !== 0; // Firefox refuses to run as root
 let chrome, fox, driver, session;
 
 async function wd(method, path, body) {
@@ -30,11 +28,20 @@ async function waitFor(fn, what, ms = 30000) {
 }
 
 const CONNECTED = 'Object.values(pcs).filter(p => p.isConnected).length';
-const LIVE_AUDIO = `[...document.querySelectorAll('#audioStreams audio')]
-  .filter(a => a.srcObject && a.srcObject.getAudioTracks().some(t => t.readyState === 'live' && !t.muted)).length`;
+// Audio both ways, seen from Chromium's stats (engine-independent): RTP received, and the peer's receiver reports on what Chromium sent.
+const AUDIO_BOTH_WAYS = async () => { let rx = 0, tx = 0; for (const p of __raw) (await p.getStats()).forEach(r => {
+  if (r.kind == 'audio' && r.type == 'inbound-rtp') rx += r.packetsReceived;
+  if (r.kind == 'audio' && r.type == 'remote-inbound-rtp') tx++;
+}); return rx > 0 && tx > 0; };
+const REMOTE_VIDEO = () => [...document.querySelectorAll('#mediaDiv video')].some(v => v.srcObject && v.videoWidth > 0 && !v.style.transform.includes('scaleX'));
+// Init script (as in e2e.test.js): keeps the raw RTCPeerConnections in window.__raw.
+const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
+// Printed on failure: ICE state and candidates (the other side's only in Playwright browsers, Safari has no __raw).
+const STATE = `JSON.stringify((window.__raw || []).map(p => ({ sig: p.signalingState, ice: p.iceConnectionState, gather: p.iceGatheringState,
+  local: p.localDescription?.sdp.match(/a=candidate.*/g), remote: p.remoteDescription?.sdp.match(/a=candidate.*/g) })))`;
 
 before(async () => {
-  if (!hasFirefox && !process.env.SAFARI) return;
+  if (!process.env.FIREFOX && !process.env.SAFARI) return;
   process.env.listen_port = String(PORT);
   process.env.listen_ip = '127.0.0.1';
   require('../server.js'); // ponytail: in-process, runner exits via --test-force-exit
@@ -47,7 +54,7 @@ before(async () => {
       '--autoplay-policy=no-user-gesture-required',
     ],
   });
-  if (hasFirefox) fox = await firefox.launch({ firefoxUserPrefs: {
+  if (process.env.FIREFOX) fox = await firefox.launch({ firefoxUserPrefs: {
     'media.navigator.streams.fake': true,
     'media.navigator.permission.disabled': true,
     'media.peerconnection.ice.obfuscate_host_addresses': false, // plain host candidates, no mDNS
@@ -72,54 +79,49 @@ after(async () => {
   await chrome?.close();
 });
 
-// Chromium joins `room`, the other browser joins via `go`; both must see the peer and hear its audio.
-// On failure both sides' ICE state and candidates are printed, since the other browser is not available locally.
-const STATE = `JSON.stringify((window.__raw || []).map(p => ({ sig: p.signalingState, ice: p.iceConnectionState, gather: p.iceGatheringState,
-  local: p.localDescription?.sdp.match(/a=candidate.*/g), remote: p.remoteDescription?.sdp.match(/a=candidate.*/g) })))`;
-// Init script (as in e2e.test.js): keeps the raw RTCPeerConnections in window.__raw.
-// Also logs each pc's state changes and descriptions (type + ice-ufrag), so a failed run shows the order of events.
-const trackPcs = () => {
-  const O = RTCPeerConnection, t0 = Date.now(); window.__raw = [];
-  const log = (...a) => console.log('pc', Date.now() - t0, ...a);
-  const ufrag = d => (d?.sdp?.match(/a=ice-ufrag:(\S+)/) || [])[1];
-  window.RTCPeerConnection = function (c) {
-    const p = new O(c); __raw.push(p);
-    p.addEventListener('signalingstatechange', () => log('sig', p.signalingState));
-    p.addEventListener('iceconnectionstatechange', () => log('ice', p.iceConnectionState));
-    for (const f of ['setLocalDescription', 'setRemoteDescription']) {
-      const orig = p[f].bind(p);
-      const desc = () => f == 'setLocalDescription' ? p.localDescription : p.remoteDescription;
-      p[f] = d => orig(d).then(() => log(f, desc()?.type, ufrag(desc())), e => { log(f, d?.type, 'error', e.message); throw e; });
-    }
-    return p;
-  };
-};
-async function call(room, go, evaluate) {
+// A call between Chromium and the other browser. Who joins first decides who sends the offer, so both orders run.
+// The other browser then turns its camera on: renegotiation from its side (Safari's null-mid transceiver path).
+async function call(other, otherFirst) {
+  const room = 'x' + Date.now(), log = [];
   const page = await (await chrome.newContext()).newPage();
-  page.on('console', m => console.log('[chromium]', m.text()));
+  page.on('console', m => log.push('[chromium] ' + m.text()));
   await page.addInitScript(trackPcs);
-  await page.goto(`${BASE}#roomname=${room}&username=chromium`);
-  await go(`${BASE}#roomname=${room}&username=other`);
+  const joinChromium = () => page.goto(`${BASE}#roomname=${room}&username=chromium`);
+  const joinOther = () => other.go(`${BASE}#roomname=${room}&username=other`);
+  if (otherFirst) { await joinOther(); await joinChromium(); } else { await joinChromium(); await joinOther(); }
   try {
     await waitFor(() => page.evaluate(CONNECTED), 'chromium connected');
-    await waitFor(() => evaluate(CONNECTED), 'other browser connected');
-    await waitFor(() => page.evaluate(LIVE_AUDIO), 'audio at chromium');
-    await waitFor(() => evaluate(LIVE_AUDIO), 'audio at other browser');
+    await waitFor(() => other.evaluate(CONNECTED), 'other browser connected');
+    await waitFor(() => page.evaluate(AUDIO_BOTH_WAYS), 'audio both ways');
+    await other.evaluate("document.getElementById('addRemoveCameraBtn').click()");
+    await waitFor(() => page.evaluate(REMOTE_VIDEO), 'video from the other browser');
   } catch (e) {
+    console.log(log.concat(other.log || []).join('\n'));
     console.log('[chromium state]', await page.evaluate(STATE).catch(String));
-    console.log('[other state]', await evaluate(STATE).catch(String));
+    console.log('[other state]', await other.evaluate(STATE).catch(String));
     throw e;
+  } finally {
+    await page.context().close();
+    await other.leave();
   }
 }
 
-test('Chromium and Firefox connect and exchange audio', { skip: !hasFirefox && 'needs Playwright\'s Firefox (npx playwright-core install firefox), not as root' }, async () => {
-  const page = await (await fox.newContext()).newPage();
-  page.on('console', m => console.log('[firefox]', m.text()));
+async function firefoxPage() {
+  const page = await (await fox.newContext()).newPage(), log = [];
+  page.on('console', m => log.push('[firefox] ' + m.text()));
   await page.addInitScript(trackPcs);
-  await call('f' + Date.now(), url => page.goto(url), expr => page.evaluate(expr));
-});
+  return { log, go: url => page.goto(url), evaluate: expr => page.evaluate(expr), leave: () => page.context().close() };
+}
+const safari = {
+  go: url => wd('POST', `/session/${session}/url`, { url }),
+  evaluate: expr => wd('POST', `/session/${session}/execute/sync`, { script: `return ${expr}`, args: [] }),
+  leave: () => wd('POST', `/session/${session}/url`, { url: 'about:blank' }), // hang up before the next call
+};
 
-test('Chromium and Safari connect and exchange audio', { skip: !process.env.SAFARI && 'set SAFARI=1 (macOS)' }, async () => {
-  await call('s' + Date.now(), url => wd('POST', `/session/${session}/url`, { url }),
-    expr => wd('POST', `/session/${session}/execute/sync`, { script: `return ${expr}`, args: [] }));
-});
+for (const otherFirst of [false, true]) {
+  const order = otherFirst ? ' (joins first)' : ' (joins second)';
+  test('Firefox calls Chromium' + order, { skip: !process.env.FIREFOX && 'set FIREFOX=1 (npx playwright-core install firefox; not as root)' },
+    async () => call(await firefoxPage(), otherFirst));
+  test('Safari calls Chromium' + order, { skip: !process.env.SAFARI && 'set SAFARI=1 (macOS)' },
+    () => call(safari, otherFirst));
+}
