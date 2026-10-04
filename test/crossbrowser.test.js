@@ -77,7 +77,23 @@ after(async () => {
 const STATE = `JSON.stringify((window.__raw || []).map(p => ({ sig: p.signalingState, ice: p.iceConnectionState, gather: p.iceGatheringState,
   local: p.localDescription?.sdp.match(/a=candidate.*/g), remote: p.remoteDescription?.sdp.match(/a=candidate.*/g) })))`;
 // Init script (as in e2e.test.js): keeps the raw RTCPeerConnections in window.__raw.
-const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
+// Also logs each pc's state changes and descriptions (type + ice-ufrag), so a failed run shows the order of events.
+const trackPcs = () => {
+  const O = RTCPeerConnection, t0 = Date.now(); window.__raw = [];
+  const log = (...a) => console.log('pc', Date.now() - t0, ...a);
+  const ufrag = d => (d?.sdp?.match(/a=ice-ufrag:(\S+)/) || [])[1];
+  window.RTCPeerConnection = function (c) {
+    const p = new O(c); __raw.push(p);
+    p.addEventListener('signalingstatechange', () => log('sig', p.signalingState));
+    p.addEventListener('iceconnectionstatechange', () => log('ice', p.iceConnectionState));
+    for (const f of ['setLocalDescription', 'setRemoteDescription']) {
+      const orig = p[f].bind(p);
+      const desc = () => f == 'setLocalDescription' ? p.localDescription : p.remoteDescription;
+      p[f] = d => orig(d).then(() => log(f, desc()?.type, ufrag(desc())), e => { log(f, d?.type, 'error', e.message); throw e; });
+    }
+    return p;
+  };
+};
 async function call(room, go, evaluate) {
   const page = await (await chrome.newContext()).newPage();
   page.on('console', m => console.log('[chromium]', m.text()));
