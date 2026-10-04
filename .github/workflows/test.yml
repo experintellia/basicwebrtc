@@ -6,7 +6,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /opt/pw # same path for the install and the sudo test run
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/pw # same path for the install and the sudo test run
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
