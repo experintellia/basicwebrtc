@@ -723,6 +723,7 @@ test('rename keeps other URL params byte-identical and cannot switch them on', a
   const ctx = await browser.newContext();
   const a = await ctx.newPage();
   await a.goto(`${BASE}#roomname=a+b=c&username=alice`);
+  await a.click('#joinBtn');
   a.once('dialog', d => d.accept('my camon socketdomain name'));
   await a.click('#moreBtn'); await a.click('#changeNameBtn');
   assert.strictEqual(await a.evaluate(() => location.hash), '#roomname=a+b=c&username=my%20camon%20socketdomain%20name');
@@ -776,6 +777,7 @@ test('camera picker is a touch-sized tab on top of the camera button', async () 
   const ctx = await browser.newContext({ viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true });
   const a = await ctx.newPage();
   await a.goto(`${BASE}#roomname=r${Date.now()}`);
+  await a.click('#joinBtn');
   await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'picker visible');
   const [cam, pick] = await Promise.all(['#addRemoveCameraBtn', '#selectCameraBtn'].map(s => a.locator(s).boundingBox()));
   assert.ok(pick.y + pick.height <= cam.y + 1 && Math.abs(pick.x - cam.x) <= 1 && Math.abs(pick.width - cam.width) <= 1, 'tab right above the camera button');
@@ -815,6 +817,7 @@ test('chat opens fullscreen on phones and closes again', async () => {
   const ctx = await browser.newContext({ viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true });
   const a = await ctx.newPage();
   await a.goto(`${BASE}#roomname=r${Date.now()}`);
+  await a.click('#joinBtn');
   await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
   assert.notStrictEqual(await a.evaluate(() => document.activeElement.id), 'chatInputText', 'no keyboard popping up on touch');
   const box = await a.locator('#chatDiv').boundingBox();
@@ -845,6 +848,7 @@ test('desktop chat fits short windows above the phone breakpoint', async () => {
   const ctx = await browser.newContext({ viewport: { width: 1000, height: 500 } });
   const a = await ctx.newPage();
   await a.goto(`${BASE}#roomname=r${Date.now()}`);
+  await a.click('#joinBtn');
   await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
   assert.ok((await a.locator('#chatDiv').boundingBox()).y >= 0, 'header on screen');
   await a.click('#chatCloseBtn');
@@ -887,6 +891,7 @@ test('all call buttons fit on screen from phone to small desktop widths', async 
     const ctx = await browser.newContext({ viewport: { width, height }, userAgent });
     const a = await ctx.newPage();
     await a.goto(`${BASE}#roomname=r${Date.now()}`);
+    await a.click('#joinBtn');
     await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'camera picker shown (2 fake cams)');
     await a.evaluate(() => { document.getElementById('screenModeBtn').hidden = false; }); // shown while sharing
     const overflow = await a.evaluate(() => [...document.querySelectorAll('.callBtn')]
@@ -1048,11 +1053,21 @@ test('lobby: nobody joins until Join, then with the name typed there', async () 
   const b = await (await browser.newContext()).newPage();
   await b.goto(`${BASE}#roomname=${room}`);
   await waitFor(() => b.locator('#lobby').isVisible(), 'lobby shown');
+  for (const call of ['#mediaControllContainer', '#mediaDiv']) assert.strictEqual(await b.locator(call).isVisible(), false, `${call} hidden in the lobby`);
+  assert.strictEqual(await b.inputValue('#lobbyCamera'), '', 'camera off');
+  assert.strictEqual(await b.locator('#lobbyVideo').isVisible(), false);
+  const cam = await b.evaluate(() => [...document.querySelectorAll('#lobbyCamera option')].at(-1).value);
+  await b.selectOption('#lobbyCamera', cam);
+  await waitFor(() => b.evaluate(c => $('#lobbyVideo').srcObject?.getVideoTracks()[0]?.getSettings().deviceId == c && $('#lobbyVideo').checkVisibility(), cam), 'preview of the picked camera');
+  await b.selectOption('#lobbyCamera', '');
+  await waitFor(() => b.evaluate(() => !camActive && !$('#lobbyVideo').checkVisibility()), 'camera off again');
+  assert.ok(await b.evaluate(() => $('#lobbyMic').options.length > 1 && $('#micMeter') instanceof HTMLMeterElement), 'mic picker and level meter');
   await new Promise(r => setTimeout(r, 1500));
   assert.strictEqual(await a.evaluate(() => Object.keys(pcs).length), 0, 'not joined from the lobby');
   await b.fill('#nameInput', 'carol');
   await b.click('#joinBtn');
   assert.strictEqual(await b.locator('#lobby').isVisible(), false, 'lobby closed');
+  assert.ok(await b.locator('#mediaControllContainer').isVisible(), 'call controls shown');
   await waitFor(async () => (await connectedPeers(a)) === 1, 'ICE connected');
   await waitFor(() => a.evaluate(() => Object.values(allUserStreams).some(s => s.username == 'carol')), 'name from the lobby');
   await a.context().close(); await b.context().close();
@@ -1095,8 +1110,9 @@ test('name, mic and camera choice survive a reload of the tab, not a new tab', a
   await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown');
   assert.strictEqual(await a.inputValue('#nameInput'), 'dora');
   assert.strictEqual(await a.evaluate(() => webRTCConfig.stream.getAudioTracks()[0].getSettings().deviceId), mic, 'mic kept');
-  await a.click('#addRemoveCameraBtn');
-  await waitFor(() => a.evaluate(c => allUserStreams[MY_UUID].videostream?.getVideoTracks()[0].getSettings().deviceId == c, cam), 'camera kept');
+  await waitFor(async () => (await a.inputValue('#lobbyMic')) === mic, 'lobby shows the mic');
+  await waitFor(() => a.evaluate(c => allUserStreams[MY_UUID].videostream?.getVideoTracks()[0].getSettings().deviceId == c, cam), 'camera kept, and on as before');
+  await waitFor(async () => (await a.inputValue('#lobbyCamera')) === cam, 'lobby shows the camera');
   const fresh = await ctx.newPage();
   await fresh.goto(`${BASE}#roomname=r${Date.now()}`);
   await waitFor(() => fresh.locator('#lobby').isVisible(), 'lobby shown');

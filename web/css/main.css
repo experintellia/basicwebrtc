@@ -481,18 +481,24 @@ div#centerDiv{
   display: none;
 }
 
-/* pre-join panel over the own tile: sound and camera check with the normal call buttons. No z-index: the more menu and chat stay on top */
+/* pre-join screen: own preview, name, mic and camera; the call UI stays hidden until Join */
+.inLobby #mediaDiv, .inLobby #mediaControllContainer {
+  display: none;
+}
+
 #lobby {
-  position: absolute;
-  left: 50%;
-  bottom: 130px;
-  transform: translateX(-50%);
-  width: min(420px, 90vw);
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(420px, 100vw - 32px);
+  height: fit-content;
+  max-height: 100dvh;
+  overflow-y: auto;
   box-sizing: border-box;
-  padding: 16px;
+  padding: 20px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 12px;
   font: 16px sans-serif;
 }
 
@@ -500,14 +506,75 @@ div#centerDiv{
   display: none;
 }
 
-#lobby p {
-  flex-basis: 100%;
-  margin: 0 0 4px;
+#lobby h2 {
+  margin: 0;
+  font-size: 1.3em;
+  color: #fff;
+}
+
+#lobbyPreview {
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  background: #1e1e1e;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#lobbyPreview:has(video[hidden])::before {
+  content: "Camera is off";
+  color: #777;
+}
+
+#lobbyVideo {
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* mirror, like the own tile */
+}
+
+#lobby label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#lobby label i {
+  width: 1.4em;
+  text-align: center;
+  color: #ddd;
+}
+
+#lobby select {
+  flex: 1;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid #555;
+  border-radius: 8px;
+  background: #1e1e1e;
+  color: #fff;
+  font: inherit;
+}
+
+#micMeter {
+  width: 100%;
+  height: 8px;
+}
+
+#lobbyMsg {
+  margin: 0;
   color: #aaa;
+}
+
+#joinBtn {
+  padding: 14px;
+  font-size: 1.15em;
+  font-weight: bold;
 }
 
 #nameInput, #joinBtn {
   padding: 10px 14px;
   border-radius: 8px;
-  font: 16px sans-serif; /* below 16px iOS zooms in on focus */
+  font-family: sans-serif;
+  font-size: 16px; /* below 16px iOS zooms in on focus */
 }

@@ -18,8 +18,13 @@
   <div id="micError" hidden>Could not get your microphone. Allow access to it, then <button onclick="location.reload()">Try again</button></div>
   <div id="mediaDiv"></div>
   <form id="lobby" hidden>
-    <p>Check your mic and camera, then join.</p>
+    <h2>Ready to join?</h2>
+    <div id="lobbyPreview"><video id="lobbyVideo" autoplay muted playsinline hidden></video></div>
     <input id="nameInput" placeholder="Your name" maxlength="64" aria-label="your name" autocomplete="nickname">
+    <label><i class="fas fa-microphone-alt"></i><select id="lobbyMic" aria-label="microphone"></select></label>
+    <meter id="micMeter" min="0" max="2" value="0" aria-label="microphone level"></meter>
+    <label><i class="fas fa-video"></i><select id="lobbyCamera" aria-label="camera"></select></label>
+    <p id="lobbyMsg">Speak to check your mic: the bar moves.</p>
     <button id="joinBtn">Join</button>
   </form>
   <div id="chatDiv" hidden>
