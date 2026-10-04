@@ -67,7 +67,7 @@ camOnAtStart ||= !!stored("camOn"); // camera on or off as last time in this tab
 const MIC = { echoCancellation: true, noiseSuppression: true };
 // The chosen device, or the browser's pick if it is gone: Chromium ignores a deviceId that is only "ideal"
 const getDevice = (kind, c, id) => navigator.mediaDevices.getUserMedia({ [kind]: id ? { ...c, deviceId: { exact: id } } : c })
-  .catch(e => id ? getDevice(kind, c) : Promise.reject(e));
+  .catch(e => id && ["OverconstrainedError", "NotFoundError"].includes(e.name) ? getDevice(kind, c) : Promise.reject(e)); // a "no" is not asked twice
 
 async function updateDeviceLists() { //Show a picker only if there is more than one device
   const devices = await navigator.mediaDevices.enumerateDevices();
@@ -84,7 +84,8 @@ async function updateDeviceLists() { //Show a picker only if there is more than 
   $("#lobbyCamera").replaceChildren(new Option("Off", ""), ...[...$("#cameraSelect").options].map(o => new Option(o.text, o.value)));
   $("#lobbyCamera").value = camActive ? $("#cameraSelect").value : "";
 }
-// The lobby's dropdowns hand over to the call's pickers: one code path for switching devices.
+// The lobby's dropdowns hand over to the call's pickers: one code path for switching devices,
+// and their busy guard: a dispatched "change" reaches a disabled select too.
 const pick = (select, value) => { $(select).value = value; $(select).dispatchEvent(new Event("change")); };
 $("#lobbyMic").onchange = e => pick("#micSelect", e.target.value);
 $("#lobbyCamera").onchange = e => e.target.value ? pick("#cameraSelect", e.target.value) : camActive && toggleCamera();
@@ -206,7 +207,7 @@ var mediaReady = (async function () {
   updateDeviceLists(); //Labels are only available after permission is granted
   updateUserLayout();
   if (camOnAtStart) { //enable cam on start if set
-    setTimeout(toggleCamera, 1000)
+    setTimeout(() => camActive || toggleCamera(), 1000) // not if picked in the lobby meanwhile
   }
   // Lobby: own preview, name, mic and camera. Join only after it.
   $("#nameInput").value = username == "NA" ? "" : username;
@@ -221,7 +222,14 @@ var mediaReady = (async function () {
 function showLobby(on) {
   $("#lobby").hidden = !on;
   document.body.classList.toggle("inLobby", on);
+  showPreview();
   if (!on) updateUserLayout(); // video sizes are measured: redo them now the call is visible
+}
+
+function showPreview() { // own camera in the lobby; let go of it while the lobby is hidden
+  const v = $("#lobbyVideo");
+  v.srcObject = $("#lobby").hidden ? null : allUserStreams[MY_UUID]?.videostream || null;
+  v.hidden = !v.srcObject;
 }
 
 var stopMicMeter;
@@ -237,7 +245,8 @@ function startMicMeter() { // the meter reads the track it started with: restart
 }
 
 $("#micSelect").onchange = async function () { //Swap the mic track in place, so peers don't need to renegotiate
-  this.disabled = true; //No overlapping switches
+  if (this.disabled) return updateDeviceLists(); //No overlapping switches
+  this.disabled = true;
   const stream = webRTCConfig["stream"], oldTrack = stream.getAudioTracks()[0];
   try {
     const newTrack = (await navigator.mediaDevices.getUserMedia({ audio: { ...MIC, deviceId: { exact: this.value } } })).getAudioTracks()[0];
@@ -329,6 +338,7 @@ function applyScreenMode() { //contentHint is the main effect, degradationPrefer
 $("#addRemoveCameraBtn").onclick = toggleCamera;
 
 $("#cameraSelect").onchange = async function () {
+  if (this.disabled) return updateDeviceLists(); //No overlapping switches
   selectedCameraId = this.value;
   if (!camActive) return toggleCamera();
   //Swap the video track in place, so peers don't need to renegotiate
@@ -359,10 +369,11 @@ $("#cameraSelect").onchange = async function () {
 function toggleCamera() {
   return exclusive(async function () {
     if (screenActive) stopVideo();
-    if (camActive) return store("camOn", ""), stopVideo();
+    if (camActive) return stopVideo();
     try {
       var stream = await getDevice("video", { facingMode: "user" }, selectedCameraId);
     } catch (error) {
+      store("camOn", "");
       alert("Could not get your Camera! Be sure you have one connected and it is not used by any other process!")
       console.log('getUserMedia error! Got this error: ', error);
       return;
@@ -382,8 +393,7 @@ function startVideo(stream, btn) {
   for (var i in pcs) pcs[i].addStream(stream); //Add stream to all peers
   allUserStreams[MY_UUID] = allUserStreams[MY_UUID] || {};
   allUserStreams[MY_UUID]["videostream"] = stream;
-  $("#lobbyVideo").srcObject = stream;
-  $("#lobbyVideo").hidden = false;
+  showPreview();
   updateUserLayout();
 }
 
@@ -395,7 +405,8 @@ function stopVideo() { // camera and screen share use the same slot
   $("#addRemoveCameraBtn").style.color = $("#addRemoveScreenBtn").style.color = "black";
   camActive = screenActive = false;
   $("#screenModeBtn").hidden = true;
-  $("#lobbyVideo").hidden = true;
+  store("camOn", ""); // also when unplugged or replaced by a screen share
+  showPreview();
   updateDeviceLists(); // lobby camera: "Off"
   updateUserLayout();
 }

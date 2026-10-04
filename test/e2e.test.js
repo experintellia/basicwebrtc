@@ -1097,6 +1097,7 @@ test('name, mic and camera choice survive a reload of the tab, not a new tab', a
   await a.goto(`${BASE}#roomname=r${Date.now()}`);
   await a.fill('#nameInput', 'dora');
   await a.click('#joinBtn');
+  await waitFor(() => a.evaluate(() => $('#micSelect').options.length > 1), 'mic list filled');
   const mic = await a.evaluate(() => [...document.querySelectorAll('#micSelect option')].find(o => o.value != webRTCConfig.stream.getAudioTracks()[0].getSettings().deviceId && o.value != 'default').value);
   await a.selectOption('#micSelect', mic);
   await waitFor(() => a.evaluate(m => webRTCConfig.stream.getAudioTracks()[0].getSettings().deviceId == m, mic), 'mic switched');
@@ -1118,4 +1119,60 @@ test('name, mic and camera choice survive a reload of the tab, not a new tab', a
   await waitFor(() => fresh.locator('#lobby').isVisible(), 'lobby shown');
   assert.strictEqual(await fresh.inputValue('#nameInput'), '', 'new tab starts empty');
   await ctx.close();
+});
+
+test('lobby: quick device picks run one at a time, no second mic or camera leaks', async () => {
+  const a = await open('r' + Date.now(), 'alice');
+  await waitFor(() => a.evaluate(() => $('#lobbyMic').options.length > 2), 'mic list');
+  await a.evaluate(() => { // two picks before the first switch is done, like arrow keys on a focused dropdown
+    const [, x, y] = [...$('#lobbyMic').options].map(o => o.value);
+    for (const v of [x, y]) { $('#lobbyMic').value = v; $('#lobbyMic').dispatchEvent(new Event('change')); }
+  });
+  await a.selectOption('#lobbyCamera', await a.evaluate(() => $('#lobbyCamera').options[1].value));
+  await waitFor(() => a.evaluate(() => camActive), 'camera on');
+  await a.evaluate(() => { const [, x, y] = [...$('#lobbyCamera').options].map(o => o.value); for (const v of [y, x]) { $('#lobbyCamera').value = v; $('#lobbyCamera').dispatchEvent(new Event('change')); } });
+  await new Promise(r => setTimeout(r, 1500));
+  assert.deepStrictEqual(await a.evaluate(() => [webRTCConfig.stream.getAudioTracks().length, allUserStreams[MY_UUID].videostream.getVideoTracks().length]), [1, 1]);
+  assert.ok(await a.evaluate(() => $('#lobbyMic').value == webRTCConfig.stream.getAudioTracks()[0].getSettings().deviceId), 'dropdown shows the mic in use');
+  await a.click('#joinBtn');
+  assert.strictEqual(await a.evaluate(() => $('#lobbyVideo').srcObject), null, 'hidden preview let go after Join');
+  await a.context().close();
+});
+
+test('lobby: a camera picked right away is not switched off by camon', async () => {
+  const ctx = await browser.newContext();
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=r${Date.now()}&camon=1`);
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby');
+  await a.selectOption('#lobbyCamera', await a.evaluate(() => [...$('#lobbyCamera').options].at(-1).value)); // within camon's first second
+  await new Promise(r => setTimeout(r, 1800));
+  assert.ok(await a.evaluate(() => camActive), 'camera still on');
+  await ctx.close();
+});
+
+test('a camera that ended is not turned on again after a reload', async () => {
+  const ctx = await browser.newContext();
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=r${Date.now()}`);
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby');
+  await a.selectOption('#lobbyCamera', await a.evaluate(() => [...$('#lobbyCamera').options].at(-1).value));
+  await waitFor(() => a.evaluate(() => camActive), 'camera on');
+  await a.evaluate(() => allUserStreams[MY_UUID].videostream.getVideoTracks()[0].dispatchEvent(new Event('ended'))); // unplugged
+  await waitFor(() => a.evaluate(() => !camActive), 'camera off');
+  await a.reload();
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby');
+  await new Promise(r => setTimeout(r, 1500));
+  assert.strictEqual(await a.evaluate(() => camActive), false);
+  await ctx.close();
+});
+
+test('a denied mic is asked for once, also with a saved mic', async () => {
+  const a = await open('r' + Date.now(), 'alice', () => {
+    sessionStorage.mic = 'some-saved-mic';
+    window.__asked = 0;
+    navigator.mediaDevices.getUserMedia = () => (__asked++, Promise.reject(new DOMException('denied', 'NotAllowedError')));
+  });
+  await waitFor(() => a.locator('#micError').isVisible(), 'message shown');
+  assert.strictEqual(await a.evaluate(() => __asked), 1);
+  await a.context().close();
 });
