@@ -651,14 +651,14 @@ function atTheDoor(wait) { // locked room: back to the lobby until a member lets
 socket.on("knockAnswer", res => res.accept ? retryJoin?.() : atTheDoor(res.wait));
 
 socket.on("knock", function ({ UUID, name }) { // someone at the door: any member decides
-  byId("knock" + UUID)?.remove();
+  byId("knock-" + UUID)?.remove();
   const row = fromHTML('<div class="knock"><span></span><button>Let in</button><button>Deny</button></div>');
-  row.id = "knock" + UUID;
+  row.id = "knock-" + UUID;
   row.firstChild.textContent = (name && name != "NA" ? name : "Someone") + " wants to join";
   row.querySelectorAll("button").forEach((btn, i) => btn.onclick = () => socket.emit("answerKnock", { UUID, accept: !i }));
   $("#knocks").append(row);
 });
-socket.on("knockDone", UUID => byId("knock" + UUID)?.remove());
+socket.on("knockDone", UUID => byId("knock-" + UUID)?.remove());
 
 var roomLocked = false;
 function showLock(locked) {

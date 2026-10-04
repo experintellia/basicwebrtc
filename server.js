@@ -58,8 +58,9 @@ var socketID_UUIDMatch = Object.create(null);
 // Closed rooms, while they have members: any member locks, newcomers knock, any member admits or rejects.
 // ponytail: the reject cooldown is keyed by the knocker's per-tab id, so it slows down honest retries, not a determined knocker.
 var rooms = Object.create(null);
+const ROOM_GRACE_MS = parseInt(process.env.ROOM_GRACE_MS) || 15000; // an emptied room keeps its lock this long: a reload or reconnect is no way in
 const roomState = name => rooms[name] ||= { locked: false, approved: new Set(), knocks: new Map(), rejects: new Map() };
-function forgetRoom(name) { // last member gone: open again, knockers still waiting are sent in
+function forgetRoom(name) { // no member for a while: open again, knockers still waiting are sent in
     for (const k of rooms[name]?.knocks.values() || []) ioServer.to(k.socketId).emit("knockAnswer", { accept: true });
     delete rooms[name];
 }
@@ -98,7 +99,10 @@ ioServer.sockets.on('connection', function (socket) {
             knocked.knocks.delete(MY_UUID);
             ioServer.to(knockRoom).emit("knockDone", MY_UUID);
         }
-        if (roomOfUser !== null && !ioServer.sockets.adapter.rooms.get(roomOfUser)) forgetRoom(roomOfUser);
+        const name = roomOfUser;
+        if (name !== null && !ioServer.sockets.adapter.rooms.get(name)) {
+            setTimeout(() => ioServer.sockets.adapter.rooms.get(name) || forgetRoom(name), ROOM_GRACE_MS);
+        }
         if (socketID_UUIDMatch[MY_UUID] !== socket.id) return; // a newer socket already took over this UUID
         socket.to(roomOfUser).emit('userDiscconected', MY_UUID);
         delete registerdUUIDs[MY_UUID];
@@ -112,16 +116,20 @@ ioServer.sockets.on('connection', function (socket) {
         const name = str(content["roomname"]).slice(0, 64);
         if (knockRoom !== null && knockRoom !== name) return;
         const room = roomState(name);
-        if (room.locked && !room.approved.has(MY_UUID)) { // knock: members decide
-            const knockId = /^[\w-]{1,64}$/.test(str(content["knockId"])) ? content["knockId"] : MY_UUID;
+        // knockId: random per browser tab, only the server sees it. Approves a member's reload, keys a knocker's cooldown.
+        const knockId = /^[\w-]{1,64}$/.test(str(content["knockId"])) ? content["knockId"] : MY_UUID;
+        if (room.locked && !room.approved.has(MY_UUID) && !room.approved.has(knockId)) { // knock: members decide
             const wait = Math.ceil(((room.rejects.get(knockId)?.until || 0) - Date.now()) / 1000);
             if (wait > 0) return ack({ wait });
             knockRoom = name;
+            const again = room.knocks.get(MY_UUID);
+            if (again) return again.socketId = socket.id, ack({ wait: 0 }); // members see each knocker once
+            if (room.knocks.size >= 5) return ack({ wait: 15 }); // door full: no flood of requests
             room.knocks.set(MY_UUID, { socketId: socket.id, name: str(content["name"]).slice(0, 64), knockId });
             ioServer.to(name).emit("knock", { UUID: MY_UUID, name: room.knocks.get(MY_UUID).name });
             return ack({ wait: 0 });
         }
-        room.approved.add(MY_UUID); // also when it reconnects later
+        room.approved.add(MY_UUID).add(knockId); // also when it reconnects or reloads later
         roomOfUser = socket.data.room = name;
         const keep = Array.isArray(content["keep"]) ? content["keep"].filter(k => typeof k == "string").slice(0, 8) : []; // peers a rejoining page still has a live call with
         socket.to(roomOfUser).emit('userJoined', { UUID: MY_UUID, keep });
@@ -135,8 +143,15 @@ ioServer.sockets.on('connection', function (socket) {
 
     socket.on("setLocked", function (locked) {
         if (roomOfUser === null || typeof locked != "boolean") return; // members only
-        roomState(roomOfUser).locked = locked;
+        const room = roomState(roomOfUser);
+        room.locked = locked;
         ioServer.to(roomOfUser).emit("locked", { locked, by: MY_UUID });
+        if (locked) return;
+        for (const [UUID, k] of room.knocks) { // open again: nobody waits at the door
+            ioServer.to(k.socketId).emit("knockAnswer", { accept: true });
+            ioServer.to(roomOfUser).emit("knockDone", UUID);
+        }
+        room.knocks.clear();
     });
 
     socket.on("answerKnock", function (content) {
@@ -146,7 +161,7 @@ ioServer.sockets.on('connection', function (socket) {
         room.knocks.delete(content.UUID);
         ioServer.to(roomOfUser).emit("knockDone", content.UUID);
         if (content.accept === true) {
-            room.approved.add(content.UUID);
+            room.approved.add(content.UUID).add(k.knockId);
             return ioServer.to(k.socketId).emit("knockAnswer", { accept: true });
         }
         const r = room.rejects.get(k.knockId) || { count: 0 };

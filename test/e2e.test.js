@@ -1205,3 +1205,12 @@ test('closed room: anyone locks, a newcomer knocks, any member lets in or denies
   assert.match(await d.textContent('#lockBtn'), /Unlock room/, 'dave sees the lock');
   for (const p of [a, b, c, d]) await p.context().close();
 });
+
+test('knock banners work for any knocker UUID, also one that spells an element id', async () => {
+  const a = await join('r' + Date.now(), 'alice');
+  await a.evaluate(() => ['s', 'x'].forEach(UUID => socket.listeners('knock')[0]({ UUID, name: UUID }))); // "knock" + "s" == "knocks"
+  assert.strictEqual(await a.locator('.knock').count(), 2);
+  await a.evaluate(() => socket.listeners('knockDone')[0]('s'));
+  assert.deepStrictEqual(await a.locator('.knock').allTextContents(), ['x wants to joinLet inDeny']);
+  await a.context().close();
+});
