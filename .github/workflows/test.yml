@@ -18,8 +18,8 @@ jobs:
       # explicit browsers path: sudo below may change HOME, where Playwright looks by default
       - run: echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/pw" >> "$GITHUB_ENV"
       - run: npx playwright-core install --with-deps firefox
-      # root so the P2P-outage test can drop UDP with iptables
-      - run: sudo -E env "PATH=$PATH" HOME=/root CHROMIUM_PATH=/usr/bin/google-chrome npm test
+      # root so the P2P-outage test can drop UDP with iptables; HOME/XDG_RUNTIME_DIR must not be the runner's or Firefox refuses to start
+      - run: sudo -E env -u XDG_RUNTIME_DIR "PATH=$PATH" HOME=/root CHROMIUM_PATH=/usr/bin/google-chrome npm test
   safari:
     # ponytail: macOS minutes cost 10x; push only (not again for the PR) and capped
     if: github.event_name == 'push'
