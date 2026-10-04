@@ -1014,3 +1014,19 @@ test('tile initials do not split an emoji', async () => {
   assert.strictEqual(await a.evaluate(() => byId(MY_UUID).querySelector('.userPlaceholder').textContent), 'A😀');
   await a.context().close();
 });
+
+test('picture-in-picture survives a re-layout (#27)', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
+  await b.click('#mediaDiv .pipBtn');
+  await waitFor(() => b.evaluate(() => !!document.pictureInPictureElement), 'bob in PiP');
+  const c = await join(room, 'carol'); // peer joins: re-layout on bob
+  await waitFor(async () => (await connectedPeers(b)) === 2, 'carol connected');
+  await new Promise(r => setTimeout(r, 500));
+  assert.ok(await b.evaluate(() => document.pictureInPictureElement?.isConnected && !document.pictureInPictureElement.paused), 'still in PiP and playing');
+  for (const p of [a, b, c]) await p.context().close();
+});
