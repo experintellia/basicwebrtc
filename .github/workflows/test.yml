@@ -5,8 +5,6 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/pw # same path for the install and the sudo test run
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -14,6 +12,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # explicit browsers path: sudo below may change HOME, where Playwright looks by default
+      - run: echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/pw" >> "$GITHUB_ENV"
       - run: npx playwright-core install --with-deps firefox
       # root so the P2P-outage test can drop UDP with iptables
       - run: sudo -E env "PATH=$PATH" CHROMIUM_PATH=/usr/bin/google-chrome npm test
