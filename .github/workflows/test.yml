@@ -14,3 +14,17 @@ jobs:
       - run: npm ci
       # root so the P2P-outage test can drop UDP with iptables
       - run: sudo -E env "PATH=$PATH" CHROMIUM_PATH=/usr/bin/google-chrome npm test
+  safari:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: sudo safaridriver --enable
+      - run: node --test --test-force-exit test/safari.test.js
+        env:
+          SAFARI: 1
+          CHROMIUM_PATH: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
