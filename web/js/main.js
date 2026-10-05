@@ -564,7 +564,7 @@ function updateUserLayout() {
         video.replaceWith(old);
         video = old;
       }
-      else video.srcObject = userStream["videostream"]; // not again on a reused one: Safari doesn't reload a stream set while the element is out of the page
+      video.srcObject = userStream["videostream"];
       userDiv.querySelector(".userPlaceholderContainer").hidden = true;
 
       const pipBtn = userDiv.querySelector(".pipBtn");
@@ -618,6 +618,7 @@ function updateUserLayout() {
     const video = cont.querySelector("video");
     video.style.maxWidth = cont.offsetWidth + 'px';
     video.style.maxHeight = cont.offsetHeight + 'px';
+    if (!video.readyState) video.srcObject = video.srcObject; // Safari doesn't reload a stream after the element was moved: start it again in place
     video.play().catch(() => { });
   }
   for (const i in allUserStreams) if (allUserStreams[i].muted) setAudioLevel(i, -1);
