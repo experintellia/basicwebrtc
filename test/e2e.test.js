@@ -1091,6 +1091,28 @@ test('mic picker switches the mic sent to the other peer', async () => {
   await a.context().close(); await b.context().close();
 });
 
+test('an unplugged mic is replaced by another one, the call keeps sound', async () => {
+  const room = 'r' + Date.now();
+  const hideUnplugged = () => {
+    const md = navigator.mediaDevices, enumerate = md.enumerateDevices.bind(md);
+    md.enumerateDevices = async () => (await enumerate()).filter(d => d.deviceId != window.__unplugged);
+  };
+  const a = await join(room, 'alice', `(${trackPcs})(); (${hideUnplugged})();`);
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1 && (await liveRemoteAudio(b)) === 1, 'ICE and audio');
+  const old = await a.evaluate(() => { // unplug: the device leaves the list, its track ends
+    const t = webRTCConfig.stream.getAudioTracks()[0];
+    window.__unplugged = t.getSettings().deviceId;
+    t.stop(); t.dispatchEvent(new Event('ended'));
+    return t.id;
+  });
+  await waitFor(() => a.evaluate(old => { const t = __raw.at(-1).getSenders().find(s => s.track?.kind == 'audio')?.track; return t && t.id != old && t.readyState == 'live'; }, old), 'a live mic sent again');
+  assert.deepStrictEqual(await a.evaluate(() => webRTCConfig.stream.getAudioTracks().map(t => t.readyState)), ['live'], 'one live mic track');
+  assert.ok(await a.evaluate(() => !!webRTCConfig.stream.getAudioTracks()[0].onended), 'the new mic is watched too');
+  await waitFor(async () => (await liveRemoteAudio(b)) === 1, 'remote audio after the unplug');
+  await a.context().close(); await b.context().close();
+});
+
 test('name, mic and camera choice survive a reload of the tab, not a new tab', async () => {
   const ctx = await browser.newContext();
   const a = await ctx.newPage();

@@ -204,6 +204,10 @@ var mediaReady = (async function () {
   }
   webRTCConfig["stream"] = stream;
   allUserStreams[MY_UUID]["audiostream"] = stream;
+  stream.getAudioTracks()[0].onended = async () => { // unplugged mic: the list drops it, switch to the one picked there
+    await updateDeviceLists();
+    $("#micSelect").dispatchEvent(new Event("change"));
+  };
   startMicMeter();
   updateDeviceLists(); //Labels are only available after permission is granted
   updateUserLayout();
@@ -252,6 +256,7 @@ $("#micSelect").onchange = async function () { //Swap the mic track in place, so
   try {
     const newTrack = (await navigator.mediaDevices.getUserMedia({ audio: { ...MIC, deviceId: { exact: this.value } } })).getAudioTracks()[0];
     newTrack.enabled = !micMuted;
+    newTrack.onended = oldTrack.onended;
     for (var i in pcs) pcs[i].replaceTrack(oldTrack, newTrack);
     stream.removeTrack(oldTrack); // same stream object: new peers and the mute button get the new track
     stream.addTrack(newTrack);
