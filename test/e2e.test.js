@@ -1064,6 +1064,7 @@ test('lobby: nobody joins until Join, then with the name typed there', async () 
   assert.ok(await b.evaluate(() => $('#lobbyMic').options.length > 1 && $('#micMeter') instanceof HTMLMeterElement), 'mic picker and level meter');
   await new Promise(r => setTimeout(r, 1500));
   assert.strictEqual(await a.evaluate(() => Object.keys(pcs).length), 0, 'not joined from the lobby');
+  assert.deepStrictEqual(await b.evaluate(() => ['data-1p-ignore', 'data-lpignore', 'data-bwignore', 'data-form-type'].map(a => $('#nameInput').hasAttribute(a))), [true, true, true, true], 'password managers told to skip the name field');
   await b.fill('#nameInput', 'carol');
   await b.click('#joinBtn');
   assert.strictEqual(await b.locator('#lobby').isVisible(), false, 'lobby closed');
