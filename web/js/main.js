@@ -324,6 +324,7 @@ $("#addRemoveScreenBtn").onclick = () => exclusive(async function () {
 $("#screenModeSelect").onchange = applyScreenMode;
 
 function applyScreenMode() { //contentHint is the main effect, degradationPreference makes it explicit for the encoder
+  if (!screenActive) return; // a dropdown left open past the share must not touch the camera
   const track = allUserStreams[MY_UUID]["videostream"].getVideoTracks()[0];
   const motion = $("#screenModeSelect").value == "motion";
   track.contentHint = motion ? "motion" : "detail";

@@ -271,6 +271,10 @@ test('screen share mode: detail by default, performance via dropdown, applied to
   await waitFor(async () => (await screenMode(a)).join() === 'motion,maintain-framerate,maintain-framerate', 'late joiner gets mode');
   await a.click('#addRemoveScreenBtn');
   await waitFor(async () => !(await a.locator('#selectScreenModeBtn').isVisible()), 'hidden after share ends');
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => a.evaluate(() => camActive), 'camera on');
+  await a.evaluate(() => { const s = document.getElementById('screenModeSelect'); s.value = 'detail'; s.dispatchEvent(new Event('change')); }); // e.g. a popup left open
+  assert.strictEqual(await a.evaluate(() => allUserStreams[MY_UUID].videostream.getVideoTracks()[0].contentHint), '', 'camera track untouched');
   for (const p of [a, b, c]) await p.context().close();
 });
 
