@@ -131,7 +131,6 @@ ioServer.sockets.on('connection', function (socket) {
         }
         room.approved.add(MY_UUID).add(knockId); // also when it reconnects or reloads later
         roomOfUser = socket.data.room = name;
-        socket.data.name = str(content["name"]).slice(0, 64); // for the lock message: peers learn names over P2P, maybe not yet
         const keep = Array.isArray(content["keep"]) ? content["keep"].filter(k => typeof k == "string").slice(0, 8) : []; // peers a rejoining page still has a live call with
         socket.to(roomOfUser).emit('userJoined', { UUID: MY_UUID, keep });
         const members = [...(ioServer.sockets.adapter.rooms.get(roomOfUser) || [])].map(id => ioServer.sockets.sockets.get(id)?.data.uuid);
@@ -142,11 +141,11 @@ ioServer.sockets.on('connection', function (socket) {
         for (const [UUID, k] of room.knocks) socket.emit("knock", { UUID, name: k.name });
     })
 
-    socket.on("setLocked", function (locked) {
+    socket.on("setLocked", function (locked, name) { // name: for the message, peers learn names over P2P, maybe not yet
         if (roomOfUser === null || typeof locked != "boolean") return; // members only
         const room = roomState(roomOfUser);
         room.locked = locked;
-        ioServer.to(roomOfUser).emit("locked", { locked, by: MY_UUID, name: socket.data.name });
+        ioServer.to(roomOfUser).emit("locked", { locked, by: MY_UUID, name: typeof name == "string" ? name.slice(0, 64) : "" });
         if (locked) return;
         for (const [UUID, k] of room.knocks) { // open again: nobody waits at the door
             ioServer.to(k.socketId).emit("knockAnswer", { accept: true });

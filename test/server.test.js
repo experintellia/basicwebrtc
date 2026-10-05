@@ -219,9 +219,9 @@ const quiet = (c, ev, ms = 300) => new Promise((res, rej) => { // ev must NOT ar
 
 test('the lock message names who locked, also before the peers know its name', async () => {
   const a = await client('N1');
-  await ack(a, 'joinRoom', { roomname: 'room-n', name: 'alice' });
+  await ack(a, 'joinRoom', { roomname: 'room-n', name: 'al' });
   const locked = nextEvent(a.c, 'locked');
-  a.c.emit('setLocked', true);
+  a.c.emit('setLocked', true, 'alice'); // the current name: renamed since joining
   assert.deepStrictEqual(await locked, { locked: true, by: 'N1', name: 'alice' });
 });
 

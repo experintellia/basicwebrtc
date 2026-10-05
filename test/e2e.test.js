@@ -1210,6 +1210,8 @@ test('the lock message uses the name from the server while the peer is still unn
   const a = await join('r' + Date.now(), 'alice');
   await a.evaluate(() => socket.listeners('locked')[0]({ locked: true, by: 'x', name: 'zed' }));
   assert.match(await a.textContent('#chatText'), /zed locked the room/);
+  await a.evaluate(() => socket.listeners('locked')[0]({ locked: false, by: 'x', name: 'NA' }));
+  assert.match(await a.textContent('#chatText'), /Someone unlocked the room/);
   await a.context().close();
 });
 

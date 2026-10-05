@@ -669,7 +669,7 @@ socket.on("locked", function ({ locked, by, name }) {
   showLock(locked);
   if (by && by != MY_UUID) showMsg("", `${nameOf(by) || (name && name != "NA" ? name : "Someone")} ${locked ? "locked the room: newcomers have to be let in" : "unlocked the room"}`);
 });
-$("#lockBtn").onclick = () => socket.emit("setLocked", !roomLocked);
+$("#lockBtn").onclick = () => socket.emit("setLocked", !roomLocked, username);
 
 // iOS Safari can block autoplay of remote audio: any tap retries it
 addEventListener("click", () => document.querySelectorAll("#audioStreams audio").forEach(a => a.paused && a.play().catch(() => { })), true);
