@@ -38,7 +38,7 @@ if (base64Domain && socketDomain) {
 
 var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 if (isMobile || !navigator.mediaDevices.getDisplayMedia) { //No Screenshare on mobile devices
-  $("#addRemoveScreenBtn").hidden = true;
+  $("#screenGroup").hidden = true;
 }
 
 const SocketIO_Options = { withCredentials: false }
@@ -63,7 +63,6 @@ var pcs = {}; //Peer connections to all remotes
 var micMuted = false;
 var camActive = false;
 var screenActive = false;
-var screenMotion = false; //Screen share mode: false = Detail (sharp text), true = Performance (smooth motion)
 var selectedCameraId = stored("camera") || null;
 camOnAtStart ||= !!stored("camOn"); // camera on or off as last time in this tab
 const MIC = { echoCancellation: true, noiseSuppression: true };
@@ -319,22 +318,17 @@ $("#addRemoveScreenBtn").onclick = () => exclusive(async function () {
   screenActive = true;
   startVideo(stream, $("#addRemoveScreenBtn"));
   applyScreenMode();
-  $("#screenModeBtn").hidden = false;
+  $("#selectScreenModeBtn").style.display = "";
 });
 
-$("#screenModeBtn").onclick = function () {
-  screenMotion = !screenMotion;
-  applyScreenMode();
-}
-$("#screenModeBtn").onkeydown = e => (e.key == "Enter" || e.key == " ") && (e.preventDefault(), e.target.click());
+$("#screenModeSelect").onchange = applyScreenMode;
 
 function applyScreenMode() { //contentHint is the main effect, degradationPreference makes it explicit for the encoder
+  if (!screenActive) return; // a dropdown left open past the share must not touch the camera
   const track = allUserStreams[MY_UUID]["videostream"].getVideoTracks()[0];
-  track.contentHint = screenMotion ? "motion" : "detail";
-  for (var i in pcs) pcs[i].setDegradation(track, screenMotion ? "maintain-framerate" : "maintain-resolution");
-  $("#screenModeBtn").setAttribute("aria-pressed", screenMotion);
-  $("#screenModeBtn i").className = screenMotion ? "fas fa-running" : "fas fa-font";
-  $("#screenModeBtn").title = screenMotion ? "screen share: smooth motion (click for sharp text)" : "screen share: sharp text (click for smooth motion)";
+  const motion = $("#screenModeSelect").value == "motion";
+  track.contentHint = motion ? "motion" : "detail";
+  for (var i in pcs) pcs[i].setDegradation(track, motion ? "maintain-framerate" : "maintain-resolution");
 }
 
 $("#addRemoveCameraBtn").onclick = toggleCamera;
@@ -406,7 +400,7 @@ function stopVideo() { // camera and screen share use the same slot
   delete allUserStreams[MY_UUID]["videostream"];
   $("#addRemoveCameraBtn").style.color = $("#addRemoveScreenBtn").style.color = "black";
   camActive = screenActive = false;
-  $("#screenModeBtn").hidden = true;
+  $("#selectScreenModeBtn").style.display = "none";
   store("camOn", ""); // also when unplugged or replaced by a screen share
   showPreview();
   updateDeviceLists(); // lobby camera: "Off"
