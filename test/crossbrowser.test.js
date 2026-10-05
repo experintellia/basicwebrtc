@@ -100,17 +100,13 @@ async function call(other, otherFirst) {
     await waitFor(() => page.evaluate(CONNECTED), 'chromium connected');
     await waitFor(() => other.evaluate(CONNECTED), 'other browser connected');
     await waitFor(() => page.evaluate(AUDIO_BOTH_WAYS), 'audio both ways');
-    await other.evaluate("document.getElementById('addRemoveCameraBtn').click()");
+    await other.evaluate("camActive || document.getElementById('addRemoveCameraBtn').click()"); // on, not toggled: the last call's camera state is remembered
     await waitFor(() => page.evaluate(REMOTE_VIDEO), 'video from the other browser');
     await page.click('#addRemoveCameraBtn');
     await waitFor(() => other.evaluate(VIDEOS_PLAYING), 'other browser shows both videos');
   } catch (e) {
     console.log(log.concat(other.log || []).join('\n'));
     console.log('[chromium state]', await page.evaluate(STATE).catch(String));
-    const TX = `JSON.stringify((window.__raw || []).map(p => p.getTransceivers().map(t => ({ mid: t.mid, dir: t.direction, cur: t.currentDirection,
-      send: t.sender.track?.kind, recv: [t.receiver.track.kind, t.receiver.track.readyState, t.receiver.track.muted] })))) + ' ' + JSON.stringify(Object.keys(allUserStreams).map(k => [k == MY_UUID, Object.keys(allUserStreams[k])]))`;
-    console.log('[tx chromium]', await page.evaluate(TX).catch(String));
-    console.log('[tx other]', await other.evaluate(TX).catch(String));
     console.log('[other state]', await other.evaluate(STATE).catch(String));
     console.log('[other videos]', await other.evaluate(`JSON.stringify([...document.querySelectorAll('#mediaDiv video')].map(v =>
       ({ paused: v.paused, muted: v.muted, w: v.videoWidth, ready: v.readyState, tracks: v.srcObject?.getTracks().map(t => t.readyState) })))`).catch(String));
