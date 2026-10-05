@@ -19,7 +19,10 @@ var base64Domain = getUrlParam("base64domain", false);
 //ALL # PARAMETERS
 var socketDomain = getUrlParam("socketdomain", false); //Domainname with path
 var camOnAtStart = getUrlParam("camon", false) == false ? false : true; //Defines if cam should be on at start
-var username = getUrlParam("username", "NA");
+// Per tab only: survives reloads and other rooms, never shared with other tabs or later visits.
+const stored = k => { try { return sessionStorage[k] } catch { } }; // throws when storage is blocked
+const store = (k, v) => { try { sessionStorage[k] = v } catch { } };
+var username = getUrlParam("username", stored("username") || "NA");
 var roomname = getUrlParam("roomname", false);
 
 if (!roomname) {
@@ -59,19 +62,34 @@ var micMuted = false;
 var camActive = false;
 var screenActive = false;
 var screenMotion = false; //Screen share mode: false = Detail (sharp text), true = Performance (smooth motion)
-var selectedCameraId = null;
+var selectedCameraId = stored("camera") || null;
+camOnAtStart ||= !!stored("camOn"); // camera on or off as last time in this tab
+const MIC = { echoCancellation: true, noiseSuppression: true };
+// The chosen device, or the browser's pick if it is gone: Chromium ignores a deviceId that is only "ideal"
+const getDevice = (kind, c, id) => navigator.mediaDevices.getUserMedia({ [kind]: id ? { ...c, deviceId: { exact: id } } : c })
+  .catch(e => id && ["OverconstrainedError", "NotFoundError"].includes(e.name) ? getDevice(kind, c) : Promise.reject(e)); // a "no" is not asked twice
 
-async function updateCameraList() { //Show camera picker only if there is more than one camera
-  const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind == "videoinput");
-  if (!cams.some(c => c.deviceId == selectedCameraId)) {
-    selectedCameraId = null;
-  }
-  $("#cameraSelect").replaceChildren(...cams.map((c, i) => new Option(c.label || "Camera " + (i + 1), c.deviceId)));
-  $("#cameraSelect").value = selectedCameraId || (cams[0] && cams[0].deviceId);
-  $("#selectCameraBtn").style.display = cams.length > 1 ? "" : "none";
+async function updateDeviceLists() { //Show a picker only if there is more than one device
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const fill = (kind, label, select, btn, cur) => {
+    const list = devices.filter(d => d.kind == kind);
+    $(select).replaceChildren(...list.map((d, i) => new Option(d.label || label + " " + (i + 1), d.deviceId)));
+    $(select).value = list.some(d => d.deviceId == cur) ? cur : list[0]?.deviceId;
+    $(btn).style.display = list.length > 1 ? "" : "none";
+  };
+  fill("videoinput", "Camera", "#cameraSelect", "#selectCameraBtn", selectedCameraId);
+  fill("audioinput", "Microphone", "#micSelect", "#selectMicBtn", webRTCConfig["stream"]?.getAudioTracks()[0].getSettings().deviceId);
+  $("#lobbyMic").replaceChildren(...[...$("#micSelect").options].map(o => new Option(o.text, o.value)));
+  $("#lobbyMic").value = $("#micSelect").value;
+  $("#lobbyCamera").replaceChildren(new Option("Off", ""), ...[...$("#cameraSelect").options].map(o => new Option(o.text, o.value)));
+  $("#lobbyCamera").value = camActive ? $("#cameraSelect").value : "";
 }
-navigator.mediaDevices.addEventListener("devicechange", updateCameraList);
-updateCameraList();
+// The lobby's dropdowns hand over to the call's pickers: one code path for switching devices,
+// and their busy guard: a dispatched "change" reaches a disabled select too.
+const pick = (select, value) => { $(select).value = value; $(select).dispatchEvent(new Event("change")); };
+$("#lobbyMic").onchange = e => pick("#micSelect", e.target.value);
+$("#lobbyCamera").onchange = e => e.target.value ? pick("#cameraSelect", e.target.value) : camActive && toggleCamera();
+navigator.mediaDevices.addEventListener("devicechange", updateDeviceLists);
 
 function showMsg(name, msg) {
   const line = document.createElement("div");
@@ -171,16 +189,13 @@ function setStatus(UUID, text) { // status line on a tile, e.g. "connecting…";
 }
 
 var mediaReady = (async function () {
-  allUserStreams[MY_UUID] = { username: username, status: "connecting…" }; // own tile shows join progress
+  allUserStreams[MY_UUID] = { username: username };
   updateUserLayout();
   try {
     if (camOnAtStart) { // ask for both permissions at once
       (await navigator.mediaDevices.getUserMedia({ video: true, audio: true }).catch(() => null))?.getTracks().forEach(t => t.stop()); // no camera: still join with the mic
     }
-    var stream = await navigator.mediaDevices.getUserMedia({
-      video: false,
-      audio: { 'echoCancellation': true, 'noiseSuppression': true }
-    });
+    var stream = await getDevice("audio", MIC, stored("mic"));
   } catch (error) {
     $("#micError").hidden = false;
     console.log('getUserMedia error! Got this error: ', error);
@@ -188,17 +203,68 @@ var mediaReady = (async function () {
   }
   webRTCConfig["stream"] = stream;
   allUserStreams[MY_UUID]["audiostream"] = stream;
-  calcCurrentVolumeLevel(stream, function (currentAudioLvl) {
+  startMicMeter();
+  updateDeviceLists(); //Labels are only available after permission is granted
+  updateUserLayout();
+  if (camOnAtStart) { //enable cam on start if set
+    setTimeout(() => camActive || toggleCamera(), 1000) // not if picked in the lobby meanwhile
+  }
+  // Lobby: own preview, name, mic and camera. Join only after it.
+  $("#nameInput").value = username == "NA" ? "" : username;
+  showLobby(true);
+  if (!matchMedia("(pointer: coarse)").matches) $("#nameInput").focus();
+  await new Promise(r => $("#lobby").onsubmit = e => { e.preventDefault(); r(); });
+  showLobby(false);
+  setName($("#nameInput").value);
+  setStatus(MY_UUID, "connecting…"); // own tile shows join progress
+})();
+
+function showLobby(on) {
+  $("#lobby").hidden = !on;
+  document.body.classList.toggle("inLobby", on);
+  showPreview();
+  if (!on) updateUserLayout(); // video sizes are measured: redo them now the call is visible
+}
+
+function showPreview() { // own camera in the lobby; let go of it while the lobby is hidden
+  const v = $("#lobbyVideo");
+  v.srcObject = $("#lobby").hidden ? null : allUserStreams[MY_UUID]?.videostream || null;
+  v.hidden = !v.srcObject;
+}
+
+var stopMicMeter;
+function startMicMeter() { // the meter reads the track it started with: restart it after a mic switch
+  stopMicMeter?.();
+  stopMicMeter = calcCurrentVolumeLevel(webRTCConfig["stream"], function (currentAudioLvl) {
+    $("#micMeter").value = currentAudioLvl;
     if (!micMuted) {
       sendToPeers({ audioLvl: currentAudioLvl });
       setAudioLevel(MY_UUID, currentAudioLvl);
     }
   });
-  updateUserLayout();
-  if (camOnAtStart) { //enable cam on start if set
-    setTimeout(toggleCamera, 1000)
+}
+
+$("#micSelect").onchange = async function () { //Swap the mic track in place, so peers don't need to renegotiate
+  if (this.disabled) return updateDeviceLists(); //No overlapping switches
+  this.disabled = true;
+  const stream = webRTCConfig["stream"], oldTrack = stream.getAudioTracks()[0];
+  try {
+    const newTrack = (await navigator.mediaDevices.getUserMedia({ audio: { ...MIC, deviceId: { exact: this.value } } })).getAudioTracks()[0];
+    newTrack.enabled = !micMuted;
+    for (var i in pcs) pcs[i].replaceTrack(oldTrack, newTrack);
+    stream.removeTrack(oldTrack); // same stream object: new peers and the mute button get the new track
+    stream.addTrack(newTrack);
+    oldTrack.stop(); // only now: a failed switch keeps the old mic
+    store("mic", newTrack.getSettings().deviceId);
+    startMicMeter();
+  } catch (error) {
+    alert("Could not switch microphone!")
+    console.log('getUserMedia error! Got this error: ', error);
+  } finally {
+    this.disabled = false;
+    updateDeviceLists();
   }
-})();
+}
 
 $("#muteUnmuteMicBtn").onclick = function () {
   micMuted = !micMuted;
@@ -272,6 +338,7 @@ function applyScreenMode() { //contentHint is the main effect, degradationPrefer
 $("#addRemoveCameraBtn").onclick = toggleCamera;
 
 $("#cameraSelect").onchange = async function () {
+  if (this.disabled) return updateDeviceLists(); //No overlapping switches
   selectedCameraId = this.value;
   if (!camActive) return toggleCamera();
   //Swap the video track in place, so peers don't need to renegotiate
@@ -283,6 +350,7 @@ $("#cameraSelect").onchange = async function () {
     var newTrack = (await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: selectedCameraId } } })).getVideoTracks()[0];
     if (!camActive) return newTrack.stop(); //camera was turned off meanwhile
     newTrack.onended = oldTrack.onended;
+    store("camera", selectedCameraId);
     for (var i in pcs) pcs[i].replaceTrack(oldTrack, newTrack);
     stream.removeTrack(oldTrack);
     stream.addTrack(newTrack);
@@ -292,7 +360,7 @@ $("#cameraSelect").onchange = async function () {
     console.log('getUserMedia error! Got this error: ', error);
     selectedCameraId = null;
     if (camActive) stopVideo(); //Turn the dead camera off (not via toggleCamera: its busy guard could skip it; skip if turned off or replaced by a screen share meanwhile)
-    updateCameraList();
+    updateDeviceLists();
   } finally {
     this.disabled = false;
   }
@@ -303,15 +371,18 @@ function toggleCamera() {
     if (screenActive) stopVideo();
     if (camActive) return stopVideo();
     try {
-      var stream = await navigator.mediaDevices.getUserMedia({ video: selectedCameraId ? { deviceId: { exact: selectedCameraId } } : { 'facingMode': "user" }, audio: false });
+      var stream = await getDevice("video", { facingMode: "user" }, selectedCameraId);
     } catch (error) {
+      store("camOn", "");
       alert("Could not get your Camera! Be sure you have one connected and it is not used by any other process!")
       console.log('getUserMedia error! Got this error: ', error);
       return;
     }
     selectedCameraId = stream.getVideoTracks()[0].getSettings().deviceId || selectedCameraId;
-    updateCameraList(); //Labels are only available after permission is granted
+    store("camera", selectedCameraId);
+    store("camOn", "1");
     camActive = true;
+    updateDeviceLists(); //Labels are only available after permission is granted
     startVideo(stream, $("#addRemoveCameraBtn"));
   });
 }
@@ -322,6 +393,7 @@ function startVideo(stream, btn) {
   for (var i in pcs) pcs[i].addStream(stream); //Add stream to all peers
   allUserStreams[MY_UUID] = allUserStreams[MY_UUID] || {};
   allUserStreams[MY_UUID]["videostream"] = stream;
+  showPreview();
   updateUserLayout();
 }
 
@@ -333,6 +405,9 @@ function stopVideo() { // camera and screen share use the same slot
   $("#addRemoveCameraBtn").style.color = $("#addRemoveScreenBtn").style.color = "black";
   camActive = screenActive = false;
   $("#screenModeBtn").hidden = true;
+  store("camOn", ""); // also when unplugged or replaced by a screen share
+  showPreview();
+  updateDeviceLists(); // lobby camera: "Off"
   updateUserLayout();
 }
 
@@ -345,9 +420,13 @@ function paramsWithout(sep, part, drop, add = {}) {
 
 $("#changeNameBtn").onclick = function () {
   const name = prompt("Your name:", username == "NA" ? "" : username);
-  if (name === null) return;
+  if (name !== null) setName(name);
+}
+
+function setName(name) {
   username = name.trim().slice(0, 64) || "NA";
   history.replaceState(null, "", paramsWithout("#", location.hash, ["username"], { username })); // survives reloads
+  store("username", username);
   if (allUserStreams[MY_UUID]) allUserStreams[MY_UUID].username = username;
   sendToPeers({ username });
   updateUserLayout();

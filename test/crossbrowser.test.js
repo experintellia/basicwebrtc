@@ -86,8 +86,12 @@ async function call(other, otherFirst) {
   const page = await (await chrome.newContext()).newPage();
   page.on('console', m => log.push('[chromium] ' + m.text()));
   await page.addInitScript(trackPcs);
-  const joinChromium = () => page.goto(`${BASE}#roomname=${room}&username=chromium`);
-  const joinOther = () => other.go(`${BASE}#roomname=${room}&username=other`);
+  const joinChromium = () => page.goto(`${BASE}#roomname=${room}&username=chromium`).then(() => page.click('#joinBtn'));
+  const joinOther = async () => { // through the lobby: it shows once the mic is there
+    await other.go(`${BASE}#roomname=${room}&username=other`);
+    await waitFor(() => other.evaluate("!document.getElementById('lobby').hidden"), 'other browser in the lobby');
+    await other.evaluate("document.getElementById('joinBtn').click()");
+  };
   if (otherFirst) { await joinOther(); await joinChromium(); } else { await joinChromium(); await joinOther(); }
   try {
     await waitFor(() => page.evaluate(CONNECTED), 'chromium connected');

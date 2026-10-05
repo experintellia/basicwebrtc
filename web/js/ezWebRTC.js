@@ -282,6 +282,7 @@ function calcCurrentVolumeLevel(stream, callback) { //Returns audio levels for a
     var audioVolume = 0;
     var oldAudioVolume = 0;
     function calcVolume() {
+        if (context.state == "closed") return; //stopped
         requestAnimationFrame(calcVolume);
         analyser.getByteTimeDomainData(dataArray);
         var mean = 0;
@@ -306,4 +307,5 @@ function calcCurrentVolumeLevel(stream, callback) { //Returns audio levels for a
     microphone.connect(gainNode);
     gainNode.connect(analyser); //get sound  
     analyser.connect(dest);
+    return () => context.close(); //stops the meter
 }

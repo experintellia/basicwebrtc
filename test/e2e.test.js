@@ -27,12 +27,19 @@ after(async () => {
   await browser?.close();
 });
 
-async function join(room, name, initScript, file = '') {
+// Page in the lobby, not joined yet.
+async function open(room, name, initScript, file = '') {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   if (initScript) await page.addInitScript(initScript);
   page.on('pageerror', e => console.log(`[${name}] pageerror`, e.message));
   await page.goto(`${BASE}${file}#roomname=${room}&username=${encodeURIComponent(name)}`);
+  return page;
+}
+
+async function join(...args) {
+  const page = await open(...args);
+  await page.click('#joinBtn'); // lobby: sound and camera check first
   return page;
 }
 
@@ -85,6 +92,8 @@ test('own tile shows "connecting…" until joined and "reconnecting…" while th
   await ctx.route('**/socket.io/**', r => r.abort()); // server unreachable
   const a = await ctx.newPage();
   await a.goto(`${BASE}#roomname=r${Date.now()}&username=alice`);
+  assert.strictEqual(await selfStatus(a), '', 'nothing while in the lobby');
+  await a.click('#joinBtn');
   await waitFor(async () => (await selfStatus(a)) === 'connecting…', 'connecting shown');
   await ctx.unroute('**/socket.io/**');
   await waitFor(async () => (await selfStatus(a)) === '', 'status cleared after join');
@@ -612,7 +621,7 @@ test('hang up leads to the end screen', async () => {
 });
 
 test('browsers without WebRTC get an upgrade notice', async () => {
-  const a = await join('r' + Date.now(), 'alice', () => { delete window.RTCPeerConnection; });
+  const a = await open('r' + Date.now(), 'alice', () => { delete window.RTCPeerConnection; });
   await waitFor(() => a.locator('#unsupported').isVisible(), 'notice visible', 5000);
   await a.context().close();
 });
@@ -714,6 +723,7 @@ test('rename keeps other URL params byte-identical and cannot switch them on', a
   const ctx = await browser.newContext();
   const a = await ctx.newPage();
   await a.goto(`${BASE}#roomname=a+b=c&username=alice`);
+  await a.click('#joinBtn');
   a.once('dialog', d => d.accept('my camon socketdomain name'));
   await a.click('#moreBtn'); await a.click('#changeNameBtn');
   assert.strictEqual(await a.evaluate(() => location.hash), '#roomname=a+b=c&username=my%20camon%20socketdomain%20name');
@@ -767,6 +777,7 @@ test('camera picker is a touch-sized tab on top of the camera button', async () 
   const ctx = await browser.newContext({ viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true });
   const a = await ctx.newPage();
   await a.goto(`${BASE}#roomname=r${Date.now()}`);
+  await a.click('#joinBtn');
   await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'picker visible');
   const [cam, pick] = await Promise.all(['#addRemoveCameraBtn', '#selectCameraBtn'].map(s => a.locator(s).boundingBox()));
   assert.ok(pick.y + pick.height <= cam.y + 1 && Math.abs(pick.x - cam.x) <= 1 && Math.abs(pick.width - cam.width) <= 1, 'tab right above the camera button');
@@ -788,7 +799,7 @@ test('peer joining during fullscreen is still heard', async () => {
 test('remote audio blocked by autoplay starts on the next tap', async () => {
   const blockAutoplay = () => { // not userActivation: page.evaluate counts as a gesture
     let tapped = false;
-    window.addEventListener('click', () => tapped = true, true);
+    window.addEventListener('click', e => tapped ||= e.target.id != 'joinBtn', true); // Join is a tap too: this tests a later one
     document.addEventListener('play', e => { if (!tapped) e.target.pause(); }, true);
   };
   const room = 'r' + Date.now();
@@ -806,6 +817,7 @@ test('chat opens fullscreen on phones and closes again', async () => {
   const ctx = await browser.newContext({ viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true });
   const a = await ctx.newPage();
   await a.goto(`${BASE}#roomname=r${Date.now()}`);
+  await a.click('#joinBtn');
   await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
   assert.notStrictEqual(await a.evaluate(() => document.activeElement.id), 'chatInputText', 'no keyboard popping up on touch');
   const box = await a.locator('#chatDiv').boundingBox();
@@ -821,6 +833,7 @@ test('unnamed sender cannot fake a styled name', async () => {
   const ctx = await browser.newContext();
   const a = await ctx.newPage();
   await a.goto(`${BASE}#roomname=${room}`); // no username
+  await a.click('#joinBtn');
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
   await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
@@ -835,6 +848,7 @@ test('desktop chat fits short windows above the phone breakpoint', async () => {
   const ctx = await browser.newContext({ viewport: { width: 1000, height: 500 } });
   const a = await ctx.newPage();
   await a.goto(`${BASE}#roomname=r${Date.now()}`);
+  await a.click('#joinBtn');
   await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
   assert.ok((await a.locator('#chatDiv').boundingBox()).y >= 0, 'header on screen');
   await a.click('#chatCloseBtn');
@@ -877,6 +891,7 @@ test('all call buttons fit on screen from phone to small desktop widths', async 
     const ctx = await browser.newContext({ viewport: { width, height }, userAgent });
     const a = await ctx.newPage();
     await a.goto(`${BASE}#roomname=r${Date.now()}`);
+    await a.click('#joinBtn');
     await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'camera picker shown (2 fake cams)');
     await a.evaluate(() => { document.getElementById('screenModeBtn').hidden = false; }); // shown while sharing
     const overflow = await a.evaluate(() => [...document.querySelectorAll('.callBtn')]
@@ -952,13 +967,14 @@ test('hang up releases mic, camera and socket right away, once', async () => {
 
 test('mic denied shows a message and "Try again" joins once allowed', async () => {
   const room = 'r' + Date.now();
-  const a = await join(room, 'alice', () => {
+  const a = await open(room, 'alice', () => {
     const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
     navigator.mediaDevices.getUserMedia = c => c.audio && !sessionStorage.micOk ? Promise.reject(new DOMException('denied', 'NotAllowedError')) : gum(c);
   });
   await waitFor(() => a.locator('#micError').isVisible(), 'message shown');
   await a.evaluate(() => sessionStorage.micOk = 1); // user allows the mic
   await a.click('#micError button');
+  await a.click('#joinBtn');
   const b = await join(room, 'bob');
   await waitFor(async () => (await liveRemoteAudio(b)) === 1, 'alice heard by bob');
   await a.context().close(); await b.context().close();
@@ -1029,4 +1045,134 @@ test('picture-in-picture survives a re-layout (#27)', async () => {
   await new Promise(r => setTimeout(r, 500));
   assert.ok(await b.evaluate(() => document.pictureInPictureElement?.isConnected && !document.pictureInPictureElement.paused), 'still in PiP and playing');
   for (const p of [a, b, c]) await p.context().close();
+});
+
+test('lobby: nobody joins until Join, then with the name typed there', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await (await browser.newContext()).newPage();
+  await b.goto(`${BASE}#roomname=${room}`);
+  await waitFor(() => b.locator('#lobby').isVisible(), 'lobby shown');
+  for (const call of ['#mediaControllContainer', '#mediaDiv']) assert.strictEqual(await b.locator(call).isVisible(), false, `${call} hidden in the lobby`);
+  assert.strictEqual(await b.inputValue('#lobbyCamera'), '', 'camera off');
+  assert.strictEqual(await b.locator('#lobbyVideo').isVisible(), false);
+  const cam = await b.evaluate(() => [...document.querySelectorAll('#lobbyCamera option')].at(-1).value);
+  await b.selectOption('#lobbyCamera', cam);
+  await waitFor(() => b.evaluate(c => $('#lobbyVideo').srcObject?.getVideoTracks()[0]?.getSettings().deviceId == c && $('#lobbyVideo').checkVisibility(), cam), 'preview of the picked camera');
+  await b.selectOption('#lobbyCamera', '');
+  await waitFor(() => b.evaluate(() => !camActive && !$('#lobbyVideo').checkVisibility()), 'camera off again');
+  assert.ok(await b.evaluate(() => $('#lobbyMic').options.length > 1 && $('#micMeter') instanceof HTMLMeterElement), 'mic picker and level meter');
+  await new Promise(r => setTimeout(r, 1500));
+  assert.strictEqual(await a.evaluate(() => Object.keys(pcs).length), 0, 'not joined from the lobby');
+  await b.fill('#nameInput', 'carol');
+  await b.click('#joinBtn');
+  assert.strictEqual(await b.locator('#lobby').isVisible(), false, 'lobby closed');
+  assert.ok(await b.locator('#mediaControllContainer').isVisible(), 'call controls shown');
+  await waitFor(async () => (await connectedPeers(a)) === 1, 'ICE connected');
+  await waitFor(() => a.evaluate(() => Object.values(allUserStreams).some(s => s.username == 'carol')), 'name from the lobby');
+  await a.context().close(); await b.context().close();
+});
+
+// The track the sender actually transmits, on the raw RTCPeerConnection.
+const sentMicId = page => page.evaluate(() => __raw.at(-1).getSenders().find(s => s.track?.kind == 'audio')?.track.getSettings().deviceId);
+
+test('mic picker switches the mic sent to the other peer', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', trackPcs);
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1 && (await liveRemoteAudio(b)) === 1, 'ICE and audio');
+  await waitFor(() => a.locator('#selectMicBtn').isVisible(), 'mic picker visible');
+  const cur = await sentMicId(a);
+  const other = await a.evaluate(cur => [...document.querySelectorAll('#micSelect option')].find(o => o.value != cur && o.value != 'default').value, cur);
+  await a.selectOption('#micSelect', other);
+  await waitFor(async () => (await sentMicId(a)) === other, 'sent mic switched');
+  assert.strictEqual(await a.evaluate(() => webRTCConfig.stream.getAudioTracks().length), 1, 'one mic track');
+  await waitFor(async () => (await liveRemoteAudio(b)) === 1, 'remote audio after switch');
+  await a.context().close(); await b.context().close();
+});
+
+test('name, mic and camera choice survive a reload of the tab, not a new tab', async () => {
+  const ctx = await browser.newContext();
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=r${Date.now()}`);
+  await a.fill('#nameInput', 'dora');
+  await a.click('#joinBtn');
+  await waitFor(() => a.evaluate(() => $('#micSelect').options.length > 1), 'mic list filled');
+  const mic = await a.evaluate(() => [...document.querySelectorAll('#micSelect option')].find(o => o.value != webRTCConfig.stream.getAudioTracks()[0].getSettings().deviceId && o.value != 'default').value);
+  await a.selectOption('#micSelect', mic);
+  await waitFor(() => a.evaluate(m => webRTCConfig.stream.getAudioTracks()[0].getSettings().deviceId == m, mic), 'mic switched');
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => a.evaluate(() => camActive), 'camera on');
+  const cam = await a.evaluate(() => [...document.querySelectorAll('#cameraSelect option')].find(o => o.value != selectedCameraId).value);
+  await a.selectOption('#cameraSelect', cam);
+  await waitFor(() => a.evaluate(c => allUserStreams[MY_UUID].videostream?.getVideoTracks()[0].getSettings().deviceId == c, cam), 'camera switched');
+  await a.goto(`${BASE}#roomname=r${Date.now()}x`); // other room, same tab
+  await a.reload();
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown');
+  assert.strictEqual(await a.inputValue('#nameInput'), 'dora');
+  assert.strictEqual(await a.evaluate(() => webRTCConfig.stream.getAudioTracks()[0].getSettings().deviceId), mic, 'mic kept');
+  await waitFor(async () => (await a.inputValue('#lobbyMic')) === mic, 'lobby shows the mic');
+  await waitFor(() => a.evaluate(c => allUserStreams[MY_UUID].videostream?.getVideoTracks()[0].getSettings().deviceId == c, cam), 'camera kept, and on as before');
+  await waitFor(async () => (await a.inputValue('#lobbyCamera')) === cam, 'lobby shows the camera');
+  const fresh = await ctx.newPage();
+  await fresh.goto(`${BASE}#roomname=r${Date.now()}`);
+  await waitFor(() => fresh.locator('#lobby').isVisible(), 'lobby shown');
+  assert.strictEqual(await fresh.inputValue('#nameInput'), '', 'new tab starts empty');
+  await ctx.close();
+});
+
+test('lobby: quick device picks run one at a time, no second mic or camera leaks', async () => {
+  const a = await open('r' + Date.now(), 'alice');
+  await waitFor(() => a.evaluate(() => $('#lobbyMic').options.length > 2), 'mic list');
+  await a.evaluate(() => { // two picks before the first switch is done, like arrow keys on a focused dropdown
+    const [, x, y] = [...$('#lobbyMic').options].map(o => o.value);
+    for (const v of [x, y]) { $('#lobbyMic').value = v; $('#lobbyMic').dispatchEvent(new Event('change')); }
+  });
+  await a.selectOption('#lobbyCamera', await a.evaluate(() => $('#lobbyCamera').options[1].value));
+  await waitFor(() => a.evaluate(() => camActive), 'camera on');
+  await a.evaluate(() => { const [, x, y] = [...$('#lobbyCamera').options].map(o => o.value); for (const v of [y, x]) { $('#lobbyCamera').value = v; $('#lobbyCamera').dispatchEvent(new Event('change')); } });
+  await new Promise(r => setTimeout(r, 1500));
+  assert.deepStrictEqual(await a.evaluate(() => [webRTCConfig.stream.getAudioTracks().length, allUserStreams[MY_UUID].videostream.getVideoTracks().length]), [1, 1]);
+  assert.ok(await a.evaluate(() => $('#lobbyMic').value == webRTCConfig.stream.getAudioTracks()[0].getSettings().deviceId), 'dropdown shows the mic in use');
+  await a.click('#joinBtn');
+  assert.strictEqual(await a.evaluate(() => $('#lobbyVideo').srcObject), null, 'hidden preview let go after Join');
+  await a.context().close();
+});
+
+test('lobby: a camera picked right away is not switched off by camon', async () => {
+  const ctx = await browser.newContext();
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=r${Date.now()}&camon=1`);
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby');
+  await a.selectOption('#lobbyCamera', await a.evaluate(() => [...$('#lobbyCamera').options].at(-1).value)); // within camon's first second
+  await new Promise(r => setTimeout(r, 1800));
+  assert.ok(await a.evaluate(() => camActive), 'camera still on');
+  await ctx.close();
+});
+
+test('a camera that ended is not turned on again after a reload', async () => {
+  const ctx = await browser.newContext();
+  const a = await ctx.newPage();
+  await a.goto(`${BASE}#roomname=r${Date.now()}`);
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby');
+  await a.selectOption('#lobbyCamera', await a.evaluate(() => [...$('#lobbyCamera').options].at(-1).value));
+  await waitFor(() => a.evaluate(() => camActive), 'camera on');
+  await a.evaluate(() => allUserStreams[MY_UUID].videostream.getVideoTracks()[0].dispatchEvent(new Event('ended'))); // unplugged
+  await waitFor(() => a.evaluate(() => !camActive), 'camera off');
+  await a.reload();
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby');
+  await new Promise(r => setTimeout(r, 1500));
+  assert.strictEqual(await a.evaluate(() => camActive), false);
+  await ctx.close();
+});
+
+test('a denied mic is asked for once, also with a saved mic', async () => {
+  const a = await open('r' + Date.now(), 'alice', () => {
+    sessionStorage.mic = 'some-saved-mic';
+    window.__asked = 0;
+    navigator.mediaDevices.getUserMedia = () => (__asked++, Promise.reject(new DOMException('denied', 'NotAllowedError')));
+  });
+  await waitFor(() => a.locator('#micError').isVisible(), 'message shown');
+  assert.strictEqual(await a.evaluate(() => __asked), 1);
+  await a.context().close();
 });

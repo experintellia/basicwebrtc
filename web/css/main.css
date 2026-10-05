@@ -41,12 +41,12 @@ video {
   background: #ababad40;
 }
 
-#cameraGroup {
+.deviceGroup {
   position: relative;
 }
 
-/* caret tab on top of the camera button: opens the camera list */
-#selectCameraBtn {
+/* caret tab on top of the mic/camera button: opens the device list */
+.selectDeviceBtn {
   position: absolute;
   bottom: 100%;
   left: 0;
@@ -61,7 +61,7 @@ video {
   background: #ffffffc0;
 }
 
-#selectCameraBtn:hover {
+.selectDeviceBtn:hover {
   background: #fff;
 }
 
@@ -141,7 +141,7 @@ video {
 }
 
 /* invisible native select over the icon, so the OS picker opens on click */
-#cameraSelect {
+.selectDeviceBtn select {
   position: absolute;
   inset: 0;
   opacity: 0;
@@ -174,7 +174,7 @@ video {
   display: none;
 }
 
-#chatDiv, #shareDialog, #moreMenu {
+#chatDiv, #shareDialog, #moreMenu, #lobby {
   border: 1px solid #80808087;
   border-radius: 12px;
   background: rgb(43, 42, 42);
@@ -182,13 +182,13 @@ video {
   box-shadow: 0 10px 40px #000a;
 }
 
-#chatDiv button, #shareDialog button {
+#chatDiv button, #shareDialog button, #lobby button {
   border: 0;
   cursor: pointer;
   font: inherit;
 }
 
-#chatInputText, #shareLink {
+#chatInputText, #shareLink, #nameInput {
   flex: 1;
   min-width: 0;
   border: 1px solid #555;
@@ -196,12 +196,12 @@ video {
   color: #fff;
 }
 
-#chatSendBtn, #copyLinkBtn {
+#chatSendBtn, #copyLinkBtn, #joinBtn {
   background: #3b6fd6;
   color: #fff;
 }
 
-#chatSendBtn:hover, #copyLinkBtn:hover {
+#chatSendBtn:hover, #copyLinkBtn:hover, #joinBtn:hover {
   background: #4c80e8;
 }
 
@@ -479,4 +479,102 @@ div#centerDiv{
 
 .peerStatus:empty {
   display: none;
+}
+
+/* pre-join screen: own preview, name, mic and camera; the call UI stays hidden until Join */
+.inLobby #mediaDiv, .inLobby #mediaControllContainer {
+  display: none;
+}
+
+#lobby {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(420px, 100vw - 32px);
+  height: fit-content;
+  max-height: 100dvh;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font: 16px sans-serif;
+}
+
+#lobby[hidden] {
+  display: none;
+}
+
+#lobby h2 {
+  margin: 0;
+  font-size: 1.3em;
+  color: #fff;
+}
+
+#lobbyPreview {
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  background: #1e1e1e;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#lobbyPreview:has(video[hidden])::before {
+  content: "Camera is off";
+  color: #777;
+}
+
+#lobbyVideo {
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* mirror, like the own tile */
+}
+
+#lobby label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#lobby label i {
+  width: 1.4em;
+  text-align: center;
+  color: #ddd;
+}
+
+#lobby select {
+  flex: 1;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid #555;
+  border-radius: 8px;
+  background: #1e1e1e;
+  color: #fff;
+  font: inherit;
+}
+
+#micMeter {
+  width: 100%;
+  height: 8px;
+}
+
+#lobbyMsg {
+  margin: 0;
+  color: #aaa;
+}
+
+#joinBtn {
+  padding: 14px;
+  font-size: 1.15em;
+  font-weight: bold;
+}
+
+#nameInput, #joinBtn {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-family: sans-serif;
+  font-size: 16px; /* below 16px iOS zooms in on focus */
 }
