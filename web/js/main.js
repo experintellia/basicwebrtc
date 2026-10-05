@@ -665,9 +665,9 @@ function showLock(locked) {
   roomLocked = locked;
   $("#lockBtn").innerHTML = locked ? '<i class="fas fa-lock-open"></i> Unlock room' : '<i class="fas fa-lock"></i> Lock room';
 }
-socket.on("locked", function ({ locked, by }) {
+socket.on("locked", function ({ locked, by, name }) {
   showLock(locked);
-  if (by && by != MY_UUID) showMsg("", `${nameOf(by) || "Someone"} ${locked ? "locked the room: newcomers have to be let in" : "unlocked the room"}`);
+  if (by && by != MY_UUID) showMsg("", `${nameOf(by) || (name && name != "NA" ? name : "Someone")} ${locked ? "locked the room: newcomers have to be let in" : "unlocked the room"}`);
 });
 $("#lockBtn").onclick = () => socket.emit("setLocked", !roomLocked);
 

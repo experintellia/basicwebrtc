@@ -1206,6 +1206,13 @@ test('closed room: anyone locks, a newcomer knocks, any member lets in or denies
   for (const p of [a, b, c, d]) await p.context().close();
 });
 
+test('the lock message uses the name from the server while the peer is still unnamed', async () => {
+  const a = await join('r' + Date.now(), 'alice');
+  await a.evaluate(() => socket.listeners('locked')[0]({ locked: true, by: 'x', name: 'zed' }));
+  assert.match(await a.textContent('#chatText'), /zed locked the room/);
+  await a.context().close();
+});
+
 test('knock banners work for any knocker UUID, also one that spells an element id', async () => {
   const a = await join('r' + Date.now(), 'alice');
   await a.evaluate(() => ['s', 'x'].forEach(UUID => socket.listeners('knock')[0]({ UUID, name: UUID }))); // "knock" + "s" == "knocks"
