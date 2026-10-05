@@ -92,6 +92,7 @@ async function call(other, otherFirst) {
   const joinOther = async () => { // through the lobby: it shows once the mic is there
     await other.go(`${BASE}#roomname=${room}&username=other`);
     await waitFor(() => other.evaluate("!document.getElementById('lobby').hidden"), 'other browser in the lobby');
+    if (other == safari) await other.evaluate(`(${trackPcs})()`); // no init scripts over WebDriver: before the join is soon enough
     await other.evaluate("document.getElementById('joinBtn').click()");
   };
   if (otherFirst) { await joinOther(); await joinChromium(); } else { await joinChromium(); await joinOther(); }
@@ -106,6 +107,10 @@ async function call(other, otherFirst) {
   } catch (e) {
     console.log(log.concat(other.log || []).join('\n'));
     console.log('[chromium state]', await page.evaluate(STATE).catch(String));
+    const TX = `JSON.stringify((window.__raw || []).map(p => p.getTransceivers().map(t => ({ mid: t.mid, dir: t.direction, cur: t.currentDirection,
+      send: t.sender.track?.kind, recv: [t.receiver.track.kind, t.receiver.track.readyState, t.receiver.track.muted] })))) + ' ' + JSON.stringify(Object.keys(allUserStreams).map(k => [k == MY_UUID, Object.keys(allUserStreams[k])]))`;
+    console.log('[tx chromium]', await page.evaluate(TX).catch(String));
+    console.log('[tx other]', await other.evaluate(TX).catch(String));
     console.log('[other state]', await other.evaluate(STATE).catch(String));
     console.log('[other videos]', await other.evaluate(`JSON.stringify([...document.querySelectorAll('#mediaDiv video')].map(v =>
       ({ paused: v.paused, muted: v.muted, w: v.videoWidth, ready: v.readyState, tracks: v.srcObject?.getTracks().map(t => t.readyState) })))`).catch(String));
