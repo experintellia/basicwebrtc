@@ -55,8 +55,10 @@
         <div title="add / remove camera!" id="addRemoveCameraBtn" class="callBtn"><i class="fas fa-video"></i></div>
         <div title="select camera" id="selectCameraBtn" class="selectDeviceBtn" style="display:none;"><i class="fas fa-caret-up"></i><select id="cameraSelect" aria-label="select camera"></select></div>
       </div>
-      <div title="add / remove screen!" id="addRemoveScreenBtn" class="callBtn"><i class="fas fa-desktop"></i></div>
-      <div title="screen share: sharp text (click for smooth motion)" id="screenModeBtn" class="callBtn" aria-label="smooth motion (performance mode)" role="button" tabindex="0" aria-pressed="false" hidden><i class="fas fa-font"></i></div>
+      <div id="screenGroup" class="deviceGroup">
+        <div title="add / remove screen!" id="addRemoveScreenBtn" class="callBtn"><i class="fas fa-desktop"></i></div>
+        <div title="screen share quality" id="selectScreenModeBtn" class="selectDeviceBtn" style="display:none;"><i class="fas fa-caret-up"></i><select id="screenModeSelect" aria-label="screen share quality"><option value="detail">Sharp text</option><option value="motion">Smooth motion</option></select></div>
+      </div>
       <div id="moreGroup">
         <div title="more" id="moreBtn" class="callBtn"><i class="fas fa-ellipsis-h"></i></div>
         <div id="moreMenu" hidden>

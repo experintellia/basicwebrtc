@@ -38,7 +38,7 @@ if (base64Domain && socketDomain) {
 
 var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 if (isMobile || !navigator.mediaDevices.getDisplayMedia) { //No Screenshare on mobile devices
-  $("#addRemoveScreenBtn").hidden = true;
+  $("#screenGroup").hidden = true;
 }
 
 const SocketIO_Options = { withCredentials: false }
@@ -63,7 +63,6 @@ var pcs = {}; //Peer connections to all remotes
 var micMuted = false;
 var camActive = false;
 var screenActive = false;
-var screenMotion = false; //Screen share mode: false = Detail (sharp text), true = Performance (smooth motion)
 var selectedCameraId = stored("camera") || null;
 camOnAtStart ||= !!stored("camOn"); // camera on or off as last time in this tab
 const MIC = { echoCancellation: true, noiseSuppression: true };
@@ -319,22 +318,17 @@ $("#addRemoveScreenBtn").onclick = () => exclusive(async function () {
   screenActive = true;
   startVideo(stream, $("#addRemoveScreenBtn"));
   applyScreenMode();
-  $("#screenModeBtn").hidden = false;
+  $("#selectScreenModeBtn").style.display = "";
 });
 
-$("#screenModeBtn").onclick = function () {
-  screenMotion = !screenMotion;
-  applyScreenMode();
-}
-$("#screenModeBtn").onkeydown = e => (e.key == "Enter" || e.key == " ") && (e.preventDefault(), e.target.click());
+$("#screenModeSelect").onchange = applyScreenMode;
 
 function applyScreenMode() { //contentHint is the main effect, degradationPreference makes it explicit for the encoder
+  if (!screenActive) return; // a dropdown left open past the share must not touch the camera
   const track = allUserStreams[MY_UUID]["videostream"].getVideoTracks()[0];
-  track.contentHint = screenMotion ? "motion" : "detail";
-  for (var i in pcs) pcs[i].setDegradation(track, screenMotion ? "maintain-framerate" : "maintain-resolution");
-  $("#screenModeBtn").setAttribute("aria-pressed", screenMotion);
-  $("#screenModeBtn i").className = screenMotion ? "fas fa-running" : "fas fa-font";
-  $("#screenModeBtn").title = screenMotion ? "screen share: smooth motion (click for sharp text)" : "screen share: sharp text (click for smooth motion)";
+  const motion = $("#screenModeSelect").value == "motion";
+  track.contentHint = motion ? "motion" : "detail";
+  for (var i in pcs) pcs[i].setDegradation(track, motion ? "maintain-framerate" : "maintain-resolution");
 }
 
 $("#addRemoveCameraBtn").onclick = toggleCamera;
@@ -407,7 +401,7 @@ function stopVideo() { // camera and screen share use the same slot
   delete allUserStreams[MY_UUID]["videostream"];
   $("#addRemoveCameraBtn").style.color = $("#addRemoveScreenBtn").style.color = "black";
   camActive = screenActive = false;
-  $("#screenModeBtn").hidden = true;
+  $("#selectScreenModeBtn").style.display = "none";
   store("camOn", ""); // also when unplugged or replaced by a screen share
   showPreview();
   updateDeviceLists(); // lobby camera: "Off"
@@ -551,7 +545,7 @@ function updateUserLayout() {
       userDiv.append(fromHTML(`<div class="userCont" style="position: absolute; width: 100%; height: 100%;">
           <div style="top: 0px; width: 100%;">
             <div class="userName" style="position: absolute; color: white; top: 7px; left: 7px; font-size: 1.3em; z-index:10; text-shadow: 1px 0 0 #000, 0 -1px 0 #000, 0 1px 0 #000, -1px 0 0 #000;"></div>
-            <video style="${mirror ? "transform: scaleX(-1);" : ""}" autoplay muted></video>
+            <video style="${mirror ? "transform: scaleX(-1);" : ""}" autoplay muted playsinline></video>
             <button title="Enable Picture in Picture" style="cursor:pointer; position:absolute; top:5px; right:10px; background:transparent; border:0px;" class="pipBtn">
               <img style="width: 30px;" src="./images/picInPic.png">
             </button>
@@ -619,6 +613,7 @@ function updateUserLayout() {
     const video = cont.querySelector("video");
     video.style.maxWidth = cont.offsetWidth + 'px';
     video.style.maxHeight = cont.offsetHeight + 'px';
+    if (!video.readyState) video.srcObject = video.srcObject; // Safari doesn't reload a stream after the element was moved: start it again in place
     video.play().catch(() => { });
   }
   for (const i in allUserStreams) if (allUserStreams[i].muted) setAudioLevel(i, -1);
@@ -636,12 +631,18 @@ function joinRoom(onJoined) {
   });
 }
 
+var doorTimer;
 function atTheDoor(wait) { // locked room: back to the lobby until a member lets us in
   setStatus(MY_UUID, "");
   showLobby(true);
+  clearInterval(doorTimer);
+  const tick = () => { // denied: count the cooldown down, then allow knocking again
+    $("#joinBtn").disabled = wait > 0;
+    $("#lobbyMsg").textContent = wait ? `You were not let in. You can ask again in ${wait--}s.` : (clearInterval(doorTimer), "You were not let in. You can ask again.");
+  };
   $("#joinBtn").disabled = true;
-  $("#lobbyMsg").textContent = wait ? `You were not let in. You can ask again in ${wait}s.` : "The room is locked. Waiting for someone in the call to let you in…";
-  if (wait) setTimeout(() => $("#joinBtn").disabled = false, wait * 1000);
+  $("#lobbyMsg").textContent = "The room is locked. Waiting for someone in the call to let you in…";
+  if (wait) tick(), doorTimer = setInterval(tick, 1000);
   $("#lobby").onsubmit = e => {
     e.preventDefault();
     setName($("#nameInput").value);
