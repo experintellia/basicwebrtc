@@ -1054,12 +1054,12 @@ test('lobby: nobody joins until Join, then with the name typed there', async () 
   await b.goto(`${BASE}#roomname=${room}`);
   await waitFor(() => b.locator('#lobby').isVisible(), 'lobby shown');
   for (const call of ['#mediaControllContainer', '#mediaDiv']) assert.strictEqual(await b.locator(call).isVisible(), false, `${call} hidden in the lobby`);
-  assert.strictEqual(await b.inputValue('#lobbyCamera'), '', 'camera off');
+  assert.strictEqual(await b.inputValue('#lobbyCamera'), 'off', 'camera off');
   assert.strictEqual(await b.locator('#lobbyVideo').isVisible(), false);
   const cam = await b.evaluate(() => [...document.querySelectorAll('#lobbyCamera option')].at(-1).value);
   await b.selectOption('#lobbyCamera', cam);
   await waitFor(() => b.evaluate(c => $('#lobbyVideo').srcObject?.getVideoTracks()[0]?.getSettings().deviceId == c && $('#lobbyVideo').checkVisibility(), cam), 'preview of the picked camera');
-  await b.selectOption('#lobbyCamera', '');
+  await b.selectOption('#lobbyCamera', 'off');
   await waitFor(() => b.evaluate(() => !camActive && !$('#lobbyVideo').checkVisibility()), 'camera off again');
   assert.ok(await b.evaluate(() => $('#lobbyMic').options.length > 1 && $('#micMeter') instanceof HTMLMeterElement), 'mic picker and level meter');
   await new Promise(r => setTimeout(r, 1500));
@@ -1137,6 +1137,24 @@ test('lobby: quick device picks run one at a time, no second mic or camera leaks
   assert.ok(await a.evaluate(() => $('#lobbyMic').value == webRTCConfig.stream.getAudioTracks()[0].getSettings().deviceId), 'dropdown shows the mic in use');
   await a.click('#joinBtn');
   assert.strictEqual(await a.evaluate(() => $('#lobbyVideo').srcObject), null, 'hidden preview let go after Join');
+  await a.context().close();
+});
+
+// Before camera permission, browsers list a camera as a placeholder: no label, deviceId "".
+const noCamPermission = () => {
+  const md = navigator.mediaDevices, enumerate = md.enumerateDevices.bind(md), gum = md.getUserMedia.bind(md);
+  let granted = false;
+  md.getUserMedia = async c => { const s = await gum(c); granted ||= !!c.video; return s; };
+  md.enumerateDevices = async () => (await enumerate()).map(d => d.kind != 'videoinput' || granted ? d
+    : { kind: d.kind, deviceId: '', label: '', groupId: '' }).filter((d, i, l) => d.deviceId || l.findIndex(e => e.kind == d.kind) == i);
+};
+
+test('lobby: the placeholder camera listed before permission turns the camera on', async () => {
+  const a = await open('r' + Date.now(), 'alice', noCamPermission);
+  await waitFor(() => a.evaluate(() => $('#lobbyCamera').options.length == 2), 'one placeholder camera');
+  await a.selectOption('#lobbyCamera', { index: 1 });
+  await waitFor(() => a.evaluate(() => camActive && $('#lobbyVideo').checkVisibility()), 'camera on with preview');
+  assert.ok(await a.evaluate(() => $('#lobbyCamera').selectedIndex == 1 && $('#lobbyCamera').options.length == 3), 'real cameras listed, the one in use picked');
   await a.context().close();
 });
 
