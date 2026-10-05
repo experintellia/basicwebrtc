@@ -1176,3 +1176,41 @@ test('a denied mic is asked for once, also with a saved mic', async () => {
   assert.strictEqual(await a.evaluate(() => __asked), 1);
   await a.context().close();
 });
+
+test('closed room: anyone locks, a newcomer knocks, any member lets in or denies', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  await b.click('#moreBtn'); await b.click('#lockBtn');
+  await waitFor(() => a.evaluate(() => $('#chatText').textContent.includes('bob locked the room')), 'alice told');
+  assert.match(await a.textContent('#lockBtn'), /Unlock room/);
+  const knock = async name => {
+    const p = await open(room, name);
+    await p.click('#joinBtn');
+    await waitFor(async () => /let you in/.test(await p.textContent('#lobbyMsg')), `${name} waits at the door`);
+    return p;
+  };
+  const c = await knock('carol');
+  await waitFor(() => a.locator('.knock', { hasText: 'carol wants to join' }).isVisible(), 'request shown to alice');
+  await b.locator('.knock', { hasText: 'carol' }).getByText('Deny').click();
+  await waitFor(async () => /ask again in 15s/.test(await c.textContent('#lobbyMsg')), 'carol denied with a cooldown');
+  assert.ok(await c.isDisabled('#joinBtn'), 'no knocking during the cooldown');
+  await waitFor(async () => !(await a.locator('.knock').count()), 'request gone on alice');
+  assert.strictEqual(await connectedPeers(c), 0, 'carol stayed out');
+  const d = await knock('dave');
+  await a.locator('.knock', { hasText: 'dave' }).getByText('Let in').click();
+  await waitFor(async () => (await connectedPeers(d)) === 2, 'dave connected to both');
+  assert.strictEqual(await d.locator('#lobby').isVisible(), false);
+  assert.match(await d.textContent('#lockBtn'), /Unlock room/, 'dave sees the lock');
+  for (const p of [a, b, c, d]) await p.context().close();
+});
+
+test('knock banners work for any knocker UUID, also one that spells an element id', async () => {
+  const a = await join('r' + Date.now(), 'alice');
+  await a.evaluate(() => ['s', 'x'].forEach(UUID => socket.listeners('knock')[0]({ UUID, name: UUID }))); // "knock" + "s" == "knocks"
+  assert.strictEqual(await a.locator('.knock').count(), 2);
+  await a.evaluate(() => socket.listeners('knockDone')[0]('s'));
+  assert.deepStrictEqual(await a.locator('.knock').allTextContents(), ['x wants to joinLet inDeny']);
+  await a.context().close();
+});

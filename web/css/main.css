@@ -174,7 +174,7 @@ video {
   display: none;
 }
 
-#chatDiv, #shareDialog, #moreMenu, #lobby {
+#chatDiv, #shareDialog, #moreMenu, #lobby, .knock {
   border: 1px solid #80808087;
   border-radius: 12px;
   background: rgb(43, 42, 42);
@@ -182,7 +182,7 @@ video {
   box-shadow: 0 10px 40px #000a;
 }
 
-#chatDiv button, #shareDialog button, #lobby button {
+#chatDiv button, #shareDialog button, #lobby button, .knock button {
   border: 0;
   cursor: pointer;
   font: inherit;
@@ -196,12 +196,12 @@ video {
   color: #fff;
 }
 
-#chatSendBtn, #copyLinkBtn, #joinBtn {
+#chatSendBtn, #copyLinkBtn, #joinBtn, .knock button {
   background: #3b6fd6;
   color: #fff;
 }
 
-#chatSendBtn:hover, #copyLinkBtn:hover, #joinBtn:hover {
+#chatSendBtn:hover, #copyLinkBtn:hover, #joinBtn:hover, .knock button:hover {
   background: #4c80e8;
 }
 
@@ -577,4 +577,41 @@ div#centerDiv{
   border-radius: 8px;
   font-family: sans-serif;
   font-size: 16px; /* below 16px iOS zooms in on focus */
+}
+
+#joinBtn:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+/* join requests of a locked room, on top for every member */
+#knocks {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  width: min(420px, 90vw);
+}
+
+.knock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  font: 16px sans-serif;
+}
+
+.knock span {
+  flex: 1;
+}
+
+.knock button {
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+
+.knock button + button {
+  background: #555;
 }

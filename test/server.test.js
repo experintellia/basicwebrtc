@@ -14,6 +14,7 @@ const clients = [];
 before(async () => {
   process.env.listen_port = String(PORT);
   process.env.listen_ip = '127.0.0.1';
+  process.env.ROOM_GRACE_MS = '300'; // how long an emptied room keeps its lock
   // Own ice file so the result does not depend on a local iceservers.json.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ice-'));
   process.env.ICESERVERS_FILE = path.join(dir, 'ice.json');
@@ -207,4 +208,151 @@ test('signaling from an unregistered socket is ignored', async () => {
   ghost.emit('joinRoom', { roomname: 'room-u2', username: 'g' });
   ghost.emit('signaling', { destUUID: 'U2', signalingData: 'hi' });
   await assert.rejects(got);
+});
+
+// Closed room: a member locks it, newcomers knock, any member admits or rejects.
+const ack = (cl, ev, data) => cl.c.timeout(1000).emitWithAck(ev, data);
+const quiet = (c, ev, ms = 300) => new Promise((res, rej) => { // ev must NOT arrive
+  const f = () => rej(new Error(`unexpected '${ev}'`));
+  c.once(ev, f); setTimeout(() => { c.off(ev, f); res(); }, ms);
+});
+
+test('locked room: a knocker stays out until a member admits it', async () => {
+  const a = await client('L1'), b = await client('L2'), c = await client('L3');
+  await join(a, 'room-l');
+  const locked = nextEvent(a.c, 'locked');
+  a.c.emit('setLocked', true);
+  assert.deepStrictEqual(await locked, { locked: true, by: 'L1' });
+  const knock = nextEvent(a.c, 'knock');
+  assert.deepStrictEqual(await ack(b, 'joinRoom', { roomname: 'room-l', name: 'bob', knockId: 'kb' }), { wait: 0 });
+  assert.deepStrictEqual(await knock, { UUID: 'L2', name: 'bob' });
+  const noSignal = quiet(a.c, 'signaling');
+  b.c.emit('signaling', { destUUID: 'L1', signalingData: 'hi' }); // not in the room yet
+  await noSignal;
+  await ack(c, 'joinRoom', { roomname: 'room-l', name: 'carol' }); // a second knocker, still waiting
+  const answer = nextEvent(b.c, 'knockAnswer'), done = nextEvent(a.c, 'knockDone');
+  a.c.emit('answerKnock', { UUID: 'L2', accept: true });
+  assert.deepStrictEqual(await answer, { accept: true });
+  assert.strictEqual(await done, 'L2');
+  const joined = nextEvent(a.c, 'userJoined'), bLocked = nextEvent(b.c, 'locked'), bKnock = nextEvent(b.c, 'knock');
+  assert.deepStrictEqual(await ack(b, 'joinRoom', { roomname: 'room-l' }), ['L1']);
+  assert.strictEqual((await joined).UUID, 'L2');
+  assert.deepStrictEqual(await bLocked, { locked: true }, 'new member sees the lock');
+  assert.deepStrictEqual(await bKnock, { UUID: 'L3', name: 'carol' }, 'and the knocks still waiting');
+  const cDone = nextEvent(b.c, 'knockDone');
+  c.c.close();
+  assert.strictEqual(await cDone, 'L3', 'a knocker that leaves is taken off the list');
+});
+
+test('rejected knocks wait 15s, doubling with each reject, also after a reload', async () => {
+  const a = await client('W1');
+  await join(a, 'room-w');
+  a.c.emit('setLocked', true);
+  await sync(a);
+  const now = Date.now;
+  let t = now();
+  Date.now = () => t;
+  try {
+    for (const [i, wait] of [[1, 15], [2, 30], [3, 60]]) {
+      const b = await client('W2-' + i); // a reload is a new UUID, same tab = same knockId
+      const knock = nextEvent(a.c, 'knock');
+      assert.deepStrictEqual(await ack(b, 'joinRoom', { roomname: 'room-w', name: 'bob', knockId: 'kw' }), { wait: 0 });
+      await knock;
+      const answer = nextEvent(b.c, 'knockAnswer');
+      a.c.emit('answerKnock', { UUID: 'W2-' + i, accept: false });
+      assert.deepStrictEqual(await answer, { wait });
+      const noKnock = quiet(a.c, 'knock');
+      t += (wait - 1) * 1000;
+      assert.deepStrictEqual(await ack(b, 'joinRoom', { roomname: 'room-w', name: 'bob', knockId: 'kw' }), { wait: 1 }, 'still cooling down');
+      await noKnock;
+      t += 1000;
+      b.c.close();
+    }
+  } finally { Date.now = now; }
+});
+
+test('only room members can lock and answer knocks', async () => {
+  const a = await client('O1'), b = await client('O2'), out = await client('O3');
+  await join(a, 'room-o'); await join(out, 'room-o2');
+  out.c.emit('setLocked', true); // member of another room
+  await sync(out);
+  assert.deepStrictEqual(await ack(b, 'joinRoom', { roomname: 'room-o' }), ['O1'], 'room-o not locked by an outsider');
+  a.c.emit('setLocked', true);
+  const c = await client('O4');
+  const knock = nextEvent(a.c, 'knock');
+  await ack(c, 'joinRoom', { roomname: 'room-o', name: 'x' });
+  await knock;
+  const noAnswer = quiet(c.c, 'knockAnswer');
+  out.c.emit('answerKnock', { UUID: 'O4', accept: true });
+  await noAnswer;
+  for (const bad of [null, 'yes', 1]) a.c.emit('setLocked', bad);
+  out.c.emit('answerKnock', null);
+  await sync(a);
+});
+
+test('members rejoin a locked room without knocking, also after a reload of their tab', async () => {
+  const a = await client('E1'), b = await client('E2');
+  await ack(a, 'joinRoom', { roomname: 'room-e', knockId: 'tab-a' }); await ack(b, 'joinRoom', { roomname: 'room-e', knockId: 'tab-b' });
+  a.c.emit('setLocked', true);
+  await sync(a);
+  b.c.close(); // socket drops, page reconnects with the same UUID
+  await new Promise(r => setTimeout(r, 100));
+  const b2 = await client('E2');
+  assert.deepStrictEqual(await ack(b2, 'joinRoom', { roomname: 'room-e', knockId: 'tab-b' }), ['E1'], 'no knock after a reconnect');
+  b2.c.close(); // reload: new UUID, same tab
+  const b3 = await client('E2-reloaded');
+  assert.deepStrictEqual(await ack(b3, 'joinRoom', { roomname: 'room-e', knockId: 'tab-b' }), ['E1'], 'no knock after a reload');
+  const k = await client('E3');
+  assert.deepStrictEqual(await ack(k, 'joinRoom', { roomname: 'room-e', knockId: 'tab-a' + 'x' }), { wait: 0 }, 'other tabs knock');
+});
+
+test('a briefly empty room keeps its lock; only a room empty for a while opens', async () => {
+  const a = await client('G1');
+  await ack(a, 'joinRoom', { roomname: 'room-g', knockId: 'tab-g' });
+  a.c.emit('setLocked', true);
+  await sync(a);
+  const k = await client('G2');
+  assert.deepStrictEqual(await ack(k, 'joinRoom', { roomname: 'room-g', name: 'k' }), { wait: 0 });
+  const noAnswer = quiet(k.c, 'knockAnswer', 150);
+  a.c.close(); // the only member reloads
+  await noAnswer;
+  const a2 = await client('G1-reloaded');
+  const knock = nextEvent(a2.c, 'knock');
+  assert.deepStrictEqual(await ack(a2, 'joinRoom', { roomname: 'room-g', knockId: 'tab-g' }), [], 'back in without knocking');
+  assert.strictEqual((await knock).UUID, 'G2', 'knock still waiting, now shown to the member');
+  await new Promise(r => setTimeout(r, 500)); // past the grace time: room not empty, still locked
+  const k2 = await client('G3');
+  assert.deepStrictEqual(await ack(k2, 'joinRoom', { roomname: 'room-g' }), { wait: 0 });
+  const retry = nextEvent(k.c, 'knockAnswer', 2000);
+  a2.c.close();
+  assert.deepStrictEqual(await retry, { accept: true }, 'empty for a while: open again, knockers sent in');
+  assert.deepStrictEqual(await ack(k, 'joinRoom', { roomname: 'room-g' }), []);
+});
+
+test('a knock is shown once per knocker, at most 5 wait at a time', async () => {
+  const a = await client('N1');
+  await join(a, 'room-n');
+  a.c.emit('setLocked', true);
+  await sync(a);
+  const seen = [];
+  a.c.on('knock', k => seen.push(k.UUID));
+  const k = await client('N2');
+  for (let i = 0; i < 5; i++) await ack(k, 'joinRoom', { roomname: 'room-n', name: 'spam' + i });
+  for (let i = 3; i < 7; i++) assert.deepStrictEqual(await ack(await client('N' + i), 'joinRoom', { roomname: 'room-n' }), { wait: 0 });
+  assert.deepStrictEqual(await ack(await client('N7'), 'joinRoom', { roomname: 'room-n' }), { wait: 15 }, 'door full');
+  await sync(a);
+  assert.deepStrictEqual(seen, ['N2', 'N3', 'N4', 'N5', 'N6']);
+});
+
+test('unlocking lets the waiting knockers in', async () => {
+  const a = await client('UL1'), k = await client('UL2');
+  await join(a, 'room-ul');
+  a.c.emit('setLocked', true);
+  await sync(a);
+  await ack(k, 'joinRoom', { roomname: 'room-ul' });
+  const answer = nextEvent(k.c, 'knockAnswer'), done = nextEvent(a.c, 'knockDone');
+  a.c.emit('setLocked', false);
+  assert.deepStrictEqual(await answer, { accept: true });
+  assert.strictEqual(await done, 'UL2');
+  assert.deepStrictEqual(await ack(k, 'joinRoom', { roomname: 'room-ul' }), ['UL1']);
 });
