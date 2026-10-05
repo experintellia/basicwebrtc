@@ -635,12 +635,18 @@ function joinRoom(onJoined) {
   });
 }
 
+var doorTimer;
 function atTheDoor(wait) { // locked room: back to the lobby until a member lets us in
   setStatus(MY_UUID, "");
   showLobby(true);
+  clearInterval(doorTimer);
+  const tick = () => { // denied: count the cooldown down, then allow knocking again
+    $("#joinBtn").disabled = wait > 0;
+    $("#lobbyMsg").textContent = wait ? `You were not let in. You can ask again in ${wait--}s.` : (clearInterval(doorTimer), "You were not let in. You can ask again.");
+  };
   $("#joinBtn").disabled = true;
-  $("#lobbyMsg").textContent = wait ? `You were not let in. You can ask again in ${wait}s.` : "The room is locked. Waiting for someone in the call to let you in…";
-  if (wait) setTimeout(() => $("#joinBtn").disabled = false, wait * 1000);
+  $("#lobbyMsg").textContent = "The room is locked. Waiting for someone in the call to let you in…";
+  if (wait) tick(), doorTimer = setInterval(tick, 1000);
   $("#lobby").onsubmit = e => {
     e.preventDefault();
     setName($("#nameInput").value);
