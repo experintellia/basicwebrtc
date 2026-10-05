@@ -1194,8 +1194,9 @@ test('closed room: anyone locks, a newcomer knocks, any member lets in or denies
   const c = await knock('carol');
   await waitFor(() => a.locator('.knock', { hasText: 'carol wants to join' }).isVisible(), 'request shown to alice');
   await b.locator('.knock', { hasText: 'carol' }).getByText('Deny').click();
-  await waitFor(async () => /ask again in 15s/.test(await c.textContent('#lobbyMsg')), 'carol denied with a cooldown');
+  await waitFor(async () => /ask again in 1[0-5]s/.test(await c.textContent('#lobbyMsg')), 'carol denied with a cooldown');
   assert.ok(await c.isDisabled('#joinBtn'), 'no knocking during the cooldown');
+  await waitFor(async () => /ask again in 1[0-4]s/.test(await c.textContent('#lobbyMsg')), 'the cooldown counts down');
   await waitFor(async () => !(await a.locator('.knock').count()), 'request gone on alice');
   assert.strictEqual(await connectedPeers(c), 0, 'carol stayed out');
   const d = await knock('dave');
@@ -1208,6 +1209,7 @@ test('closed room: anyone locks, a newcomer knocks, any member lets in or denies
 
 test('knock banners work for any knocker UUID, also one that spells an element id', async () => {
   const a = await join('r' + Date.now(), 'alice');
+  await waitFor(async () => !(await a.locator('#lobby').isVisible()), 'joined'); // joining clears #knocks
   await a.evaluate(() => ['s', 'x'].forEach(UUID => socket.listeners('knock')[0]({ UUID, name: UUID }))); // "knock" + "s" == "knocks"
   assert.strictEqual(await a.locator('.knock').count(), 2);
   await a.evaluate(() => socket.listeners('knockDone')[0]('s'));
