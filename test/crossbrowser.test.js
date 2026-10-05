@@ -107,6 +107,8 @@ async function call(other, otherFirst) {
     console.log(log.concat(other.log || []).join('\n'));
     console.log('[chromium state]', await page.evaluate(STATE).catch(String));
     console.log('[other state]', await other.evaluate(STATE).catch(String));
+    console.log('[other videos]', await other.evaluate(`JSON.stringify([...document.querySelectorAll('#mediaDiv video')].map(v =>
+      ({ paused: v.paused, muted: v.muted, w: v.videoWidth, ready: v.readyState, tracks: v.srcObject?.getTracks().map(t => t.readyState) })))`).catch(String));
     throw e;
   } finally {
     await page.context().close();
