@@ -1196,6 +1196,7 @@ test('closed room: anyone locks, a newcomer knocks, any member lets in or denies
   await b.locator('.knock', { hasText: 'carol' }).getByText('Deny').click();
   await waitFor(async () => /ask again in 15s/.test(await c.textContent('#lobbyMsg')), 'carol denied with a cooldown');
   assert.ok(await c.isDisabled('#joinBtn'), 'no knocking during the cooldown');
+  await waitFor(async () => /ask again in 1[0-4]s/.test(await c.textContent('#lobbyMsg')), 'the cooldown counts down');
   await waitFor(async () => !(await a.locator('.knock').count()), 'request gone on alice');
   assert.strictEqual(await connectedPeers(c), 0, 'carol stayed out');
   const d = await knock('dave');
