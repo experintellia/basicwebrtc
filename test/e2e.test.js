@@ -1154,7 +1154,18 @@ test('lobby: the placeholder camera listed before permission turns the camera on
   await waitFor(() => a.evaluate(() => $('#lobbyCamera').options.length == 2), 'one placeholder camera');
   await a.selectOption('#lobbyCamera', { index: 1 });
   await waitFor(() => a.evaluate(() => camActive && $('#lobbyVideo').checkVisibility()), 'camera on with preview');
-  assert.ok(await a.evaluate(() => $('#lobbyCamera').selectedIndex == 1 && $('#lobbyCamera').options.length == 3), 'real cameras listed, the one in use picked');
+  await waitFor(() => a.evaluate(() => $('#lobbyCamera').options.length == 3 && $('#lobbyCamera').value == allUserStreams[MY_UUID].videostream.getVideoTracks()[0].getSettings().deviceId), 'real cameras listed, the one in use picked');
+  await a.context().close();
+});
+
+test('lobby: a camera prompt answered with no goes back to Off', async () => {
+  const a = await open('r' + Date.now(), 'alice', () => {
+    const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = c => c.video ? Promise.reject(new DOMException('denied', 'NotAllowedError')) : gum(c);
+  });
+  await waitFor(() => a.evaluate(() => $('#lobbyCamera').options.length > 1), 'camera listed');
+  await a.selectOption('#lobbyCamera', { index: 1 });
+  await waitFor(async () => await a.inputValue('#lobbyCamera') == 'off', 'dropdown back to Off');
   await a.context().close();
 });
 
@@ -1227,6 +1238,7 @@ test('closed room: anyone locks, a newcomer knocks, any member lets in or denies
 
 test('knock banners work for any knocker UUID, also one that spells an element id', async () => {
   const a = await join('r' + Date.now(), 'alice');
+  await waitFor(() => a.evaluate(() => allUserStreams[MY_UUID].status === ''), 'joined'); // the join clears #knocks
   await a.evaluate(() => ['s', 'x'].forEach(UUID => socket.listeners('knock')[0]({ UUID, name: UUID }))); // "knock" + "s" == "knocks"
   assert.strictEqual(await a.locator('.knock').count(), 2);
   await a.evaluate(() => socket.listeners('knockDone')[0]('s'));

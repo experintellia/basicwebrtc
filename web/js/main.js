@@ -376,6 +376,7 @@ function toggleCamera() {
       var stream = await getDevice("video", { facingMode: "user" }, selectedCameraId);
     } catch (error) {
       store("camOn", "");
+      updateDeviceLists(); // lobby dropdown back to "Off"
       alert("Could not get your Camera! Be sure you have one connected and it is not used by any other process!")
       console.log('getUserMedia error! Got this error: ', error);
       return;
