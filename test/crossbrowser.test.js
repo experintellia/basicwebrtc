@@ -105,6 +105,14 @@ async function call(other, otherFirst) {
     await waitFor(() => other.evaluate(VIDEOS_PLAYING), 'other browser shows both videos');
   } catch (e) {
     console.log(log.concat(other.log || []).join('\n'));
+    if (other == safari) console.log('[safari probe]', await wd('POST', `/session/${session}/execute/async`, { args: [], script: `const done = arguments[0];
+      const s = allUserStreams[MY_UUID].videostream, r = {};
+      const a = document.createElement('video'); a.muted = a.autoplay = a.playsInline = true; document.body.append(a); a.srcObject = s; a.play().catch(e => r.aErr = String(e));
+      const b = document.createElement('video'); b.muted = b.autoplay = b.playsInline = true; b.srcObject = s; document.body.append(b); b.play().catch(e => r.bErr = String(e));
+      const c = document.querySelector('#mediaDiv video'); c.srcObject = c.srcObject; c.play().catch(e => r.cErr = String(e));
+      const d = document.createElement('video'); d.muted = d.autoplay = d.playsInline = true; d.srcObject = s.clone(); document.body.append(d);
+      setTimeout(() => done(JSON.stringify({ ...r, a: a.readyState, b: b.readyState, c: c.readyState, d: d.readyState, active: s.active,
+        tracks: s.getTracks().map(t => [t.kind, t.readyState, t.enabled, t.muted]), tiles: document.querySelectorAll('#mediaDiv video').length })), 3000);` }).catch(String));
     console.log('[chromium state]', await page.evaluate(STATE).catch(String));
     console.log('[other state]', await other.evaluate(STATE).catch(String));
     console.log('[other videos]', await other.evaluate(`JSON.stringify([...document.querySelectorAll('#mediaDiv video')].map(v =>
