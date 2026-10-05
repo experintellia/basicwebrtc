@@ -550,17 +550,14 @@ function updateUserLayout() {
       userDiv.append(fromHTML(`<div class="userCont" style="position: absolute; width: 100%; height: 100%;">
           <div style="top: 0px; width: 100%;">
             <div class="userName" style="position: absolute; color: white; top: 7px; left: 7px; font-size: 1.3em; z-index:10; text-shadow: 1px 0 0 #000, 0 -1px 0 #000, 0 1px 0 #000, -1px 0 0 #000;"></div>
-            <video></video>
+            <video style="${mirror ? "transform: scaleX(-1);" : ""}" autoplay muted playsinline></video>
             <button title="Enable Picture in Picture" style="cursor:pointer; position:absolute; top:5px; right:10px; background:transparent; border:0px;" class="pipBtn">
               <img style="width: 30px;" src="./images/picInPic.png">
             </button>
           </div>
         </div>`));
       userDiv.querySelector(".userName").textContent = name ? name.charAt(0).toUpperCase() + name.slice(1) : i.substr(0, 2).toUpperCase();
-      // Safari plays no video created inside a <template>: make it here, in the page
-      let video = Object.assign(document.createElement("video"), { autoplay: true, muted: true, playsInline: true });
-      video.style.transform = mirror ? "scaleX(-1)" : "";
-      userDiv.querySelector("video").replaceWith(video);
+      let video = userDiv.querySelector("video");
       const old = [...document.querySelectorAll("#mediaDiv video")].find(v => v.srcObject == userStream["videostream"]);
       if (old) { // reuse the element: replacing it would close picture-in-picture
         old.style.transform = video.style.transform;
@@ -621,6 +618,7 @@ function updateUserLayout() {
     const video = cont.querySelector("video");
     video.style.maxWidth = cont.offsetWidth + 'px';
     video.style.maxHeight = cont.offsetHeight + 'px';
+    if (!video.readyState) video.srcObject = video.srcObject; // Safari doesn't reload a stream after the element was moved: start it again in place
     video.play().catch(() => { });
   }
   for (const i in allUserStreams) if (allUserStreams[i].muted) setAudioLevel(i, -1);
