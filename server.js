@@ -8,34 +8,12 @@
 const HTTP_PORT = parseInt(process.env.listen_port) > 0 ? parseInt(process.env.listen_port) : 3001;
 const HTTP_IP = process.env.listen_ip ? process.env.listen_ip : "0.0.0.0";
 
-//Define API Version
-const API_VERSION = 1.4;
-
-//Get dummy cert files for https
 var fs = require('fs');
-
-//SpinUP Webserver with socketIO
 var express = require('express');
-var handler = express();
-
-handler.use(express.static(__dirname + '/web', {
-    setHeaders: function (res, path) {
-        res.append('Access-Control-Allow-Origin', ['*']);
-        res.append('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE');
-        res.append('Access-Control-Allow-Headers', 'Content-Type');
-    }
-}));
-
-var app = require('http').createServer(handler)
-
+var app = require('http').createServer(express().use(express.static(__dirname + '/web')));
 var ioServer = require('socket.io')(app, {
-    cors: {
-        origin: function (origin, callback) {
-            callback(null, true) // allow all origins
-        },
-        credentials: false,
-        methods: ["GET", "POST"]
-    }
+    cors: { origin: "*" },
+    pingInterval: 10000, pingTimeout: 10000, // a dead socket (e.g. after wifi -> cellular) is noticed in 20s, not 45s
 });
 var crypto = require('crypto');
 
@@ -49,16 +27,14 @@ if (!fs.existsSync(iceFile)) {
 }
 var icesevers = JSON.parse(fs.readFileSync(iceFile, 'utf8'));
 
-console.log("--------------------------------------------");
 console.log("SIGNALINGSERVER RUNNING ON IP:PORT: " + HTTP_IP + ':' + HTTP_PORT);
-console.log("--------------------------------------------");
 
 var registerdUUIDs = Object.create(null); // no prototype: "__proto__" etc. are plain keys
 var socketID_UUIDMatch = Object.create(null);
 // Closed rooms, while they have members: any member locks, newcomers knock, any member admits or rejects.
 // ponytail: the reject cooldown is keyed by the knocker's per-tab id, so it slows down honest retries, not a determined knocker.
 var rooms = Object.create(null);
-const ROOM_GRACE_MS = parseInt(process.env.ROOM_GRACE_MS) || 15000; // an emptied room keeps its lock this long: a reload or reconnect is no way in
+const ROOM_GRACE_MS = parseInt(process.env.ROOM_GRACE_MS) || 15000; // an emptied room keeps its lock, a dropped UUID its owner, this long: a reconnect gets both back
 const str = v => typeof v == "string" ? v : ""; // String() of an object can throw and kill the server
 const roomState = name => rooms[name] ||= { locked: false, approved: new Set(), knocks: new Map(), rejects: new Map() };
 function forgetRoom(name) { // no member for a while: open again, knockers still waiting are sent in
@@ -68,12 +44,9 @@ function forgetRoom(name) { // no member for a while: open again, knockers still
 
 //Listen for IO connections and do signaling
 ioServer.sockets.on('connection', function (socket) {
-    socket.emit('API_VERSION', API_VERSION);
-
     let roomOfUser = null;
     let knockRoom = null; // room this socket knocks at
     let MY_UUID = null;
-    console.log("NEW USER!");
 
     socket.on("registerUUID", function (content, callback) {
         if (typeof callback != "function") return;
@@ -107,14 +80,15 @@ ioServer.sockets.on('connection', function (socket) {
         }
         if (socketID_UUIDMatch[MY_UUID] !== socket.id) return; // a newer socket already took over this UUID
         socket.to(roomOfUser).emit('userDiscconected', MY_UUID);
-        delete registerdUUIDs[MY_UUID];
         delete socketID_UUIDMatch[MY_UUID];
+        const uuid = MY_UUID; // other members know it: kept for the owner's reconnect, not free for them to take over
+        setTimeout(() => socketID_UUIDMatch[uuid] || delete registerdUUIDs[uuid], ROOM_GRACE_MS);
     });
 
     socket.on("joinRoom", function (content, callback) {
         if (!MY_UUID || !content || typeof content != "object" || roomOfUser !== null) return; // registered first, one room per connection
         const ack = typeof callback == "function" ? callback : () => { };
-        const name = str(content["roomname"]).slice(0, 64);
+        const name = "r:" + str(content["roomname"]).slice(0, 64); // prefixed: socket.io also has a room per socket id
         if (knockRoom !== null && knockRoom !== name) return;
         const room = roomState(name);
         // knockId: random per browser tab, only the server sees it. Approves a member's reload, keys a knocker's cooldown.
@@ -146,7 +120,7 @@ ioServer.sockets.on('connection', function (socket) {
 
     socket.on("roomInfo", function (name, callback) { // lobby: is anyone in? Then the first one picks open or closed
         if (typeof callback != "function") return;
-        name = typeof name == "string" ? name.slice(0, 64) : "";
+        name = "r:" + str(name).slice(0, 64); // as in joinRoom
         callback({ empty: !ioServer.sockets.adapter.rooms.get(name) && !rooms[name]?.locked }); // just emptied but locked: not open to a new pick
     });
 
@@ -181,11 +155,9 @@ ioServer.sockets.on('connection', function (socket) {
 
     socket.on("signaling", function (content) {
         if (!content || typeof content != "object" || roomOfUser === null) return;
-        var destSocketId = socketID_UUIDMatch[content.destUUID];
-        var signalingData = content.signalingData;
-        if (ioServer.sockets.sockets.get(destSocketId)?.data.room !== roomOfUser) return; // same room only
-
-        ioServer.to(destSocketId).emit('signaling', { signalingData: signalingData, fromUUID: MY_UUID }); // chat, names etc. go peer-to-peer
+        const dest = ioServer.sockets.sockets.get(socketID_UUIDMatch[content.destUUID]);
+        if (dest?.data.room !== roomOfUser) return; // same room only
+        dest.emit('signaling', { signalingData: content.signalingData, fromUUID: MY_UUID }); // chat, names etc. go peer-to-peer
     });
 
     //Return the current iceServers
@@ -205,17 +177,7 @@ ioServer.sockets.on('connection', function (socket) {
     socket.emit('currentIceServers', returnIce);
 })
 
-function getTURNCredentials(name, secret) {
-    var unixTimeStamp = parseInt((Date.now() / 1000) + "") + 12 * 3600,   // this credential would be valid for the next 12 hours
-        username = [unixTimeStamp, name].join(':'),
-        password,
-        hmac = crypto.createHmac('sha1', secret);
-    hmac.setEncoding('base64');
-    hmac.write(username);
-    hmac.end();
-    password = hmac.read();
-    return {
-        username: username,
-        password: password
-    };
+function getTURNCredentials(name, secret) { // TURN REST API: valid for the next 12 hours
+    const username = (Math.floor(Date.now() / 1000) + 12 * 3600) + ":" + name;
+    return { username, password: crypto.createHmac('sha1', secret).update(username).digest('base64') };
 }

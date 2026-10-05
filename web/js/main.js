@@ -1,7 +1,5 @@
-const API_VERSION = 1.4;
-
 // The notice in index.html is visible by default; browsers that can't parse or run this script keep seeing it.
-if (!window.RTCPeerConnection || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+if (!window.RTCPeerConnection || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.crypto?.randomUUID) {
   throw new Error("WebRTC not supported (old browser or page not served over HTTPS)");
 }
 document.getElementById("unsupported").remove();
@@ -9,21 +7,18 @@ document.getElementById("unsupported").remove();
 const $ = s => document.querySelector(s);
 const byId = id => document.getElementById(id); // ids are peer-supplied UUIDs: never build selectors from them
 
-const MY_UUID = uuidv4();
-const MY_UUID_KEY = uuidv4();
+const MY_UUID = crypto.randomUUID();
+const MY_UUID_KEY = crypto.randomUUID();
 
 var subdir = location.pathname.replace(/[^/]*$/, ""); // folder of the page: "/basicwebrtc/index.html" -> "/basicwebrtc/"
 
-var base64Domain = getUrlParam("base64domain", false);
-
 //ALL # PARAMETERS
-var socketDomain = getUrlParam("socketdomain", false); //Domainname with path
 var camOnAtStart = getUrlParam("camon", false) == false ? false : true; //Defines if cam should be on at start
 // Per tab only: survives reloads and other rooms, never shared with other tabs or later visits.
 const stored = k => { try { return sessionStorage[k] } catch { } }; // throws when storage is blocked
 const store = (k, v) => { try { sessionStorage[k] = v } catch { } };
 var username = getUrlParam("username", stored("username") || "NA");
-const knockId = stored("knockId") || uuidv4(); // a locked room's reject cooldown outlives a reload
+const knockId = stored("knockId") || crypto.randomUUID(); // a locked room's reject cooldown outlives a reload
 store("knockId", knockId);
 var roomname = getUrlParam("roomname", false);
 
@@ -32,34 +27,19 @@ if (!roomname) {
   location.hash = paramsWithout("#", location.hash, [], { roomname }) // & not a 2nd "#"
 }
 
-if (base64Domain && socketDomain) {
-  socketDomain = atob(socketDomain);
-}
-
 var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 if (isMobile || !navigator.mediaDevices.getDisplayMedia) { //No Screenshare on mobile devices
   $("#screenGroup").hidden = true;
 }
 
-const SocketIO_Options = { withCredentials: false }
-
-var socket;
-if (socketDomain) {
-  socketDomain = socketDomain.replace('https://', '').replace('http://', '').split("#")[0];
-  var domainSplit = socketDomain.split('/');
-  socketDomain = 'https://' + domainSplit[0];
-  domainSplit.shift();
-  subdir = '/' + domainSplit.join('/');
-  subdir = subdir.endsWith('/') ? subdir : subdir + '/';
-  socket = io(socketDomain, { "path": subdir + "socket.io", ...SocketIO_Options })
-} else {
-  socket = io("", { "path": subdir + "socket.io", ...SocketIO_Options }); //Connect to socketIo even on subpaths
-}
+// Always the server that served this page: whoever runs signaling could sit in the middle of the call.
+const socket = io("", { "path": subdir + "socket.io" }); //Connect to socketIo even on subpaths
 
 var webRTCConfig = {};
 
-var allUserStreams = {};
-var pcs = {}; //Peer connections to all remotes
+// Keyed by peer-chosen UUIDs: no prototype, so "__proto__" etc. are plain keys
+var allUserStreams = Object.create(null);
+var pcs = Object.create(null); //Peer connections to all remotes
 var micMuted = false;
 var camActive = false;
 var screenActive = false;
@@ -125,12 +105,6 @@ function showMsg(name, msg) {
 
 socket.on("currentIceServers", function (newIceServers) {
   webRTCConfig["iceServers"] = newIceServers;
-})
-
-socket.on("API_VERSION", function (serverAPI_VERSION) {
-  if (API_VERSION != serverAPI_VERSION) {
-    alert("SERVER has a different API Version (Client: v" + API_VERSION + " Server: v" + serverAPI_VERSION + ")! This can cause problems, so be warned!")
-  }
 })
 
 socket.on("signaling", function (data) {
@@ -208,6 +182,7 @@ var mediaReady = (async function () {
     console.log('getUserMedia error! Got this error: ', error);
     return new Promise(() => { }); // never join without a mic
   }
+  stream.getAudioTracks()[0].enabled = !micMuted; // mute may be clicked while the permission prompt is open
   webRTCConfig["stream"] = stream;
   allUserStreams[MY_UUID]["audiostream"] = stream;
   stream.getAudioTracks()[0].onended = checkMic;
@@ -535,7 +510,7 @@ function updateUserLayout() {
   if (document.fullscreenElement) { //Dont do things on fullscreen
     return;
   }
-  var allUserDivs = {};
+  var allUserDivs = Object.create(null);
   for (var i in allUserStreams) {
     var userStream = allUserStreams[i];
     var name = userStream["username"] && userStream["username"] != "NA" ? userStream["username"] : "";

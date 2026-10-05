@@ -397,3 +397,31 @@ test('an earlier emptying does not cut the grace time short (#54)', async () => 
   await new Promise(r => setTimeout(r, 300));
   assert.deepStrictEqual(await ack(s, 'roomInfo', 'room-gt'), { empty: true }, 'forgotten after its own grace time');
 });
+
+test('a room named like a socket id gets none of that socket\'s signaling', async () => {
+  const a = await client('SI1'), b = await client('SI2'), spy = await client('SI3');
+  await join(a, 'room-si'); await join(b, 'room-si'); await join(spy, b.c.id); // socket.io puts each socket in a room of its id
+  const leak = quiet(spy.c, 'signaling'), got = nextEvent(b.c, 'signaling');
+  a.c.emit('signaling', { destUUID: 'SI2', signalingData: 'hi' });
+  assert.strictEqual((await got).signalingData, 'hi');
+  await leak;
+});
+
+test('a dropped UUID stays its owner\'s for the grace time', async () => {
+  const a = await client('DR1', 'mine'), b = await client('DR2');
+  await join(a, 'room-dr'); await join(b, 'room-dr');
+  const left = nextEvent(b.c, 'userDiscconected');
+  a.c.close();
+  assert.strictEqual(await left, 'DR1');
+  assert.ok((await client('DR1', 'thief')).err, 'a room member cannot take it over');
+  const back = await client('DR1', 'mine');
+  assert.strictEqual(back.err, null, 'the owner gets it back');
+  back.c.close();
+  await new Promise(r => setTimeout(r, 400)); // ROOM_GRACE_MS is 300 here
+  assert.strictEqual((await client('DR1', 'new')).err, null, 'freed after the grace time');
+});
+
+test('a dead socket is noticed within 20s', async () => {
+  const { c } = await client('PG1');
+  assert.ok(c.io.engine.pingInterval + c.io.engine.pingTimeout <= 20000);
+});

@@ -614,6 +614,46 @@ test('mute button toggles the mic track', async () => {
   await a.context().close();
 });
 
+test('mute clicked before the mic is ready still mutes it', async () => {
+  const a = await open('r' + Date.now(), 'alice', () => { // mic permission prompt open until __go()
+    const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices), go = new Promise(r => window.__go = r);
+    navigator.mediaDevices.getUserMedia = c => go.then(() => gum(c));
+  });
+  await a.click('#muteUnmuteMicBtn');
+  await a.evaluate(() => __go());
+  await waitFor(() => a.evaluate(() => !!allUserStreams[MY_UUID].audiostream), 'mic ready');
+  assert.strictEqual(await a.evaluate(() => allUserStreams[MY_UUID].audiostream.getAudioTracks()[0].enabled), false);
+  await a.context().close();
+});
+
+test('a socketdomain in the link cannot move signaling to another server', async () => {
+  const a = await open('r' + Date.now(), 'alice', null, '?socketdomain=evil.example');
+  assert.strictEqual(await a.evaluate(() => socket.io.engine.hostname), '127.0.0.1', 'own server');
+  await a.context().close();
+});
+
+test('a peer named like an Object.prototype key is an ordinary peer', async () => {
+  const a = await join('r' + Date.now(), 'alice');
+  await waitFor(() => a.evaluate(() => socket.connected), 'connected');
+  await a.evaluate(() => socket.listeners('userJoined')[0]({ UUID: '__proto__', keep: [] }));
+  assert.deepStrictEqual(await a.evaluate(() => [Object.keys(pcs), !!byId('__proto__'), 'status' in {}]), [['__proto__'], true, false]);
+  await a.context().close();
+});
+
+test('font icons load, from woff2 files only', async () => {
+  const a = await open('r' + Date.now(), 'alice');
+  const fonts = [];
+  a.on('requestfinished', r => r.resourceType() == 'font' && fonts.push(r.url()));
+  await a.reload();
+  const faces = await a.evaluate(() => Promise.all(['900', '400'].map(w => document.fonts.load(w + ' 1em "Font Awesome 5 Free"'))));
+  assert.deepStrictEqual(faces.map(f => f.length), [1, 1], 'solid and regular icons load');
+  assert.ok(fonts.length && fonts.every(u => u.endsWith('.woff2')), fonts.join());
+  const css = await (await fetch(BASE + 'css/fontawesome5.min.css')).text();
+  assert.ok(css.startsWith("/*!\n * Font Awesome Free 5.13.1 by @fontawesome - https://fontawesome.com\n * License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License)\n */"), 'license notice kept');
+  for (const u of css.match(/url\([^)]*\)/g)) assert.strictEqual((await fetch(BASE + 'css/' + u.slice(4, -1))).status, 200, u);
+  await a.context().close();
+});
+
 test('hang up leads to the end screen', async () => {
   const a = await join('r' + Date.now(), 'alice');
   await a.click('#cancelCallBtn');
@@ -623,6 +663,12 @@ test('hang up leads to the end screen', async () => {
 
 test('browsers without WebRTC get an upgrade notice', async () => {
   const a = await open('r' + Date.now(), 'alice', () => { delete window.RTCPeerConnection; });
+  await waitFor(() => a.locator('#unsupported').isVisible(), 'notice visible', 5000);
+  await a.context().close();
+});
+
+test('browsers without crypto.randomUUID (Safari < 15.4) get the notice too', async () => {
+  const a = await open('r' + Date.now(), 'alice', () => { delete Crypto.prototype.randomUUID; });
   await waitFor(() => a.locator('#unsupported').isVisible(), 'notice visible', 5000);
   await a.context().close();
 });
