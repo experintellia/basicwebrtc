@@ -550,7 +550,7 @@ function updateUserLayout() {
       userDiv.append(fromHTML(`<div class="userCont" style="position: absolute; width: 100%; height: 100%;">
           <div style="top: 0px; width: 100%;">
             <div class="userName" style="position: absolute; color: white; top: 7px; left: 7px; font-size: 1.3em; z-index:10; text-shadow: 1px 0 0 #000, 0 -1px 0 #000, 0 1px 0 #000, -1px 0 0 #000;"></div>
-            <video style="${mirror ? "transform: scaleX(-1);" : ""}" autoplay muted></video>
+            <video style="${mirror ? "transform: scaleX(-1);" : ""}" autoplay muted playsinline></video>
             <button title="Enable Picture in Picture" style="cursor:pointer; position:absolute; top:5px; right:10px; background:transparent; border:0px;" class="pipBtn">
               <img style="width: 30px;" src="./images/picInPic.png">
             </button>
@@ -618,6 +618,7 @@ function updateUserLayout() {
     const video = cont.querySelector("video");
     video.style.maxWidth = cont.offsetWidth + 'px';
     video.style.maxHeight = cont.offsetHeight + 'px';
+    if (!video.readyState) video.srcObject = video.srcObject; // Safari doesn't reload a stream after the element was moved: start it again in place
     video.play().catch(() => { });
   }
   for (const i in allUserStreams) if (allUserStreams[i].muted) setAudioLevel(i, -1);
