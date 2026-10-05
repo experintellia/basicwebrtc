@@ -130,6 +130,7 @@ ioServer.sockets.on('connection', function (socket) {
             return ack({ wait: 0 });
         }
         room.approved.add(MY_UUID).add(knockId); // also when it reconnects or reloads later
+        if (content["lock"] === true && !ioServer.sockets.adapter.rooms.get(name)) room.locked = true; // first one in picked "closed"
         roomOfUser = socket.data.room = name;
         const keep = Array.isArray(content["keep"]) ? content["keep"].filter(k => typeof k == "string").slice(0, 8) : []; // peers a rejoining page still has a live call with
         socket.to(roomOfUser).emit('userJoined', { UUID: MY_UUID, keep });
@@ -140,6 +141,10 @@ ioServer.sockets.on('connection', function (socket) {
         if (room.locked) socket.emit("locked", { locked: true });
         for (const [UUID, k] of room.knocks) socket.emit("knock", { UUID, name: k.name });
     })
+
+    socket.on("roomInfo", function (name, callback) { // lobby: is anyone in? Then the first one picks open or closed
+        if (typeof callback == "function") callback({ empty: !ioServer.sockets.adapter.rooms.get(typeof name == "string" ? name.slice(0, 64) : "") });
+    });
 
     socket.on("setLocked", function (locked, name) { // name: peers may not have it over P2P yet
         if (roomOfUser === null || typeof locked != "boolean") return; // members only

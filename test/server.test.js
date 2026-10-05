@@ -356,3 +356,18 @@ test('unlocking lets the waiting knockers in', async () => {
   assert.strictEqual(await done, 'UL2');
   assert.deepStrictEqual(await ack(k, 'joinRoom', { roomname: 'room-ul' }), ['UL1']);
 });
+
+test('the first one in can open the room closed; later joiners cannot lock it this way', async () => {
+  const a = await client('F1'), b = await client('F2'), c = await client('F3');
+  assert.deepStrictEqual(await ack(a, 'roomInfo', 'room-f'), { empty: true });
+  const locked = nextEvent(a.c, 'locked');
+  assert.deepStrictEqual(await ack(a, 'joinRoom', { roomname: 'room-f', lock: true }), []);
+  assert.deepStrictEqual(await locked, { locked: true });
+  assert.deepStrictEqual(await ack(b, 'roomInfo', 'room-f'), { empty: false });
+  assert.deepStrictEqual(await ack(b, 'joinRoom', { roomname: 'room-f' }), { wait: 0 }, 'newcomer knocks');
+
+  await join(c, 'room-fo'); // open room with a member
+  const d = await client('F4');
+  assert.deepStrictEqual(await ack(d, 'joinRoom', { roomname: 'room-fo', lock: true }), ['F3']);
+  assert.deepStrictEqual(await ack(await client('F5'), 'joinRoom', { roomname: 'room-fo' }), ['F3', 'F4'], 'still open');
+});

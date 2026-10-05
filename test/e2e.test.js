@@ -1284,6 +1284,21 @@ test('the lock message uses the name from the server while the peer is still unn
   await a.context().close();
 });
 
+test('the first one in the lobby can open the room closed', async () => {
+  const room = 'r' + Date.now();
+  const a = await open(room, 'alice');
+  await waitFor(() => a.locator('#closedInput').isVisible(), 'choice shown to the first one');
+  await a.check('#closedInput');
+  await a.click('#joinBtn');
+  await waitFor(async () => /Unlock room/.test(await a.textContent('#lockBtn')), 'room closed');
+  const b = await open(room, 'bob');
+  await new Promise(r => setTimeout(r, 500));
+  assert.strictEqual(await b.locator('#closedInput').isVisible(), false, 'not offered when someone is in');
+  await b.click('#joinBtn');
+  await waitFor(async () => /let you in/.test(await b.textContent('#lobbyMsg')), 'bob knocks');
+  for (const p of [a, b]) await p.context().close();
+});
+
 test('knock banners work for any knocker UUID, also one that spells an element id', async () => {
   const a = await join('r' + Date.now(), 'alice');
   await waitFor(() => a.evaluate(() => allUserStreams[MY_UUID].status === ''), 'joined'); // the join ack clears #knocks; the lobby already hides on Join
