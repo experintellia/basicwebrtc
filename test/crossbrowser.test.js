@@ -33,6 +33,8 @@ const AUDIO_BOTH_WAYS = async () => { let rx = 0, tx = 0; for (const p of __raw)
   if (r.kind == 'audio' && r.type == 'inbound-rtp') rx += r.packetsReceived;
   if (r.kind == 'audio' && r.type == 'remote-inbound-rtp') tx++;
 }); return rx > 0 && tx > 0; };
+// Every video tile is actually playing frames (own camera and the peer's), seen from inside the browser.
+const VIDEOS_PLAYING = `(() => { const v = [...document.querySelectorAll('#mediaDiv video')]; return v.length == 2 && v.every(v => !v.paused && v.videoWidth > 0); })()`;
 const REMOTE_VIDEO = () => [...document.querySelectorAll('#mediaDiv video')].some(v => v.srcObject && v.videoWidth > 0 && !v.style.transform.includes('scaleX'));
 // Init script (as in e2e.test.js): keeps the raw RTCPeerConnections in window.__raw.
 const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
@@ -99,6 +101,8 @@ async function call(other, otherFirst) {
     await waitFor(() => page.evaluate(AUDIO_BOTH_WAYS), 'audio both ways');
     await other.evaluate("document.getElementById('addRemoveCameraBtn').click()");
     await waitFor(() => page.evaluate(REMOTE_VIDEO), 'video from the other browser');
+    await page.click('#addRemoveCameraBtn');
+    await waitFor(() => other.evaluate(VIDEOS_PLAYING), 'other browser shows both videos');
   } catch (e) {
     console.log(log.concat(other.log || []).join('\n'));
     console.log('[chromium state]', await page.evaluate(STATE).catch(String));
