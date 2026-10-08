@@ -1103,8 +1103,8 @@ test('name, mic and camera choice survive a reload of the tab, not a new tab', a
   const cam = await a.evaluate(() => [...document.querySelectorAll('#cameraSelect option')].find(o => o.value != selectedCameraId).value);
   await a.selectOption('#cameraSelect', cam);
   await waitFor(() => a.evaluate(c => allUserStreams[MY_UUID].videostream?.getVideoTracks()[0].getSettings().deviceId == c, cam), 'camera switched');
-  await a.goto(`${BASE}#roomname=r${Date.now()}x`); // other room, same tab
-  await a.reload();
+  await a.goto(`${BASE}#roomname=r${Date.now()}x`); // other room, same tab: the page reloads itself
+  await waitFor(() => a.evaluate(() => roomname.endsWith('x')).catch(() => false), 'reloaded into the other room');
   await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown');
   assert.strictEqual(await a.inputValue('#nameInput'), 'dora');
   assert.strictEqual(await a.evaluate(() => webRTCConfig.stream.getAudioTracks()[0].getSettings().deviceId), mic, 'mic kept');
