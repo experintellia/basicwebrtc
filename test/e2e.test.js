@@ -614,6 +614,46 @@ test('mute button toggles the mic track', async () => {
   await a.context().close();
 });
 
+test('mute clicked before the mic is ready still mutes it', async () => {
+  const a = await open('r' + Date.now(), 'alice', () => { // mic permission prompt open until __go()
+    const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices), go = new Promise(r => window.__go = r);
+    navigator.mediaDevices.getUserMedia = c => go.then(() => gum(c));
+  });
+  await a.click('#muteUnmuteMicBtn');
+  await a.evaluate(() => __go());
+  await waitFor(() => a.evaluate(() => !!allUserStreams[MY_UUID].audiostream), 'mic ready');
+  assert.strictEqual(await a.evaluate(() => allUserStreams[MY_UUID].audiostream.getAudioTracks()[0].enabled), false);
+  await a.context().close();
+});
+
+test('a socketdomain in the link cannot move signaling to another server', async () => {
+  const a = await open('r' + Date.now(), 'alice', null, '?socketdomain=evil.example');
+  assert.strictEqual(await a.evaluate(() => socket.io.engine.hostname), '127.0.0.1', 'own server');
+  await a.context().close();
+});
+
+test('a peer named like an Object.prototype key is an ordinary peer', async () => {
+  const a = await join('r' + Date.now(), 'alice');
+  await waitFor(() => a.evaluate(() => socket.connected), 'connected');
+  await a.evaluate(() => socket.listeners('userJoined')[0]({ UUID: '__proto__', keep: [] }));
+  assert.deepStrictEqual(await a.evaluate(() => [Object.keys(pcs), !!byId('__proto__'), 'status' in {}]), [['__proto__'], true, false]);
+  await a.context().close();
+});
+
+test('Font Awesome: woff2 only, all served, license complete', async () => {
+  const a = await open('r' + Date.now(), 'alice');
+  const faces = await a.evaluate(() => Promise.all(['900', '400'].map(w => document.fonts.load(w + ' 1em "Font Awesome 5 Free"'))));
+  assert.deepStrictEqual(faces.map(f => f.length), [1, 1], 'solid and regular icons load');
+  const css = await (await fetch(BASE + 'css/fontawesome5.min.css')).text();
+  const urls = css.match(/url\([^)]*\)/g).map(u => u.slice(4, -1));
+  assert.deepStrictEqual(urls, ['../webfonts/fa-regular-400.woff2', '../webfonts/fa-solid-900.woff2']);
+  for (const u of urls) assert.strictEqual((await fetch(BASE + 'css/' + u)).status, 200, u);
+  assert.ok(css.startsWith("/*!\n * Font Awesome Free 5.13.1 by @fontawesome - https://fontawesome.com\n * License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License)\n */"), 'CSS notice kept');
+  const license = await (await fetch(BASE + 'webfonts/LICENSE.txt')).text(); // OFL 1.1 and MIT want their full text with the files
+  for (const t of ['Font Awesome Free License', 'SIL OPEN FONT LICENSE Version 1.1', 'Permission is hereby granted, free of charge']) assert.ok(license.includes(t), t);
+  await a.context().close();
+});
+
 test('hang up leads to the end screen', async () => {
   const a = await join('r' + Date.now(), 'alice');
   await a.click('#cancelCallBtn');
@@ -623,6 +663,12 @@ test('hang up leads to the end screen', async () => {
 
 test('browsers without WebRTC get an upgrade notice', async () => {
   const a = await open('r' + Date.now(), 'alice', () => { delete window.RTCPeerConnection; });
+  await waitFor(() => a.locator('#unsupported').isVisible(), 'notice visible', 5000);
+  await a.context().close();
+});
+
+test('browsers without crypto.randomUUID (Safari < 15.4) get the notice too', async () => {
+  const a = await open('r' + Date.now(), 'alice', () => { delete Crypto.prototype.randomUUID; });
   await waitFor(() => a.locator('#unsupported').isVisible(), 'notice visible', 5000);
   await a.context().close();
 });
@@ -725,12 +771,12 @@ test('rename keeps other URL params byte-identical and cannot switch them on', a
   const a = await ctx.newPage();
   await a.goto(`${BASE}#roomname=a+b=c&username=alice`);
   await a.click('#joinBtn');
-  a.once('dialog', d => d.accept('my camon socketdomain name'));
+  a.once('dialog', d => d.accept('my camon name'));
   await a.click('#moreBtn'); await a.click('#changeNameBtn');
-  assert.strictEqual(await a.evaluate(() => location.hash), '#roomname=a+b=c&username=my%20camon%20socketdomain%20name');
+  assert.strictEqual(await a.evaluate(() => location.hash), '#roomname=a+b=c&username=my%20camon%20name');
   await a.reload();
-  assert.deepStrictEqual(await a.evaluate(() => [getUrlParam('camon', false), getUrlParam('socketdomain', false), getUrlParam('username', 'NA')]),
-    [false, false, 'my camon socketdomain name']);
+  assert.deepStrictEqual(await a.evaluate(() => [getUrlParam('camon', false), getUrlParam('username', 'NA')]),
+    [false, 'my camon name']);
   await ctx.close();
 });
 

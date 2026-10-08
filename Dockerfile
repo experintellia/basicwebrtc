@@ -1,17 +1,7 @@
-FROM node:18-slim
-
-MAINTAINER cracker0dks
-
-# Create app directory
-RUN mkdir -p /opt/app
+FROM node:22-slim
 WORKDIR /opt/app
-
-# Install app dependencies
-COPY ./package.json /opt/app
-RUN npm install
-
-# Bundle app source
-COPY . /opt/app
-
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY . .
 EXPOSE 3001
-CMD [ "npm", "start" ]
+CMD ["node", "server.js"]

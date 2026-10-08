@@ -19,8 +19,6 @@ Setup your own Videoconference Server for 1on1 and group calls! All Calls are en
 * `username` -> Change your username shown
 * `roomname` -> Change the name of the room
 * `camon` -> Default is off (audio only). Set to true to start with the camera on
-* `socketdomain` -> Change if you want to use a different socketServer (Can also include path: `https://domainname.tld/path/sub/`)
-* `base64domain` -> true if socketDomain is given in base64 format
 
 Example: change the roomname: https://IP:3001/#roomname=yourSecretRoom
 
@@ -36,7 +34,7 @@ location /basicwebrtc/ {
 	proxy_http_version 1.1;
 	proxy_set_header Upgrade $http_upgrade;
 	proxy_set_header Connection upgrade;
-	proxy_pass http://127.0.0.1:8080/;
+	proxy_pass http://127.0.0.1:3001/;
 }
 ```
 ## Upgrading ##
@@ -85,3 +83,6 @@ If you have the turn server running, put it into /iceservers.json
 ```
 The `?transport=tcp` url lets clients on UDP-blocked networks still connect (media stays e2e encrypted, the relay only sees ciphertext).
 Change the ips and authSecret as defined on docker run. The username can be set to anything you want or leave it like this then restart the basicwebrtc server.
+
+## Credits ##
+Icons: [Font Awesome Free](https://fontawesome.com) 5.13.1 (icons CC BY 4.0, fonts SIL OFL 1.1, code MIT), see `web/webfonts/LICENSE.txt` (with the full OFL 1.1 and MIT texts).
