@@ -640,17 +640,17 @@ test('a peer named like an Object.prototype key is an ordinary peer', async () =
   await a.context().close();
 });
 
-test('font icons load, from woff2 files only', async () => {
+test('Font Awesome: woff2 only, all served, license complete', async () => {
   const a = await open('r' + Date.now(), 'alice');
-  const fonts = [];
-  a.on('requestfinished', r => r.resourceType() == 'font' && fonts.push(r.url()));
-  await a.reload();
   const faces = await a.evaluate(() => Promise.all(['900', '400'].map(w => document.fonts.load(w + ' 1em "Font Awesome 5 Free"'))));
   assert.deepStrictEqual(faces.map(f => f.length), [1, 1], 'solid and regular icons load');
-  assert.ok(fonts.length && fonts.every(u => u.endsWith('.woff2')), fonts.join());
   const css = await (await fetch(BASE + 'css/fontawesome5.min.css')).text();
-  assert.ok(css.startsWith("/*!\n * Font Awesome Free 5.13.1 by @fontawesome - https://fontawesome.com\n * License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License)\n */"), 'license notice kept');
-  for (const u of css.match(/url\([^)]*\)/g)) assert.strictEqual((await fetch(BASE + 'css/' + u.slice(4, -1))).status, 200, u);
+  const urls = css.match(/url\([^)]*\)/g).map(u => u.slice(4, -1));
+  assert.deepStrictEqual(urls, ['../webfonts/fa-regular-400.woff2', '../webfonts/fa-solid-900.woff2']);
+  for (const u of urls) assert.strictEqual((await fetch(BASE + 'css/' + u)).status, 200, u);
+  assert.ok(css.startsWith("/*!\n * Font Awesome Free 5.13.1 by @fontawesome - https://fontawesome.com\n * License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License)\n */"), 'CSS notice kept');
+  const license = await (await fetch(BASE + 'webfonts/LICENSE.txt')).text(); // OFL 1.1 and MIT want their full text with the files
+  for (const t of ['Font Awesome Free License', 'SIL OPEN FONT LICENSE Version 1.1', 'Permission is hereby granted, free of charge']) assert.ok(license.includes(t), t);
   await a.context().close();
 });
 
@@ -771,12 +771,12 @@ test('rename keeps other URL params byte-identical and cannot switch them on', a
   const a = await ctx.newPage();
   await a.goto(`${BASE}#roomname=a+b=c&username=alice`);
   await a.click('#joinBtn');
-  a.once('dialog', d => d.accept('my camon socketdomain name'));
+  a.once('dialog', d => d.accept('my camon name'));
   await a.click('#moreBtn'); await a.click('#changeNameBtn');
-  assert.strictEqual(await a.evaluate(() => location.hash), '#roomname=a+b=c&username=my%20camon%20socketdomain%20name');
+  assert.strictEqual(await a.evaluate(() => location.hash), '#roomname=a+b=c&username=my%20camon%20name');
   await a.reload();
-  assert.deepStrictEqual(await a.evaluate(() => [getUrlParam('camon', false), getUrlParam('socketdomain', false), getUrlParam('username', 'NA')]),
-    [false, false, 'my camon socketdomain name']);
+  assert.deepStrictEqual(await a.evaluate(() => [getUrlParam('camon', false), getUrlParam('username', 'NA')]),
+    [false, 'my camon name']);
   await ctx.close();
 });
 

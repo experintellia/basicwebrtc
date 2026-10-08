@@ -36,6 +36,7 @@ var socketID_UUIDMatch = Object.create(null);
 var rooms = Object.create(null);
 const ROOM_GRACE_MS = parseInt(process.env.ROOM_GRACE_MS) || 15000; // an emptied room keeps its lock, a dropped UUID its owner, this long: a reconnect gets both back
 const str = v => typeof v == "string" ? v : ""; // String() of an object can throw and kill the server
+const uuidHolds = new Map(); // one timer per dropped UUID: a newer drop restarts it
 const roomState = name => rooms[name] ||= { locked: false, approved: new Set(), knocks: new Map(), rejects: new Map() };
 function forgetRoom(name) { // no member for a while: open again, knockers still waiting are sent in
     for (const k of rooms[name]?.knocks.values() || []) ioServer.to(k.socketId).emit("knockAnswer", { accept: true });
@@ -82,7 +83,8 @@ ioServer.sockets.on('connection', function (socket) {
         socket.to(roomOfUser).emit('userDiscconected', MY_UUID);
         delete socketID_UUIDMatch[MY_UUID];
         const uuid = MY_UUID; // other members know it: kept for the owner's reconnect, not free for them to take over
-        setTimeout(() => socketID_UUIDMatch[uuid] || delete registerdUUIDs[uuid], ROOM_GRACE_MS);
+        clearTimeout(uuidHolds.get(uuid));
+        uuidHolds.set(uuid, setTimeout(() => { uuidHolds.delete(uuid); socketID_UUIDMatch[uuid] || delete registerdUUIDs[uuid]; }, ROOM_GRACE_MS));
     });
 
     socket.on("joinRoom", function (content, callback) {

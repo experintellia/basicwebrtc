@@ -10,7 +10,7 @@ const byId = id => document.getElementById(id); // ids are peer-supplied UUIDs: 
 const MY_UUID = crypto.randomUUID();
 const MY_UUID_KEY = crypto.randomUUID();
 
-var subdir = location.pathname.replace(/[^/]*$/, ""); // folder of the page: "/basicwebrtc/index.html" -> "/basicwebrtc/"
+const subdir = location.pathname.replace(/[^/]*$/, ""); // folder of the page: "/basicwebrtc/index.html" -> "/basicwebrtc/"
 
 //ALL # PARAMETERS
 var camOnAtStart = getUrlParam("camon", false) == false ? false : true; //Defines if cam should be on at start

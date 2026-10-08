@@ -85,4 +85,4 @@ The `?transport=tcp` url lets clients on UDP-blocked networks still connect (med
 Change the ips and authSecret as defined on docker run. The username can be set to anything you want or leave it like this then restart the basicwebrtc server.
 
 ## Credits ##
-Icons: [Font Awesome Free](https://fontawesome.com) 5.13.1 (icons CC BY 4.0, fonts SIL OFL 1.1, code MIT), see `web/webfonts/LICENSE.txt`.
+Icons: [Font Awesome Free](https://fontawesome.com) 5.13.1 (icons CC BY 4.0, fonts SIL OFL 1.1, code MIT), see `web/webfonts/LICENSE.txt` (with the full OFL 1.1 and MIT texts).
