@@ -1092,6 +1092,44 @@ test('mic picker switches the mic sent to the other peer', async () => {
   await a.context().close(); await b.context().close();
 });
 
+test('an unplugged mic is replaced by another one, the call keeps sound', async () => {
+  const room = 'r' + Date.now();
+  const hideUnplugged = () => {
+    const md = navigator.mediaDevices, enumerate = md.enumerateDevices.bind(md);
+    md.enumerateDevices = async () => (await enumerate()).filter(d => d.deviceId != window.__unplugged);
+  };
+  const a = await join(room, 'alice', `(${trackPcs})(); (${hideUnplugged})();`);
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1 && (await liveRemoteAudio(b)) === 1, 'ICE and audio');
+  const old = await a.evaluate(() => { // unplug: the device leaves the list, its track ends
+    const t = webRTCConfig.stream.getAudioTracks()[0];
+    window.__unplugged = t.getSettings().deviceId;
+    t.stop(); t.dispatchEvent(new Event('ended'));
+    return t.id;
+  });
+  await waitFor(() => a.evaluate(old => { const t = __raw.at(-1).getSenders().find(s => s.track?.kind == 'audio')?.track; return t && t.id != old && t.readyState == 'live'; }, old), 'a live mic sent again');
+  assert.deepStrictEqual(await a.evaluate(() => webRTCConfig.stream.getAudioTracks().map(t => t.readyState)), ['live'], 'one live mic track');
+  assert.ok(await a.evaluate(() => webRTCConfig.stream.getAudioTracks()[0].getSettings().deviceId != __unplugged), 'another mic, not the unplugged one reopened');
+  assert.ok(await a.evaluate(() => !!webRTCConfig.stream.getAudioTracks()[0].onended), 'the new mic is watched too');
+  await waitFor(async () => (await liveRemoteAudio(b)) === 1, 'remote audio after the unplug');
+  await a.context().close(); await b.context().close();
+});
+
+test('with no mic left after an unplug, the next mic plugged in is used', async () => {
+  const a = await open('r' + Date.now(), 'alice', () => {
+    const md = navigator.mediaDevices, enumerate = md.enumerateDevices.bind(md), gum = md.getUserMedia.bind(md);
+    window.__noMics = false;
+    md.enumerateDevices = async () => (await enumerate()).filter(d => !(__noMics && d.kind == 'audioinput'));
+    md.getUserMedia = c => __noMics && c.audio ? Promise.reject(new DOMException('none', 'NotFoundError')) : gum(c);
+  });
+  await waitFor(() => a.evaluate(() => $('#micSelect').options.length > 1), 'mic list');
+  await a.evaluate(() => { __noMics = true; const t = webRTCConfig.stream.getAudioTracks()[0]; t.stop(); t.dispatchEvent(new Event('ended')); });
+  await waitFor(() => a.evaluate(() => $('#micSelect').options.length == 0), 'no mic listed');
+  await a.evaluate(() => { __noMics = false; navigator.mediaDevices.dispatchEvent(new Event('devicechange')); }); // a mic plugged in
+  await waitFor(() => a.evaluate(() => webRTCConfig.stream.getAudioTracks().map(t => t.readyState).join() == 'live'), 'live mic again');
+  await a.context().close();
+});
+
 test('name, mic and camera choice survive a reload of the tab, not a new tab', async () => {
   const ctx = await browser.newContext();
   const a = await ctx.newPage();
