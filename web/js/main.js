@@ -82,14 +82,14 @@ async function updateDeviceLists() { //Show a picker only if there is more than 
   fill("audioinput", "Microphone", "#micSelect", "#selectMicBtn", webRTCConfig["stream"]?.getAudioTracks()[0].getSettings().deviceId);
   $("#lobbyMic").replaceChildren(...[...$("#micSelect").options].map(o => new Option(o.text, o.value)));
   $("#lobbyMic").value = $("#micSelect").value;
-  $("#lobbyCamera").replaceChildren(new Option("Off", ""), ...[...$("#cameraSelect").options].map(o => new Option(o.text, o.value)));
-  $("#lobbyCamera").value = camActive ? $("#cameraSelect").value : "";
+  $("#lobbyCamera").replaceChildren(new Option("Off", "off"), ...[...$("#cameraSelect").options].map(o => new Option(o.text, o.value)));
+  $("#lobbyCamera").value = camActive ? $("#cameraSelect").value : "off"; // not "": a camera listed before permission has deviceId ""
 }
 // The lobby's dropdowns hand over to the call's pickers: one code path for switching devices,
 // and their busy guard: a dispatched "change" reaches a disabled select too.
 const pick = (select, value) => { $(select).value = value; $(select).dispatchEvent(new Event("change")); };
 $("#lobbyMic").onchange = e => pick("#micSelect", e.target.value);
-$("#lobbyCamera").onchange = e => e.target.value ? pick("#cameraSelect", e.target.value) : camActive && toggleCamera();
+$("#lobbyCamera").onchange = e => e.target.value != "off" ? pick("#cameraSelect", e.target.value) : camActive && toggleCamera();
 navigator.mediaDevices.addEventListener("devicechange", updateDeviceLists);
 
 function showMsg(name, msg) {
@@ -371,6 +371,7 @@ function toggleCamera() {
       var stream = await getDevice("video", { facingMode: "user" }, selectedCameraId);
     } catch (error) {
       store("camOn", "");
+      updateDeviceLists(); // lobby dropdown back to "Off"
       alert("Could not get your Camera! Be sure you have one connected and it is not used by any other process!")
       console.log('getUserMedia error! Got this error: ', error);
       return;
