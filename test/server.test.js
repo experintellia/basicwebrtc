@@ -221,8 +221,8 @@ test('locked room: a knocker stays out until a member admits it', async () => {
   const a = await client('L1'), b = await client('L2'), c = await client('L3');
   await join(a, 'room-l');
   const locked = nextEvent(a.c, 'locked');
-  a.c.emit('setLocked', true);
-  assert.deepStrictEqual(await locked, { locked: true, by: 'L1' });
+  a.c.emit('setLocked', true, 'alice');
+  assert.deepStrictEqual(await locked, { locked: true, by: 'L1', name: 'alice' });
   const knock = nextEvent(a.c, 'knock');
   assert.deepStrictEqual(await ack(b, 'joinRoom', { roomname: 'room-l', name: 'bob', knockId: 'kb' }), { wait: 0 });
   assert.deepStrictEqual(await knock, { UUID: 'L2', name: 'bob' });
@@ -363,4 +363,45 @@ test('no CORS headers for other origins', async () => {
   const poll = await fetch(`${URL}/socket.io/?EIO=4&transport=polling`, { headers });
   assert.strictEqual(page.headers.get('access-control-allow-origin'), null);
   assert.strictEqual(poll.headers.get('access-control-allow-origin'), null);
+});
+
+test('the first one in can open the room closed; later joiners cannot lock it this way', async () => {
+  const a = await client('F1'), b = await client('F2'), c = await client('F3');
+  assert.deepStrictEqual(await ack(a, 'roomInfo', 'room-f'), { empty: true });
+  const locked = nextEvent(a.c, 'locked');
+  assert.deepStrictEqual(await ack(a, 'joinRoom', { roomname: 'room-f', lock: true }), []);
+  assert.deepStrictEqual(await locked, { locked: true });
+  assert.deepStrictEqual(await ack(b, 'roomInfo', 'room-f'), { empty: false });
+  assert.deepStrictEqual(await ack(b, 'joinRoom', { roomname: 'room-f' }), { wait: 0 }, 'newcomer knocks');
+
+  await join(c, 'room-fo'); // open room with a member
+  const d = await client('F4');
+  assert.deepStrictEqual(await ack(d, 'joinRoom', { roomname: 'room-fo', lock: true }), ['F3']);
+  assert.deepStrictEqual(await ack(await client('F5'), 'joinRoom', { roomname: 'room-fo' }), ['F3', 'F4'], 'still open');
+});
+
+test('a locked room that just emptied is not offered as empty', async () => {
+  const a = await client('GE1'), b = await client('GE2');
+  await ack(a, 'joinRoom', { roomname: 'room-ge', lock: true });
+  a.c.close();
+  await new Promise(r => setTimeout(r, 50));
+  assert.deepStrictEqual(await ack(b, 'roomInfo', 'room-ge'), { empty: false }, 'still locked in the grace time');
+  await new Promise(r => setTimeout(r, 500)); // past the grace time: forgotten, open again
+  assert.deepStrictEqual(await ack(b, 'roomInfo', 'room-ge'), { empty: true });
+});
+
+test('an earlier emptying does not cut the grace time short (#54)', async () => {
+  const x = await client('GT1'), y = await client('GT2'), s = await client('GT3');
+  await join(x, 'room-gt');
+  x.c.close(); // room empty: grace time starts
+  await new Promise(r => setTimeout(r, 150));
+  const locked = nextEvent(y.c, 'locked');
+  assert.deepStrictEqual(await ack(y, 'joinRoom', { roomname: 'room-gt', lock: true }), [], 'first in again');
+  await locked;
+  await new Promise(r => setTimeout(r, 100));
+  y.c.close(); // a reload: empty again, a fresh grace time
+  await new Promise(r => setTimeout(r, 150)); // past the first grace time, not the second
+  assert.deepStrictEqual(await ack(s, 'roomInfo', 'room-gt'), { empty: false }, 'lock kept');
+  await new Promise(r => setTimeout(r, 300));
+  assert.deepStrictEqual(await ack(s, 'roomInfo', 'room-gt'), { empty: true }, 'forgotten after its own grace time');
 });

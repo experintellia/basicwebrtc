@@ -539,6 +539,10 @@ div#centerDiv{
   gap: 10px;
 }
 
+#lobby label[hidden] {
+  display: none;
+}
+
 #lobby label i {
   width: 1.4em;
   text-align: center;

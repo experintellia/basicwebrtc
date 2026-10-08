@@ -21,10 +21,11 @@
   <form id="lobby" hidden>
     <h2>Ready to join?</h2>
     <div id="lobbyPreview"><video id="lobbyVideo" autoplay muted playsinline hidden></video></div>
-    <input id="nameInput" placeholder="Your name" maxlength="64" aria-label="your name" autocomplete="nickname">
+    <input id="nameInput" placeholder="Your name" maxlength="64" aria-label="your name" autocomplete="nickname" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
     <label><i class="fas fa-microphone-alt"></i><select id="lobbyMic" aria-label="microphone"></select></label>
     <meter id="micMeter" min="0" max="2" value="0" aria-label="microphone level"></meter>
     <label><i class="fas fa-video"></i><select id="lobbyCamera" aria-label="camera"></select></label>
+    <label id="closedLabel" hidden><input type="checkbox" id="closedInput"> Closed room: newcomers have to be let in</label>
     <p id="lobbyMsg">Speak to check your mic: the bar moves.</p>
     <button id="joinBtn">Join</button>
   </form>
@@ -55,8 +56,10 @@
         <div title="add / remove camera!" id="addRemoveCameraBtn" class="callBtn"><i class="fas fa-video"></i></div>
         <div title="select camera" id="selectCameraBtn" class="selectDeviceBtn" style="display:none;"><i class="fas fa-caret-up"></i><select id="cameraSelect" aria-label="select camera"></select></div>
       </div>
-      <div title="add / remove screen!" id="addRemoveScreenBtn" class="callBtn"><i class="fas fa-desktop"></i></div>
-      <div title="screen share: sharp text (click for smooth motion)" id="screenModeBtn" class="callBtn" aria-label="smooth motion (performance mode)" role="button" tabindex="0" aria-pressed="false" hidden><i class="fas fa-font"></i></div>
+      <div id="screenGroup" class="deviceGroup">
+        <div title="add / remove screen!" id="addRemoveScreenBtn" class="callBtn"><i class="fas fa-desktop"></i></div>
+        <div title="screen share quality" id="selectScreenModeBtn" class="selectDeviceBtn" style="display:none;"><i class="fas fa-caret-up"></i><select id="screenModeSelect" aria-label="screen share quality"><option value="detail">Sharp text</option><option value="motion">Smooth motion</option></select></div>
+      </div>
       <div id="moreGroup">
         <div title="more" id="moreBtn" class="callBtn"><i class="fas fa-ellipsis-h"></i></div>
         <div id="moreMenu" hidden>

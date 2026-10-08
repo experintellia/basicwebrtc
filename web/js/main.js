@@ -30,7 +30,7 @@ store("knockId", knockId);
 
 var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 if (isMobile || !navigator.mediaDevices.getDisplayMedia) { //No Screenshare on mobile devices
-  $("#addRemoveScreenBtn").hidden = true;
+  $("#screenGroup").hidden = true;
 }
 
 const socket = io({ path: subdir + "socket.io" }); // works on subpaths too
@@ -42,7 +42,6 @@ var pcs = {}; //Peer connections to all remotes
 var micMuted = false;
 var camActive = false;
 var screenActive = false;
-var screenMotion = false; //Screen share mode: false = Detail (sharp text), true = Performance (smooth motion)
 var selectedCameraId = stored("camera") || null;
 const camOnAtStart = !!stored("camOn"); // camera on or off as last time in this tab
 const MIC = { echoCancellation: true, noiseSuppression: true };
@@ -62,15 +61,20 @@ async function updateDeviceLists() { //Show a picker only if there is more than 
   fill("audioinput", "Microphone", "#micSelect", "#selectMicBtn", webRTCConfig["stream"]?.getAudioTracks()[0].getSettings().deviceId);
   $("#lobbyMic").replaceChildren(...[...$("#micSelect").options].map(o => new Option(o.text, o.value)));
   $("#lobbyMic").value = $("#micSelect").value;
-  $("#lobbyCamera").replaceChildren(new Option("Off", ""), ...[...$("#cameraSelect").options].map(o => new Option(o.text, o.value)));
-  $("#lobbyCamera").value = camActive ? $("#cameraSelect").value : "";
+  $("#lobbyCamera").replaceChildren(new Option("Off", "off"), ...[...$("#cameraSelect").options].map(o => new Option(o.text, o.value)));
+  $("#lobbyCamera").value = camActive ? $("#cameraSelect").value : "off"; // not "": a camera listed before permission has deviceId ""
 }
 // The lobby's dropdowns hand over to the call's pickers: one code path for switching devices,
 // and their busy guard: a dispatched "change" reaches a disabled select too.
 const pick = (select, value) => { $(select).value = value; $(select).dispatchEvent(new Event("change")); };
 $("#lobbyMic").onchange = e => pick("#micSelect", e.target.value);
-$("#lobbyCamera").onchange = e => e.target.value ? pick("#cameraSelect", e.target.value) : camActive && toggleCamera();
-navigator.mediaDevices.addEventListener("devicechange", updateDeviceLists);
+$("#lobbyCamera").onchange = e => e.target.value != "off" ? pick("#cameraSelect", e.target.value) : camActive && toggleCamera();
+// Unplugged mic: the list drops it, switch to the one picked there. Also on devicechange: a mic plugged in after none was left.
+async function checkMic() {
+  await updateDeviceLists();
+  if (webRTCConfig["stream"]?.getAudioTracks()[0].readyState == "ended") $("#micSelect").dispatchEvent(new Event("change"));
+}
+navigator.mediaDevices.addEventListener("devicechange", checkMic);
 
 function showMsg(name, msg) {
   const line = document.createElement("div");
@@ -128,7 +132,8 @@ socket.on("userJoined", function (content) {
 
 const sendToPeers = obj => { for (var i in pcs) pcs[i].send(obj) };
 window.addEventListener("pagehide", () => sendToPeers({ bye: true })); // hang up, tab closed or reload
-const nameOf = UUID => { const n = allUserStreams[UUID] && allUserStreams[UUID]["username"]; return n && n != "NA" ? n : "" };
+const realName = n => n && n != "NA" ? n : ""; // "NA": no name set
+const nameOf = UUID => realName(allUserStreams[UUID]?.username);
 
 function setAudioLevel(UUID, level) {
   if (allUserStreams[UUID]) allUserStreams[UUID].muted = level < 0; // re-shown by updateUserLayout
@@ -184,6 +189,7 @@ var mediaReady = (async function () {
   }
   webRTCConfig["stream"] = stream;
   allUserStreams[MY_UUID]["audiostream"] = stream;
+  stream.getAudioTracks()[0].onended = checkMic;
   startMicMeter();
   updateDeviceLists(); //Labels are only available after permission is granted
   updateUserLayout();
@@ -193,6 +199,7 @@ var mediaReady = (async function () {
   // Lobby: own preview, name, mic and camera. Join only after it.
   $("#nameInput").value = username == "NA" ? "" : username;
   showLobby(true);
+  socket.emit("roomInfo", roomname, r => $("#closedLabel").hidden = !r.empty); // first one in: open or closed
   if (!matchMedia("(pointer: coarse)").matches) $("#nameInput").focus();
   await new Promise(r => $("#lobby").onsubmit = e => { e.preventDefault(); r(); });
   showLobby(false);
@@ -232,6 +239,7 @@ $("#micSelect").onchange = async function () { //Swap the mic track in place, so
   try {
     const newTrack = (await navigator.mediaDevices.getUserMedia({ audio: { ...MIC, deviceId: { exact: this.value } } })).getAudioTracks()[0];
     newTrack.enabled = !micMuted;
+    newTrack.onended = oldTrack.onended;
     for (var i in pcs) pcs[i].replaceTrack(oldTrack, newTrack);
     stream.removeTrack(oldTrack); // same stream object: new peers and the mute button get the new track
     stream.addTrack(newTrack);
@@ -298,22 +306,17 @@ $("#addRemoveScreenBtn").onclick = () => exclusive(async function () {
   screenActive = true;
   startVideo(stream, $("#addRemoveScreenBtn"));
   applyScreenMode();
-  $("#screenModeBtn").hidden = false;
+  $("#selectScreenModeBtn").style.display = "";
 });
 
-$("#screenModeBtn").onclick = function () {
-  screenMotion = !screenMotion;
-  applyScreenMode();
-}
-$("#screenModeBtn").onkeydown = e => (e.key == "Enter" || e.key == " ") && (e.preventDefault(), e.target.click());
+$("#screenModeSelect").onchange = applyScreenMode;
 
 function applyScreenMode() { //contentHint is the main effect, degradationPreference makes it explicit for the encoder
+  if (!screenActive) return; // a dropdown left open past the share must not touch the camera
   const track = allUserStreams[MY_UUID]["videostream"].getVideoTracks()[0];
-  track.contentHint = screenMotion ? "motion" : "detail";
-  for (var i in pcs) pcs[i].setDegradation(track, screenMotion ? "maintain-framerate" : "maintain-resolution");
-  $("#screenModeBtn").setAttribute("aria-pressed", screenMotion);
-  $("#screenModeBtn i").className = screenMotion ? "fas fa-running" : "fas fa-font";
-  $("#screenModeBtn").title = screenMotion ? "screen share: smooth motion (click for sharp text)" : "screen share: sharp text (click for smooth motion)";
+  const motion = $("#screenModeSelect").value == "motion";
+  track.contentHint = motion ? "motion" : "detail";
+  for (var i in pcs) pcs[i].setDegradation(track, motion ? "maintain-framerate" : "maintain-resolution");
 }
 
 $("#addRemoveCameraBtn").onclick = toggleCamera;
@@ -355,6 +358,7 @@ function toggleCamera() {
       var stream = await getDevice("video", { facingMode: "user" }, selectedCameraId);
     } catch (error) {
       store("camOn", "");
+      updateDeviceLists(); // lobby dropdown back to "Off"
       alert("Could not get your Camera! Be sure you have one connected and it is not used by any other process!")
       console.log('getUserMedia error! Got this error: ', error);
       return;
@@ -385,7 +389,7 @@ function stopVideo() { // camera and screen share use the same slot
   delete allUserStreams[MY_UUID]["videostream"];
   $("#addRemoveCameraBtn").style.color = $("#addRemoveScreenBtn").style.color = "black";
   camActive = screenActive = false;
-  $("#screenModeBtn").hidden = true;
+  $("#selectScreenModeBtn").style.display = "none";
   store("camOn", ""); // also when unplugged or replaced by a screen share
   showPreview();
   updateDeviceLists(); // lobby camera: "Off"
@@ -521,7 +525,7 @@ function updateUserLayout() {
       userDiv.append(fromHTML(`<div class="userCont" style="position: absolute; width: 100%; height: 100%;">
           <div style="top: 0px; width: 100%;">
             <div class="userName" style="position: absolute; color: white; top: 7px; left: 7px; font-size: 1.3em; z-index:10; text-shadow: 1px 0 0 #000, 0 -1px 0 #000, 0 1px 0 #000, -1px 0 0 #000;"></div>
-            <video style="${mirror ? "transform: scaleX(-1);" : ""}" autoplay muted></video>
+            <video style="${mirror ? "transform: scaleX(-1);" : ""}" autoplay muted playsinline></video>
             <button title="Enable Picture in Picture" style="cursor:pointer; position:absolute; top:5px; right:10px; background:transparent; border:0px;" class="pipBtn">
               <img style="width: 30px;" src="./images/picInPic.png">
             </button>
@@ -589,6 +593,7 @@ function updateUserLayout() {
     const video = cont.querySelector("video");
     video.style.maxWidth = cont.offsetWidth + 'px';
     video.style.maxHeight = cont.offsetHeight + 'px';
+    if (!video.readyState) video.srcObject = video.srcObject; // Safari doesn't reload a stream after the element was moved: start it again in place
     video.play().catch(() => { });
   }
   for (const i in allUserStreams) if (allUserStreams[i].muted) setAudioLevel(i, -1);
@@ -597,21 +602,32 @@ document.addEventListener("fullscreenchange", updateUserLayout); // redo what wa
 
 var retryJoin = null; // at a locked room's door: joins again once let in
 function joinRoom(onJoined) {
-  socket.emit("joinRoom", { roomname, keep: Object.keys(pcs), name: username, knockId }, function (res) {
+  const lock = !$("#closedLabel").hidden && $("#closedInput").checked; // only a pick on screen: Firefox restores a hidden tick on reload
+  socket.emit("joinRoom", { roomname, keep: Object.keys(pcs), name: username, knockId, lock }, function (res) {
     if (!Array.isArray(res)) return retryJoin = () => joinRoom(onJoined), atTheDoor(res.wait);
     showLobby(false);
+    if (lock && res.length) showMsg("", "Someone was in first: the room is open. Use Lock room to close it.");
+    $("#closedInput").checked = false; // picked once: a later rejoin keeps what the members set since
     $("#knocks").replaceChildren(); // the server sends the open ones again
     showLock(false); // and the lock, if set
     onJoined(res);
   });
 }
 
+var doorTimer;
 function atTheDoor(wait) { // locked room: back to the lobby until a member lets us in
   setStatus(MY_UUID, "");
   showLobby(true);
+  $("#closedLabel").hidden = true; // a locked room is not ours to open or close
+  $("#closedInput").checked = false;
+  clearInterval(doorTimer);
+  const tick = () => { // denied: count the cooldown down, then allow knocking again
+    $("#joinBtn").disabled = wait > 0;
+    $("#lobbyMsg").textContent = wait ? `You were not let in. You can ask again in ${wait--}s.` : (clearInterval(doorTimer), "You were not let in. You can ask again.");
+  };
   $("#joinBtn").disabled = true;
-  $("#lobbyMsg").textContent = wait ? `You were not let in. You can ask again in ${wait}s.` : "The room is locked. Waiting for someone in the call to let you in…";
-  if (wait) setTimeout(() => $("#joinBtn").disabled = false, wait * 1000);
+  $("#lobbyMsg").textContent = "The room is locked. Waiting for someone in the call to let you in…";
+  if (wait) tick(), doorTimer = setInterval(tick, 1000);
   $("#lobby").onsubmit = e => {
     e.preventDefault();
     setName($("#nameInput").value);
@@ -636,11 +652,11 @@ function showLock(locked) {
   roomLocked = locked;
   $("#lockBtn").innerHTML = locked ? '<i class="fas fa-lock-open"></i> Unlock room' : '<i class="fas fa-lock"></i> Lock room';
 }
-socket.on("locked", function ({ locked, by }) {
+socket.on("locked", function ({ locked, by, name }) {
   showLock(locked);
-  if (by && by != MY_UUID) showMsg("", `${nameOf(by) || "Someone"} ${locked ? "locked the room: newcomers have to be let in" : "unlocked the room"}`);
+  if (by && by != MY_UUID) showMsg("", `${nameOf(by) || realName(name) || "Someone"} ${locked ? "locked the room: newcomers have to be let in" : "unlocked the room"}`);
 });
-$("#lockBtn").onclick = () => socket.emit("setLocked", !roomLocked);
+$("#lockBtn").onclick = () => socket.emit("setLocked", !roomLocked, username);
 
 // iOS Safari can block autoplay of remote audio: any tap retries it
 addEventListener("click", () => document.querySelectorAll("#audioStreams audio").forEach(a => a.paused && a.play().catch(() => { })), true);
