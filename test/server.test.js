@@ -357,7 +357,7 @@ test('unlocking lets the waiting knockers in', async () => {
   assert.deepStrictEqual(await ack(k, 'joinRoom', { roomname: 'room-ul' }), ['UL1']);
 });
 
-test('no CORS: other sites can neither read the page nor poll signaling', async () => {
+test('no CORS headers for other origins', async () => {
   const headers = { Origin: 'https://evil.example' };
   const page = await fetch(`${URL}/`, { headers });
   const poll = await fetch(`${URL}/socket.io/?EIO=4&transport=polling`, { headers });

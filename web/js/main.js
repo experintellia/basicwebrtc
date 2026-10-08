@@ -15,11 +15,12 @@ const MY_UUID_KEY = uuidv4();
 const subdir = location.pathname.replace(/[^/]*$/, ""); // folder of the page: "/basicwebrtc/index.html" -> "/basicwebrtc/"
 
 // The room is the only URL parameter: the link is what people share, so nothing personal goes in it.
-var roomname = getUrlParam("roomname", false);
-if (!roomname) {
-  roomname = "r" + Math.random().toString().replace(".", "");
-  location.hash = "roomname=" + roomname;
-}
+// Last "roomname=" in query or hash wins. Not URLSearchParams: it turns "+" into a space and moves old links to another room.
+const roomParam = [location.search, location.hash].flatMap(p => p.slice(1).split("&")).filter(p => p.startsWith("roomname=")).pop()?.slice(9);
+const roomname = roomParam && (() => { try { return decodeURIComponent(roomParam) } catch { return roomParam } })() // a stray "%" (e.g. "100%") stays raw
+  || "r" + Math.random().toString().replace(".", "");
+if (!roomParam) history.replaceState(null, "", "#roomname=" + roomname); // no hashchange: no reload
+addEventListener("hashchange", () => location.reload()); // a pasted room link changes only the hash
 // Per tab only: survives reloads and other rooms, never shared with other tabs or later visits.
 const stored = k => { try { return sessionStorage[k] } catch { } }; // throws when storage is blocked
 const store = (k, v) => { try { sessionStorage[k] = v } catch { } };

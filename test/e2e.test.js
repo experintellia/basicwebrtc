@@ -92,7 +92,7 @@ test('own tile shows "connecting…" until joined and "reconnecting…" while th
   const ctx = await browser.newContext();
   await ctx.route('**/socket.io/**', r => r.abort()); // server unreachable
   const a = await ctx.newPage();
-  await a.goto(`${BASE}#roomname=r${Date.now()}&username=alice`);
+  await a.goto(`${BASE}#roomname=r${Date.now()}`);
   assert.strictEqual(await selfStatus(a), '', 'nothing while in the lobby');
   await a.click('#joinBtn');
   await waitFor(async () => (await selfStatus(a)) === 'connecting…', 'connecting shown');
@@ -726,18 +726,26 @@ test('old link params are ignored: username, camon, socketdomain', async () => {
   await ctx.close();
 });
 
-test('URL params: no double #, stray % does not break the page', async () => {
+test('URL params: missing room gets a fresh one, stray % does not break the page', async () => {
   const ctx = await browser.newContext();
   const a = await ctx.newPage();
   const errors = [];
   a.on('pageerror', e => errors.push(e.message));
   await a.goto(`${BASE}#username=bob`); // no roomname: a fresh room, old params dropped
   assert.match(await a.evaluate(() => location.hash), /^#roomname=r\d+$/);
-  await a.goto(`${BASE}#roomname=100%`);
-  await a.reload(); // a hash-only goto doesn't reload the page
-  assert.strictEqual(await a.evaluate(() => roomname), '100%');
+  await a.goto(`${BASE}#roomname=100%`); // hash-only: the page reloads itself
+  await waitFor(() => a.evaluate(() => roomname == '100%').catch(() => false), 'room 100%');
   assert.deepStrictEqual(errors, []);
   await ctx.close();
+});
+
+test('a room link pasted into an open tab goes to that room', async () => {
+  const a = await open('r' + Date.now() + 'a', 'alice');
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown');
+  const room = 'r' + Date.now() + 'b';
+  await a.evaluate(r => location.hash = 'roomname=' + r, room); // hash-only change: no reload by itself
+  await waitFor(() => a.evaluate(r => roomname == r, room).catch(() => false), 'page on the new room');
+  await a.context().close();
 });
 
 test('share falls back to a copy dialog when Web Share fails', async () => {
