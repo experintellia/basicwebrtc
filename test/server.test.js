@@ -221,8 +221,8 @@ test('locked room: a knocker stays out until a member admits it', async () => {
   const a = await client('L1'), b = await client('L2'), c = await client('L3');
   await join(a, 'room-l');
   const locked = nextEvent(a.c, 'locked');
-  a.c.emit('setLocked', true);
-  assert.deepStrictEqual(await locked, { locked: true, by: 'L1' });
+  a.c.emit('setLocked', true, 'alice');
+  assert.deepStrictEqual(await locked, { locked: true, by: 'L1', name: 'alice' });
   const knock = nextEvent(a.c, 'knock');
   assert.deepStrictEqual(await ack(b, 'joinRoom', { roomname: 'room-l', name: 'bob', knockId: 'kb' }), { wait: 0 });
   assert.deepStrictEqual(await knock, { UUID: 'L2', name: 'bob' });

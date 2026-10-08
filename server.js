@@ -59,6 +59,7 @@ var socketID_UUIDMatch = Object.create(null);
 // ponytail: the reject cooldown is keyed by the knocker's per-tab id, so it slows down honest retries, not a determined knocker.
 var rooms = Object.create(null);
 const ROOM_GRACE_MS = parseInt(process.env.ROOM_GRACE_MS) || 15000; // an emptied room keeps its lock this long: a reload or reconnect is no way in
+const str = v => typeof v == "string" ? v : ""; // String() of an object can throw and kill the server
 const roomState = name => rooms[name] ||= { locked: false, approved: new Set(), knocks: new Map(), rejects: new Map() };
 function forgetRoom(name) { // no member for a while: open again, knockers still waiting are sent in
     for (const k of rooms[name]?.knocks.values() || []) ioServer.to(k.socketId).emit("knockAnswer", { accept: true });
@@ -111,7 +112,6 @@ ioServer.sockets.on('connection', function (socket) {
 
     socket.on("joinRoom", function (content, callback) {
         if (!MY_UUID || !content || typeof content != "object" || roomOfUser !== null) return; // registered first, one room per connection
-        const str = v => typeof v == "string" ? v : ""; // String() of an object can throw and kill the server
         const ack = typeof callback == "function" ? callback : () => { };
         const name = str(content["roomname"]).slice(0, 64);
         if (knockRoom !== null && knockRoom !== name) return;
@@ -141,11 +141,11 @@ ioServer.sockets.on('connection', function (socket) {
         for (const [UUID, k] of room.knocks) socket.emit("knock", { UUID, name: k.name });
     })
 
-    socket.on("setLocked", function (locked) {
+    socket.on("setLocked", function (locked, name) { // name: peers may not have it over P2P yet
         if (roomOfUser === null || typeof locked != "boolean") return; // members only
         const room = roomState(roomOfUser);
         room.locked = locked;
-        ioServer.to(roomOfUser).emit("locked", { locked, by: MY_UUID });
+        ioServer.to(roomOfUser).emit("locked", { locked, by: MY_UUID, name: str(name).slice(0, 64) });
         if (locked) return;
         for (const [UUID, k] of room.knocks) { // open again: nobody waits at the door
             ioServer.to(k.socketId).emit("knockAnswer", { accept: true });
