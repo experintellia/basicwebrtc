@@ -90,7 +90,12 @@ async function updateDeviceLists() { //Show a picker only if there is more than 
 const pick = (select, value) => { $(select).value = value; $(select).dispatchEvent(new Event("change")); };
 $("#lobbyMic").onchange = e => pick("#micSelect", e.target.value);
 $("#lobbyCamera").onchange = e => e.target.value ? pick("#cameraSelect", e.target.value) : camActive && toggleCamera();
-navigator.mediaDevices.addEventListener("devicechange", updateDeviceLists);
+// Unplugged mic: the list drops it, switch to the one picked there. Also on devicechange: a mic plugged in after none was left.
+async function checkMic() {
+  await updateDeviceLists();
+  if (webRTCConfig["stream"]?.getAudioTracks()[0].readyState == "ended") $("#micSelect").dispatchEvent(new Event("change"));
+}
+navigator.mediaDevices.addEventListener("devicechange", checkMic);
 
 function showMsg(name, msg) {
   const line = document.createElement("div");
@@ -204,10 +209,7 @@ var mediaReady = (async function () {
   }
   webRTCConfig["stream"] = stream;
   allUserStreams[MY_UUID]["audiostream"] = stream;
-  stream.getAudioTracks()[0].onended = async () => { // unplugged mic: the list drops it, switch to the one picked there
-    await updateDeviceLists();
-    $("#micSelect").dispatchEvent(new Event("change"));
-  };
+  stream.getAudioTracks()[0].onended = checkMic;
   startMicMeter();
   updateDeviceLists(); //Labels are only available after permission is granted
   updateUserLayout();
