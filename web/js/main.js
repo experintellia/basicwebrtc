@@ -149,7 +149,8 @@ socket.on("userJoined", function (content) {
 
 const sendToPeers = obj => { for (var i in pcs) pcs[i].send(obj) };
 window.addEventListener("pagehide", () => sendToPeers({ bye: true })); // hang up, tab closed or reload
-const nameOf = UUID => { const n = allUserStreams[UUID] && allUserStreams[UUID]["username"]; return n && n != "NA" ? n : "" };
+const realName = n => n && n != "NA" ? n : ""; // "NA": no name set
+const nameOf = UUID => realName(allUserStreams[UUID]?.username);
 
 function setAudioLevel(UUID, level) {
   if (allUserStreams[UUID]) allUserStreams[UUID].muted = level < 0; // re-shown by updateUserLayout
@@ -667,7 +668,7 @@ function showLock(locked) {
 }
 socket.on("locked", function ({ locked, by, name }) {
   showLock(locked);
-  if (by && by != MY_UUID) showMsg("", `${nameOf(by) || (name && name != "NA" ? name : "Someone")} ${locked ? "locked the room: newcomers have to be let in" : "unlocked the room"}`);
+  if (by && by != MY_UUID) showMsg("", `${nameOf(by) || realName(name) || "Someone"} ${locked ? "locked the room: newcomers have to be let in" : "unlocked the room"}`);
 });
 $("#lockBtn").onclick = () => socket.emit("setLocked", !roomLocked, username);
 
