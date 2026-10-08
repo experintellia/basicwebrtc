@@ -31,10 +31,10 @@ after(async () => {
 async function open(room, name, initScript, file = '') {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
+  await page.addInitScript(n => sessionStorage.username ||= n, name); // as if typed in the lobby before; never in the URL
   if (initScript) await page.addInitScript(initScript);
   page.on('pageerror', e => console.log(`[${name}] pageerror`, e.message));
   await page.goto(`${BASE}${file}#roomname=${room}`);
-  await page.fill('#nameInput', name); // the name is typed in the lobby, never in the URL
   return page;
 }
 
@@ -1128,12 +1128,13 @@ test('lobby: quick device picks run one at a time, no second mic or camera leaks
   await a.context().close();
 });
 
-test('lobby: a camera picked right away is not switched off by camon', async () => {
+test('lobby: a camera picked right away is not switched off by the saved camera state', async () => {
   const ctx = await browser.newContext();
   const a = await ctx.newPage();
-  await a.goto(`${BASE}#roomname=r${Date.now()}&camon=1`);
+  await a.addInitScript(() => sessionStorage.camOn ||= '1'); // camera was on last time in this tab
+  await a.goto(`${BASE}#roomname=r${Date.now()}`);
   await waitFor(() => a.locator('#lobby').isVisible(), 'lobby');
-  await a.selectOption('#lobbyCamera', await a.evaluate(() => [...$('#lobbyCamera').options].at(-1).value)); // within camon's first second
+  await a.selectOption('#lobbyCamera', await a.evaluate(() => [...$('#lobbyCamera').options].at(-1).value)); // within camOnAtStart's first second
   await new Promise(r => setTimeout(r, 1800));
   assert.ok(await a.evaluate(() => camActive), 'camera still on');
   await ctx.close();
