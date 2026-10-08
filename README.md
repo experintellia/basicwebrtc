@@ -15,14 +15,9 @@ Setup your own Videoconference Server for 1on1 and group calls! All Calls are en
 3. run: node server.js
 4. surf to: http://localhost:3001 (other devices need https, e.g. via the nginx proxy below: browsers only allow mic/camera on https or localhost)
 
-### All User parameters ###
-* `username` -> Change your username shown
-* `roomname` -> Change the name of the room
-* `camon` -> Default is off (audio only). Set to true to start with the camera on
-* `socketdomain` -> Change if you want to use a different socketServer (Can also include path: `https://domainname.tld/path/sub/`)
-* `base64domain` -> true if socketDomain is given in base64 format
-
-Example: change the roomname: https://IP:3001/#roomname=yourSecretRoom
+### Room link ###
+The only URL parameter is the room: https://IP:3001/#roomname=yourSecretRoom
+Your name, mic and camera are picked in the lobby before joining.
 
 ### Config Server Listen IP & Port
 

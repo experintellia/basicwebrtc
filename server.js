@@ -18,25 +18,11 @@ var fs = require('fs');
 var express = require('express');
 var handler = express();
 
-handler.use(express.static(__dirname + '/web', {
-    setHeaders: function (res, path) {
-        res.append('Access-Control-Allow-Origin', ['*']);
-        res.append('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE');
-        res.append('Access-Control-Allow-Headers', 'Content-Type');
-    }
-}));
+handler.use(express.static(__dirname + '/web'));
 
 var app = require('http').createServer(handler)
 
-var ioServer = require('socket.io')(app, {
-    cors: {
-        origin: function (origin, callback) {
-            callback(null, true) // allow all origins
-        },
-        credentials: false,
-        methods: ["GET", "POST"]
-    }
-});
+var ioServer = require('socket.io')(app); // same origin only: the page is served from here
 var crypto = require('crypto');
 
 app.listen(HTTP_PORT, HTTP_IP);

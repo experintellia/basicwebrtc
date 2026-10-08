@@ -33,7 +33,8 @@ async function open(room, name, initScript, file = '') {
   const page = await ctx.newPage();
   if (initScript) await page.addInitScript(initScript);
   page.on('pageerror', e => console.log(`[${name}] pageerror`, e.message));
-  await page.goto(`${BASE}${file}#roomname=${room}&username=${encodeURIComponent(name)}`);
+  await page.goto(`${BASE}${file}#roomname=${room}`);
+  await page.fill('#nameInput', name); // the name is typed in the lobby, never in the URL
   return page;
 }
 
@@ -684,7 +685,7 @@ test('late answer does not cancel an ICE restart', { skip: !canDropUdp && 'needs
   await a.context().close(); await b.context().close();
 });
 
-test('rename updates the name for peers, chat and the URL', async () => {
+test('rename updates the name for peers and chat, survives a reload, stays out of the URL', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');
   const b = await join(room, 'bob');
@@ -693,60 +694,48 @@ test('rename updates the name for peers, chat and the URL', async () => {
   await a.click('#moreBtn'); await a.click('#changeNameBtn');
   await waitFor(() => b.evaluate(() => Object.values(allUserStreams).some(s => s.username == 'zoe smith')), 'new name on bob');
   assert.strictEqual(await b.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('ZO')), true, 'initials updated');
-  assert.strictEqual(await a.evaluate(() => getUrlParam('username', 'NA')), 'zoe smith', 'kept in URL for reloads');
+  assert.strictEqual(await a.evaluate(() => location.hash), `#roomname=${room}`, 'name not in the URL');
   await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
   await a.fill('#chatInputText', 'hi');
   await a.press('#chatInputText', 'Enter');
   await waitFor(() => b.evaluate(() => document.querySelector('#chatText').textContent.includes('zoe smith: hi')), 'chat uses new name');
+  await a.reload();
+  assert.strictEqual(await a.evaluate(() => username), 'zoe smith', 'kept for reloads in this tab');
   await a.context().close(); await b.context().close();
 });
 
-test('share button shares the room link without the username', async () => {
+test('share link is just the room, whatever else the URL holds', async () => {
   const room = 'r' + Date.now();
-  const a = await join(room, 'alice', () => { navigator.share = d => { window.__shared = d; return Promise.resolve(); }; });
+  const a = await join(room, 'alice', () => { navigator.share = d => { window.__shared = d; return Promise.resolve(); }; }, `?username=bob&camon=true&x=1`);
   await a.click('#moreBtn'); await a.click('#shareBtn');
   const shared = await a.evaluate(() => window.__shared);
   assert.strictEqual(shared.url, `${BASE}#roomname=${room}`);
   await a.context().close();
 });
 
-test('share link also drops username and camon from the query string', async () => {
-  const room = 'r' + Date.now();
-  const a = await join(room, 'alice', () => { navigator.share = d => { window.__shared = d; return Promise.resolve(); }; }, '?username=bob&camon=true&x=1');
-  await a.click('#moreBtn'); await a.click('#shareBtn');
-  const shared = await a.evaluate(() => window.__shared);
-  assert.strictEqual(shared.url, `${BASE}?x=1#roomname=${room}`);
-  await a.context().close();
-});
-
-test('rename keeps other URL params byte-identical and cannot switch them on', async () => {
+test('old link params are ignored: username, camon, socketdomain', async () => {
   const ctx = await browser.newContext();
   const a = await ctx.newPage();
-  await a.goto(`${BASE}#roomname=a+b=c&username=alice`);
-  await a.click('#joinBtn');
-  a.once('dialog', d => d.accept('my camon socketdomain name'));
-  await a.click('#moreBtn'); await a.click('#changeNameBtn');
-  assert.strictEqual(await a.evaluate(() => location.hash), '#roomname=a+b=c&username=my%20camon%20socketdomain%20name');
-  await a.reload();
-  assert.deepStrictEqual(await a.evaluate(() => [getUrlParam('camon', false), getUrlParam('socketdomain', false), getUrlParam('username', 'NA')]),
-    [false, false, 'my camon socketdomain name']);
+  const sockets = [];
+  a.on('websocket', ws => sockets.push(ws.url()));
+  await a.goto(`${BASE}#roomname=old&username=bob&camon=true&socketdomain=evil.example`);
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown');
+  await a.waitForTimeout(1500); // camon used to switch the camera on after 1s
+  assert.deepStrictEqual(await a.evaluate(() => [username, $('#nameInput').value, camActive, $('#lobbyCamera').value]), ['NA', '', false, '']);
+  assert.ok(sockets.length && sockets.every(u => u.startsWith(BASE.replace('http', 'ws'))), 'signaling stays on this server: ' + sockets);
   await ctx.close();
 });
 
-test('URL params: exact keys, no double #, stray % does not break the page', async () => {
+test('URL params: no double #, stray % does not break the page', async () => {
   const ctx = await browser.newContext();
   const a = await ctx.newPage();
   const errors = [];
   a.on('pageerror', e => errors.push(e.message));
-  await a.goto(`${BASE}#username=bob`); // no roomname: one gets added with &, not a second #
-  assert.match(await a.evaluate(() => location.hash), /^#username=bob&roomname=r\d+$/);
-  assert.deepStrictEqual(await a.evaluate(() => [username, getUrlParam('roomname', 'unknown') == roomname]), ['bob', true]);
-  await a.goto(`${BASE}#roomname=camonday`);
+  await a.goto(`${BASE}#username=bob`); // no roomname: a fresh room, old params dropped
+  assert.match(await a.evaluate(() => location.hash), /^#roomname=r\d+$/);
+  await a.goto(`${BASE}#roomname=100%`);
   await a.reload(); // a hash-only goto doesn't reload the page
-  assert.strictEqual(await a.evaluate(() => camOnAtStart), false);
-  await a.goto(`${BASE}#roomname=100%&username=50%`);
-  await a.reload();
-  assert.deepStrictEqual(await a.evaluate(() => [getUrlParam('roomname'), username]), ['100%', '50%']);
+  assert.strictEqual(await a.evaluate(() => roomname), '100%');
   assert.deepStrictEqual(errors, []);
   await ctx.close();
 });

@@ -12,49 +12,27 @@ const byId = id => document.getElementById(id); // ids are peer-supplied UUIDs: 
 const MY_UUID = uuidv4();
 const MY_UUID_KEY = uuidv4();
 
-var subdir = location.pathname.replace(/[^/]*$/, ""); // folder of the page: "/basicwebrtc/index.html" -> "/basicwebrtc/"
+const subdir = location.pathname.replace(/[^/]*$/, ""); // folder of the page: "/basicwebrtc/index.html" -> "/basicwebrtc/"
 
-var base64Domain = getUrlParam("base64domain", false);
-
-//ALL # PARAMETERS
-var socketDomain = getUrlParam("socketdomain", false); //Domainname with path
-var camOnAtStart = getUrlParam("camon", false) == false ? false : true; //Defines if cam should be on at start
+// The room is the only URL parameter: the link is what people share, so nothing personal goes in it.
+var roomname = getUrlParam("roomname", false);
+if (!roomname) {
+  roomname = "r" + Math.random().toString().replace(".", "");
+  location.hash = "roomname=" + roomname;
+}
 // Per tab only: survives reloads and other rooms, never shared with other tabs or later visits.
 const stored = k => { try { return sessionStorage[k] } catch { } }; // throws when storage is blocked
 const store = (k, v) => { try { sessionStorage[k] = v } catch { } };
-var username = getUrlParam("username", stored("username") || "NA");
+var username = stored("username") || "NA";
 const knockId = stored("knockId") || uuidv4(); // a locked room's reject cooldown outlives a reload
 store("knockId", knockId);
-var roomname = getUrlParam("roomname", false);
-
-if (!roomname) {
-  roomname = "r" + Math.random().toString().replace(".", "")
-  location.hash = paramsWithout("#", location.hash, [], { roomname }) // & not a 2nd "#"
-}
-
-if (base64Domain && socketDomain) {
-  socketDomain = atob(socketDomain);
-}
 
 var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 if (isMobile || !navigator.mediaDevices.getDisplayMedia) { //No Screenshare on mobile devices
   $("#addRemoveScreenBtn").hidden = true;
 }
 
-const SocketIO_Options = { withCredentials: false }
-
-var socket;
-if (socketDomain) {
-  socketDomain = socketDomain.replace('https://', '').replace('http://', '').split("#")[0];
-  var domainSplit = socketDomain.split('/');
-  socketDomain = 'https://' + domainSplit[0];
-  domainSplit.shift();
-  subdir = '/' + domainSplit.join('/');
-  subdir = subdir.endsWith('/') ? subdir : subdir + '/';
-  socket = io(socketDomain, { "path": subdir + "socket.io", ...SocketIO_Options })
-} else {
-  socket = io("", { "path": subdir + "socket.io", ...SocketIO_Options }); //Connect to socketIo even on subpaths
-}
+const socket = io({ path: subdir + "socket.io" }); // works on subpaths too
 
 var webRTCConfig = {};
 
@@ -65,7 +43,7 @@ var camActive = false;
 var screenActive = false;
 var screenMotion = false; //Screen share mode: false = Detail (sharp text), true = Performance (smooth motion)
 var selectedCameraId = stored("camera") || null;
-camOnAtStart ||= !!stored("camOn"); // camera on or off as last time in this tab
+const camOnAtStart = !!stored("camOn"); // camera on or off as last time in this tab
 const MIC = { echoCancellation: true, noiseSuppression: true };
 // The chosen device, or the browser's pick if it is gone: Chromium ignores a deviceId that is only "ideal"
 const getDevice = (kind, c, id) => navigator.mediaDevices.getUserMedia({ [kind]: id ? { ...c, deviceId: { exact: id } } : c })
@@ -413,13 +391,6 @@ function stopVideo() { // camera and screen share use the same slot
   updateUserLayout();
 }
 
-// `part` (location.hash/search) minus `drop` plus `add`; other params stay byte-identical (getUrlVars parses them raw)
-function paramsWithout(sep, part, drop, add = {}) {
-  const kept = part.slice(1).split("&").filter(p => p && !drop.includes(p.split("=")[0]));
-  for (const k in add) kept.push(k + "=" + encodeURIComponent(add[k]));
-  return kept.length ? sep + kept.join("&") : "";
-}
-
 $("#changeNameBtn").onclick = function () {
   const name = prompt("Your name:", username == "NA" ? "" : username);
   if (name !== null) setName(name);
@@ -427,15 +398,14 @@ $("#changeNameBtn").onclick = function () {
 
 function setName(name) {
   username = name.trim().slice(0, 64) || "NA";
-  history.replaceState(null, "", paramsWithout("#", location.hash, ["username"], { username })); // survives reloads
-  store("username", username);
+  store("username", username); // survives reloads
   if (allUserStreams[MY_UUID]) allUserStreams[MY_UUID].username = username;
   sendToPeers({ username });
   updateUserLayout();
 }
 
 $("#shareBtn").onclick = function () {
-  const url = location.origin + location.pathname + paramsWithout("?", location.search, ["username", "camon"]) + paramsWithout("#", location.hash, ["username", "camon"]);
+  const url = location.origin + location.pathname + "#roomname=" + encodeURIComponent(roomname);
   const copy = () => { $("#shareLink").value = url; $("#shareDialog").showModal(); $("#shareLink").select(); };
   if (!navigator.share) return copy();
   navigator.share({ title: "Join my call", url }).catch(e => e.name != "AbortError" && copy()); // AbortError = user cancelled
@@ -626,7 +596,7 @@ document.addEventListener("fullscreenchange", updateUserLayout); // redo what wa
 
 var retryJoin = null; // at a locked room's door: joins again once let in
 function joinRoom(onJoined) {
-  socket.emit("joinRoom", { roomname: getUrlParam("roomname", "unknown"), keep: Object.keys(pcs), name: username, knockId }, function (res) {
+  socket.emit("joinRoom", { roomname, keep: Object.keys(pcs), name: username, knockId }, function (res) {
     if (!Array.isArray(res)) return retryJoin = () => joinRoom(onJoined), atTheDoor(res.wait);
     showLobby(false);
     $("#knocks").replaceChildren(); // the server sends the open ones again
