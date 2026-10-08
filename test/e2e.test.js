@@ -1054,16 +1054,17 @@ test('lobby: nobody joins until Join, then with the name typed there', async () 
   await b.goto(`${BASE}#roomname=${room}`);
   await waitFor(() => b.locator('#lobby').isVisible(), 'lobby shown');
   for (const call of ['#mediaControllContainer', '#mediaDiv']) assert.strictEqual(await b.locator(call).isVisible(), false, `${call} hidden in the lobby`);
-  assert.strictEqual(await b.inputValue('#lobbyCamera'), '', 'camera off');
+  assert.strictEqual(await b.inputValue('#lobbyCamera'), 'off', 'camera off');
   assert.strictEqual(await b.locator('#lobbyVideo').isVisible(), false);
   const cam = await b.evaluate(() => [...document.querySelectorAll('#lobbyCamera option')].at(-1).value);
   await b.selectOption('#lobbyCamera', cam);
   await waitFor(() => b.evaluate(c => $('#lobbyVideo').srcObject?.getVideoTracks()[0]?.getSettings().deviceId == c && $('#lobbyVideo').checkVisibility(), cam), 'preview of the picked camera');
-  await b.selectOption('#lobbyCamera', '');
+  await b.selectOption('#lobbyCamera', 'off');
   await waitFor(() => b.evaluate(() => !camActive && !$('#lobbyVideo').checkVisibility()), 'camera off again');
   assert.ok(await b.evaluate(() => $('#lobbyMic').options.length > 1 && $('#micMeter') instanceof HTMLMeterElement), 'mic picker and level meter');
   await new Promise(r => setTimeout(r, 1500));
   assert.strictEqual(await a.evaluate(() => Object.keys(pcs).length), 0, 'not joined from the lobby');
+  assert.deepStrictEqual(await b.evaluate(() => ['data-1p-ignore', 'data-lpignore', 'data-bwignore', 'data-form-type'].map(a => $('#nameInput').hasAttribute(a))), [true, true, true, true], 'password managers told to skip the name field');
   await b.fill('#nameInput', 'carol');
   await b.click('#joinBtn');
   assert.strictEqual(await b.locator('#lobby').isVisible(), false, 'lobby closed');
@@ -1177,6 +1178,35 @@ test('lobby: quick device picks run one at a time, no second mic or camera leaks
   await a.context().close();
 });
 
+// Before camera permission, browsers list a camera as a placeholder: no label, deviceId "".
+const noCamPermission = () => {
+  const md = navigator.mediaDevices, enumerate = md.enumerateDevices.bind(md), gum = md.getUserMedia.bind(md);
+  let granted = false;
+  md.getUserMedia = async c => { const s = await gum(c); granted ||= !!c.video; return s; };
+  md.enumerateDevices = async () => (await enumerate()).map(d => d.kind != 'videoinput' || granted ? d
+    : { kind: d.kind, deviceId: '', label: '', groupId: '' }).filter((d, i, l) => d.deviceId || l.findIndex(e => e.kind == d.kind) == i);
+};
+
+test('lobby: the placeholder camera listed before permission turns the camera on', async () => {
+  const a = await open('r' + Date.now(), 'alice', noCamPermission);
+  await waitFor(() => a.evaluate(() => $('#lobbyCamera').options.length == 2), 'one placeholder camera');
+  await a.selectOption('#lobbyCamera', { index: 1 });
+  await waitFor(() => a.evaluate(() => camActive && $('#lobbyVideo').checkVisibility()), 'camera on with preview');
+  await waitFor(() => a.evaluate(() => $('#lobbyCamera').options.length == 3 && $('#lobbyCamera').value == allUserStreams[MY_UUID].videostream.getVideoTracks()[0].getSettings().deviceId), 'real cameras listed, the one in use picked');
+  await a.context().close();
+});
+
+test('lobby: a camera prompt answered with no goes back to Off', async () => {
+  const a = await open('r' + Date.now(), 'alice', () => {
+    const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = c => c.video ? Promise.reject(new DOMException('denied', 'NotAllowedError')) : gum(c);
+  });
+  await waitFor(() => a.evaluate(() => $('#lobbyCamera').options.length > 1), 'camera listed');
+  await a.selectOption('#lobbyCamera', { index: 1 });
+  await waitFor(async () => await a.inputValue('#lobbyCamera') == 'off', 'dropdown back to Off');
+  await a.context().close();
+});
+
 test('lobby: a camera picked right away is not switched off by camon', async () => {
   const ctx = await browser.newContext();
   const a = await ctx.newPage();
@@ -1245,9 +1275,18 @@ test('closed room: anyone locks, a newcomer knocks, any member lets in or denies
   for (const p of [a, b, c, d]) await p.context().close();
 });
 
+test('the lock message uses the name from the server while the peer is still unnamed', async () => {
+  const a = await join('r' + Date.now(), 'alice');
+  await a.evaluate(() => socket.listeners('locked')[0]({ locked: true, by: 'x', name: 'zed' }));
+  assert.match(await a.textContent('#chatText'), /zed locked the room/);
+  await a.evaluate(() => socket.listeners('locked')[0]({ locked: false, by: 'x', name: 'NA' }));
+  assert.match(await a.textContent('#chatText'), /Someone unlocked the room/);
+  await a.context().close();
+});
+
 test('knock banners work for any knocker UUID, also one that spells an element id', async () => {
   const a = await join('r' + Date.now(), 'alice');
-  await waitFor(async () => !(await a.locator('#lobby').isVisible()), 'joined'); // joining clears #knocks
+  await waitFor(() => a.evaluate(() => allUserStreams[MY_UUID].status === ''), 'joined'); // the join ack clears #knocks; the lobby already hides on Join
   await a.evaluate(() => ['s', 'x'].forEach(UUID => socket.listeners('knock')[0]({ UUID, name: UUID }))); // "knock" + "s" == "knocks"
   assert.strictEqual(await a.locator('.knock').count(), 2);
   await a.evaluate(() => socket.listeners('knockDone')[0]('s'));

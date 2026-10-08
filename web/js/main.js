@@ -82,14 +82,14 @@ async function updateDeviceLists() { //Show a picker only if there is more than 
   fill("audioinput", "Microphone", "#micSelect", "#selectMicBtn", webRTCConfig["stream"]?.getAudioTracks()[0].getSettings().deviceId);
   $("#lobbyMic").replaceChildren(...[...$("#micSelect").options].map(o => new Option(o.text, o.value)));
   $("#lobbyMic").value = $("#micSelect").value;
-  $("#lobbyCamera").replaceChildren(new Option("Off", ""), ...[...$("#cameraSelect").options].map(o => new Option(o.text, o.value)));
-  $("#lobbyCamera").value = camActive ? $("#cameraSelect").value : "";
+  $("#lobbyCamera").replaceChildren(new Option("Off", "off"), ...[...$("#cameraSelect").options].map(o => new Option(o.text, o.value)));
+  $("#lobbyCamera").value = camActive ? $("#cameraSelect").value : "off"; // not "": a camera listed before permission has deviceId ""
 }
 // The lobby's dropdowns hand over to the call's pickers: one code path for switching devices,
 // and their busy guard: a dispatched "change" reaches a disabled select too.
 const pick = (select, value) => { $(select).value = value; $(select).dispatchEvent(new Event("change")); };
 $("#lobbyMic").onchange = e => pick("#micSelect", e.target.value);
-$("#lobbyCamera").onchange = e => e.target.value ? pick("#cameraSelect", e.target.value) : camActive && toggleCamera();
+$("#lobbyCamera").onchange = e => e.target.value != "off" ? pick("#cameraSelect", e.target.value) : camActive && toggleCamera();
 // Unplugged mic: the list drops it, switch to the one picked there. Also on devicechange: a mic plugged in after none was left.
 async function checkMic() {
   await updateDeviceLists();
@@ -153,7 +153,8 @@ socket.on("userJoined", function (content) {
 
 const sendToPeers = obj => { for (var i in pcs) pcs[i].send(obj) };
 window.addEventListener("pagehide", () => sendToPeers({ bye: true })); // hang up, tab closed or reload
-const nameOf = UUID => { const n = allUserStreams[UUID] && allUserStreams[UUID]["username"]; return n && n != "NA" ? n : "" };
+const realName = n => n && n != "NA" ? n : ""; // "NA": no name set
+const nameOf = UUID => realName(allUserStreams[UUID]?.username);
 
 function setAudioLevel(UUID, level) {
   if (allUserStreams[UUID]) allUserStreams[UUID].muted = level < 0; // re-shown by updateUserLayout
@@ -377,6 +378,7 @@ function toggleCamera() {
       var stream = await getDevice("video", { facingMode: "user" }, selectedCameraId);
     } catch (error) {
       store("camOn", "");
+      updateDeviceLists(); // lobby dropdown back to "Off"
       alert("Could not get your Camera! Be sure you have one connected and it is not used by any other process!")
       console.log('getUserMedia error! Got this error: ', error);
       return;
@@ -673,11 +675,11 @@ function showLock(locked) {
   roomLocked = locked;
   $("#lockBtn").innerHTML = locked ? '<i class="fas fa-lock-open"></i> Unlock room' : '<i class="fas fa-lock"></i> Lock room';
 }
-socket.on("locked", function ({ locked, by }) {
+socket.on("locked", function ({ locked, by, name }) {
   showLock(locked);
-  if (by && by != MY_UUID) showMsg("", `${nameOf(by) || "Someone"} ${locked ? "locked the room: newcomers have to be let in" : "unlocked the room"}`);
+  if (by && by != MY_UUID) showMsg("", `${nameOf(by) || realName(name) || "Someone"} ${locked ? "locked the room: newcomers have to be let in" : "unlocked the room"}`);
 });
-$("#lockBtn").onclick = () => socket.emit("setLocked", !roomLocked);
+$("#lockBtn").onclick = () => socket.emit("setLocked", !roomLocked, username);
 
 // iOS Safari can block autoplay of remote audio: any tap retries it
 addEventListener("click", () => document.querySelectorAll("#audioStreams audio").forEach(a => a.paused && a.play().catch(() => { })), true);
