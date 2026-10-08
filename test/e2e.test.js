@@ -722,7 +722,7 @@ test('old link params are ignored: username, camon, socketdomain', async () => {
   await a.goto(`${BASE}#roomname=old&username=bob&camon=true&socketdomain=evil.example`);
   await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown');
   await a.waitForTimeout(1500); // camon used to switch the camera on after 1s
-  assert.deepStrictEqual(await a.evaluate(() => [username, $('#nameInput').value, camActive, $('#lobbyCamera').value]), ['NA', '', false, '']);
+  assert.deepStrictEqual(await a.evaluate(() => [username, $('#nameInput').value, camActive, $('#lobbyCamera').value]), ['NA', '', false, 'off']);
   assert.ok(sockets.length && sockets.every(u => u.startsWith(BASE.replace('http', 'ws'))), 'signaling stays on this server: ' + sockets);
   await ctx.close();
 });
