@@ -631,10 +631,11 @@ document.addEventListener("fullscreenchange", updateUserLayout); // redo what wa
 
 var retryJoin = null; // at a locked room's door: joins again once let in
 function joinRoom(onJoined) {
-  socket.emit("joinRoom", { roomname, keep: Object.keys(pcs), name: username, knockId, lock: $("#closedInput").checked }, function (res) {
+  const lock = !$("#closedLabel").hidden && $("#closedInput").checked; // only a pick on screen: Firefox restores a hidden tick on reload
+  socket.emit("joinRoom", { roomname, keep: Object.keys(pcs), name: username, knockId, lock }, function (res) {
     if (!Array.isArray(res)) return retryJoin = () => joinRoom(onJoined), atTheDoor(res.wait);
     showLobby(false);
-    if ($("#closedInput").checked && res.length) showMsg("", "Someone was in first: the room is open. Use Lock room to close it.");
+    if (lock && res.length) showMsg("", "Someone was in first: the room is open. Use Lock room to close it.");
     $("#closedInput").checked = false; // picked once: a later rejoin keeps what the members set since
     $("#knocks").replaceChildren(); // the server sends the open ones again
     showLock(false); // and the lock, if set
