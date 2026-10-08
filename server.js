@@ -101,8 +101,9 @@ ioServer.sockets.on('connection', function (socket) {
             ioServer.to(knockRoom).emit("knockDone", MY_UUID);
         }
         const name = roomOfUser;
-        if (name !== null && !ioServer.sockets.adapter.rooms.get(name)) {
-            setTimeout(() => ioServer.sockets.adapter.rooms.get(name) || forgetRoom(name), ROOM_GRACE_MS);
+        if (name !== null && !ioServer.sockets.adapter.rooms.get(name) && rooms[name]) { // one timer per room: a join cancels it
+            clearTimeout(rooms[name].timer);
+            rooms[name].timer = setTimeout(() => forgetRoom(name), ROOM_GRACE_MS);
         }
         if (socketID_UUIDMatch[MY_UUID] !== socket.id) return; // a newer socket already took over this UUID
         socket.to(roomOfUser).emit('userDiscconected', MY_UUID);
@@ -130,6 +131,7 @@ ioServer.sockets.on('connection', function (socket) {
             return ack({ wait: 0 });
         }
         room.approved.add(MY_UUID).add(knockId); // also when it reconnects or reloads later
+        clearTimeout(room.timer); // not empty any more
         if (content["lock"] === true && !ioServer.sockets.adapter.rooms.get(name)) room.locked = true; // first one in picked "closed"
         roomOfUser = socket.data.room = name;
         const keep = Array.isArray(content["keep"]) ? content["keep"].filter(k => typeof k == "string").slice(0, 8) : []; // peers a rejoining page still has a live call with

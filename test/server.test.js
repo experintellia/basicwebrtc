@@ -381,3 +381,19 @@ test('a locked room that just emptied is not offered as empty', async () => {
   await new Promise(r => setTimeout(r, 500)); // past the grace time: forgotten, open again
   assert.deepStrictEqual(await ack(b, 'roomInfo', 'room-ge'), { empty: true });
 });
+
+test('an earlier emptying does not cut the grace time short (#54)', async () => {
+  const x = await client('GT1'), y = await client('GT2'), s = await client('GT3');
+  await join(x, 'room-gt');
+  x.c.close(); // room empty: grace time starts
+  await new Promise(r => setTimeout(r, 150));
+  const locked = nextEvent(y.c, 'locked');
+  assert.deepStrictEqual(await ack(y, 'joinRoom', { roomname: 'room-gt', lock: true }), [], 'first in again');
+  await locked;
+  await new Promise(r => setTimeout(r, 100));
+  y.c.close(); // a reload: empty again, a fresh grace time
+  await new Promise(r => setTimeout(r, 150)); // past the first grace time, not the second
+  assert.deepStrictEqual(await ack(s, 'roomInfo', 'room-gt'), { empty: false }, 'lock kept');
+  await new Promise(r => setTimeout(r, 300));
+  assert.deepStrictEqual(await ack(s, 'roomInfo', 'room-gt'), { empty: true }, 'forgotten after its own grace time');
+});
