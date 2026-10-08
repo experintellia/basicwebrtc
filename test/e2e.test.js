@@ -1292,11 +1292,32 @@ test('the first one in the lobby can open the room closed', async () => {
   await a.click('#joinBtn');
   await waitFor(async () => /Unlock room/.test(await a.textContent('#lockBtn')), 'room closed');
   const b = await open(room, 'bob');
-  await new Promise(r => setTimeout(r, 500));
+  await b.waitForFunction(() => !$('#lobby').hidden);
+  await b.evaluate(() => new Promise(r => socket.emit('roomInfo', roomname, r))); // answered in order: the lobby's own ask is done
   assert.strictEqual(await b.locator('#closedInput').isVisible(), false, 'not offered when someone is in');
   await b.click('#joinBtn');
   await waitFor(async () => /let you in/.test(await b.textContent('#lobbyMsg')), 'bob knocks');
   for (const p of [a, b]) await p.context().close();
+});
+
+test('a closed pick from a lobby someone joined meanwhile: told the room is open, no pick at the door', async () => {
+  const room = 'r' + Date.now();
+  const a = await open(room, 'alice'), c = await open(room, 'carol');
+  for (const p of [a, c]) await waitFor(() => p.locator('#closedInput').isVisible(), 'room empty: choice shown');
+  const b = await join(room, 'bob'); // open
+  await waitFor(async () => /Lock room/.test(await b.textContent('#lockBtn')), 'bob in');
+  await a.check('#closedInput');
+  await a.click('#joinBtn');
+  await waitFor(() => a.evaluate(() => $('#chatText').textContent.includes('the room is open')), 'alice told');
+  assert.match(await a.textContent('#lockBtn'), /Lock room/);
+  assert.strictEqual(await a.isChecked('#closedInput'), false, 'pick cleared after joining');
+  await b.click('#moreBtn'); await b.click('#lockBtn');
+  await waitFor(async () => /Unlock room/.test(await a.textContent('#lockBtn')), 'locked');
+  await c.check('#closedInput');
+  await c.click('#joinBtn');
+  await waitFor(async () => /let you in/.test(await c.textContent('#lobbyMsg')), 'carol knocks');
+  assert.strictEqual(await c.locator('#closedInput').isVisible(), false, 'no open/closed pick at a locked door');
+  for (const p of [a, b, c]) await p.context().close();
 });
 
 test('knock banners work for any knocker UUID, also one that spells an element id', async () => {

@@ -371,3 +371,13 @@ test('the first one in can open the room closed; later joiners cannot lock it th
   assert.deepStrictEqual(await ack(d, 'joinRoom', { roomname: 'room-fo', lock: true }), ['F3']);
   assert.deepStrictEqual(await ack(await client('F5'), 'joinRoom', { roomname: 'room-fo' }), ['F3', 'F4'], 'still open');
 });
+
+test('a locked room that just emptied is not offered as empty', async () => {
+  const a = await client('GE1'), b = await client('GE2');
+  await ack(a, 'joinRoom', { roomname: 'room-ge', lock: true });
+  a.c.close();
+  await new Promise(r => setTimeout(r, 50));
+  assert.deepStrictEqual(await ack(b, 'roomInfo', 'room-ge'), { empty: false }, 'still locked in the grace time');
+  await new Promise(r => setTimeout(r, 500)); // past the grace time: forgotten, open again
+  assert.deepStrictEqual(await ack(b, 'roomInfo', 'room-ge'), { empty: true });
+});

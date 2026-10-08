@@ -631,9 +631,10 @@ document.addEventListener("fullscreenchange", updateUserLayout); // redo what wa
 
 var retryJoin = null; // at a locked room's door: joins again once let in
 function joinRoom(onJoined) {
-  socket.emit("joinRoom", { roomname: getUrlParam("roomname", "unknown"), keep: Object.keys(pcs), name: username, knockId, lock: $("#closedInput").checked }, function (res) {
+  socket.emit("joinRoom", { roomname, keep: Object.keys(pcs), name: username, knockId, lock: $("#closedInput").checked }, function (res) {
     if (!Array.isArray(res)) return retryJoin = () => joinRoom(onJoined), atTheDoor(res.wait);
     showLobby(false);
+    if ($("#closedInput").checked && res.length) showMsg("", "Someone was in first: the room is open. Use Lock room to close it.");
     $("#closedInput").checked = false; // picked once: a later rejoin keeps what the members set since
     $("#knocks").replaceChildren(); // the server sends the open ones again
     showLock(false); // and the lock, if set
@@ -645,6 +646,8 @@ var doorTimer;
 function atTheDoor(wait) { // locked room: back to the lobby until a member lets us in
   setStatus(MY_UUID, "");
   showLobby(true);
+  $("#closedLabel").hidden = true; // a locked room is not ours to open or close
+  $("#closedInput").checked = false;
   clearInterval(doorTimer);
   const tick = () => { // denied: count the cooldown down, then allow knocking again
     $("#joinBtn").disabled = wait > 0;

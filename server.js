@@ -143,7 +143,9 @@ ioServer.sockets.on('connection', function (socket) {
     })
 
     socket.on("roomInfo", function (name, callback) { // lobby: is anyone in? Then the first one picks open or closed
-        if (typeof callback == "function") callback({ empty: !ioServer.sockets.adapter.rooms.get(typeof name == "string" ? name.slice(0, 64) : "") });
+        if (typeof callback != "function") return;
+        name = typeof name == "string" ? name.slice(0, 64) : "";
+        callback({ empty: !ioServer.sockets.adapter.rooms.get(name) && !rooms[name]?.locked }); // just emptied but locked: not open to a new pick
     });
 
     socket.on("setLocked", function (locked, name) { // name: peers may not have it over P2P yet
