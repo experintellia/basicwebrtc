@@ -31,7 +31,7 @@ location /basicwebrtc/ {
 	proxy_http_version 1.1;
 	proxy_set_header Upgrade $http_upgrade;
 	proxy_set_header Connection upgrade;
-	proxy_pass http://127.0.0.1:8080/;
+	proxy_pass http://127.0.0.1:3001/;
 }
 ```
 ## Upgrading ##
@@ -80,3 +80,6 @@ If you have the turn server running, put it into /iceservers.json
 ```
 The `?transport=tcp` url lets clients on UDP-blocked networks still connect (media stays e2e encrypted, the relay only sees ciphertext).
 Change the ips and authSecret as defined on docker run. The username can be set to anything you want or leave it like this then restart the basicwebrtc server.
+
+## Credits ##
+Icons: [Font Awesome Free](https://fontawesome.com) 5.13.1 (icons CC BY 4.0, fonts SIL OFL 1.1, code MIT), see `web/webfonts/LICENSE.txt` (with the full OFL 1.1 and MIT texts).

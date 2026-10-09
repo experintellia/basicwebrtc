@@ -405,3 +405,41 @@ test('an earlier emptying does not cut the grace time short (#54)', async () => 
   await new Promise(r => setTimeout(r, 300));
   assert.deepStrictEqual(await ack(s, 'roomInfo', 'room-gt'), { empty: true }, 'forgotten after its own grace time');
 });
+
+test('a room named like a socket id is not that socket\'s room', async () => {
+  const a = await client('SI1'), b = await client('SI2'), spy = await client('SI3');
+  await join(a, 'room-si'); await join(b, 'room-si');
+  assert.deepStrictEqual(await ack(await client('SI4'), 'roomInfo', b.c.id), { empty: true });
+  const noJoin = quiet(b.c, 'userJoined');
+  await join(spy, b.c.id); // socket.io puts each socket in a room of its id
+  await noJoin;
+  const leak = quiet(spy.c, 'signaling'), got = nextEvent(b.c, 'signaling');
+  a.c.emit('signaling', { destUUID: 'SI2', signalingData: 'hi' });
+  assert.strictEqual((await got).signalingData, 'hi');
+  await leak;
+});
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+test('a dropped UUID stays its owner\'s for the grace time, counted from its last drop', async () => {
+  const a = await client('DR1', 'mine'), b = await client('DR2');
+  await join(a, 'room-dr'); await join(b, 'room-dr');
+  const left = nextEvent(b.c, 'userDiscconected');
+  a.c.close();
+  assert.strictEqual(await left, 'DR1');
+  assert.ok((await client('DR1', 'thief')).err, 'a room member cannot take it over');
+  await sleep(200);
+  const back = await client('DR1', 'mine'); // the owner reconnects ...
+  await join(back, 'room-dr');
+  const leftAgain = nextEvent(b.c, 'userDiscconected');
+  back.c.close(); // ... and drops again
+  await leftAgain;
+  await sleep(150); // past the first drop's grace time (ROOM_GRACE_MS is 300 here), inside the second's
+  assert.ok((await client('DR1', 'thief')).err, 'the first drop\'s timer does not free it');
+  for (let i = 0; (await client('DR1', 'new')).err; i++) { assert.ok(i < 20, 'freed after the grace time'); await sleep(100); }
+});
+
+test('server pings every 10s and drops a silent socket after 10s more', async () => {
+  const { c } = await client('PG1');
+  assert.ok(c.io.engine.pingInterval + c.io.engine.pingTimeout <= 20000);
+});
