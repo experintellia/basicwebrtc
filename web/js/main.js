@@ -13,12 +13,14 @@ const MY_UUID_KEY = crypto.randomUUID();
 const subdir = location.pathname.replace(/[^/]*$/, ""); // folder of the page: "/basicwebrtc/index.html" -> "/basicwebrtc/"
 
 // The room is the only URL parameter: the link is what people share, so nothing personal goes in it.
-// Last "roomname=" in query or hash wins. Not URLSearchParams: it turns "+" into a space and moves old links to another room.
-const roomParam = [location.search, location.hash].flatMap(p => p.slice(1).split("&")).filter(p => p.startsWith("roomname=")).pop()?.slice(9);
-const roomname = roomParam && (() => { try { return decodeURIComponent(roomParam) } catch { return roomParam } })() // a stray "%" (e.g. "100%") stays raw
-  || "r" + Math.random().toString().replace(".", "");
-if (!roomParam) history.replaceState(null, "", "#roomname=" + roomname); // no hashchange: no reload
-addEventListener("hashchange", () => location.reload()); // a pasted room link changes only the hash
+// Last non-empty "roomname=" in query or hash wins. Not URLSearchParams: it turns "+" into a space and moves old links to another room.
+const roomFromUrl = () => {
+  const raw = [location.search, location.hash].flatMap(p => p.slice(1).split("&")).filter(p => p.length > 9 && p.startsWith("roomname=")).pop()?.slice(9);
+  try { return raw && decodeURIComponent(raw) } catch { return raw } // a stray "%" (e.g. "100%") stays raw
+};
+const roomname = roomFromUrl() || "r" + Math.random().toString().replace(".", "");
+if (!roomFromUrl()) history.replaceState(null, "", "#roomname=" + roomname); // no hashchange: no reload
+addEventListener("hashchange", () => roomFromUrl() && roomFromUrl() != roomname && location.reload()); // a pasted link to another room changes only the hash
 // Per tab only: survives reloads and other rooms, never shared with other tabs or later visits.
 const stored = k => { try { return sessionStorage[k] } catch { } }; // throws when storage is blocked
 const store = (k, v) => { try { sessionStorage[k] = v } catch { } };

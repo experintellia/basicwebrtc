@@ -757,6 +757,7 @@ test('share link is just the room, whatever else the URL holds', async () => {
   await a.click('#moreBtn'); await a.click('#shareBtn');
   const shared = await a.evaluate(() => window.__shared);
   assert.strictEqual(shared.url, `${BASE}#roomname=${room}`);
+  assert.strictEqual(await a.evaluate(() => username), 'alice', '?username= ignored too');
   await a.context().close();
 });
 
@@ -787,6 +788,16 @@ test('a room link pasted into an open tab goes to that room', async () => {
   const room = 'r' + Date.now() + 'b';
   await a.evaluate(r => location.hash = 'roomname=' + r, room); // hash-only change: no reload by itself
   await waitFor(() => a.evaluate(r => roomname == r, room).catch(() => false), 'page on the new room');
+  await a.context().close();
+});
+
+test('the same room link again, or with old params, does not reload the call', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  await a.evaluate(() => window.__still = true);
+  await a.evaluate(r => location.hash = 'roomname=' + r + '&username=bob', room);
+  await new Promise(r => setTimeout(r, 1000));
+  assert.strictEqual(await a.evaluate(() => window.__still), true, 'no reload');
   await a.context().close();
 });
 
