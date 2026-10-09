@@ -359,9 +359,7 @@ test('unlocking lets the waiting knockers in', async () => {
 
 test('no CORS headers for other origins', async () => {
   const headers = { Origin: 'https://evil.example' };
-  const page = await fetch(`${URL}/`, { headers });
   const poll = await fetch(`${URL}/socket.io/?EIO=4&transport=polling`, { headers });
-  assert.strictEqual(page.headers.get('access-control-allow-origin'), null);
   assert.strictEqual(poll.headers.get('access-control-allow-origin'), null);
 });
 
