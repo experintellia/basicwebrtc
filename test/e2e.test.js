@@ -133,10 +133,10 @@ test('camera toggle reaches the other peer', async () => {
 });
 
 // #3: bob turns on his camera after answering alice's offer, but before alice has applied that
-// answer. His "renegotiate" then arrives while alice is still making an offer and must not be lost.
+// answer: his video must still reach alice. Since #57 a camera change sends no offer, so an ICE restart makes one.
 test('answerer camera change during an in-flight offer reaches the initiator', async () => {
   const room = 'r' + Date.now();
-  const a = await join(room, 'alice'); // already in the room -> initiator
+  const a = await join(room, 'alice', trackPcs); // already in the room -> initiator
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
   await a.evaluate(() => { // hold back bob's answers on alice for 3s
@@ -149,6 +149,7 @@ test('answerer camera change during an in-flight offer reaches the initiator', a
     pc.signaling = d => orig(d).then(() => { if (d && d.type == 'offer') __answered++; });
   });
   await a.click('#addRemoveCameraBtn');
+  await a.evaluate(() => __raw.at(-1).restartIce()); // an offer in flight
   await waitFor(() => b.evaluate(() => __answered > 0), 'bob answered alice\'s offer', 3000);
   await b.click('#addRemoveCameraBtn'); // after bob answered, before alice applied the answer
   await waitFor(() => remoteVideoShown(b), 'remote video on bob');
@@ -157,9 +158,12 @@ test('answerer camera change during an in-flight offer reaches the initiator', a
 });
 
 // #25: one lost answer must not block all later renegotiation.
-test('a lost answer does not block later camera changes', async () => {
+const offerSent = page => waitFor(() => page.evaluate(() => Object.values(pcs)[0].makingOffer), 'offer sent');
+const offerAnswered = (page, ms) => waitFor(() => page.evaluate(() => !Object.values(pcs)[0].makingOffer && __raw.at(-1).signalingState == 'stable'), 'offer answered', ms);
+
+test('a lost answer does not block later negotiation', async () => {
   const room = 'r' + Date.now();
-  const a = await join(room, 'alice');
+  const a = await join(room, 'alice', trackPcs);
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
   await a.evaluate(() => { // drop exactly one answer on alice
@@ -167,6 +171,12 @@ test('a lost answer does not block later camera changes', async () => {
     let dropped = false;
     pc.signaling = d => d && d.type == 'answer' && !dropped ? (dropped = true, Promise.resolve()) : orig(d);
   });
+  await a.evaluate(() => __raw.at(-1).restartIce()); // since #57 camera changes send no offer: an ICE restart does
+  await offerSent(a);
+  await offerAnswered(a); // offered again after the lost answer
+  await a.evaluate(() => __raw.at(-1).restartIce());
+  await offerSent(a);
+  await offerAnswered(a, 4000); // the next one goes through at once
   await a.click('#addRemoveCameraBtn');
   await b.click('#addRemoveCameraBtn');
   await waitFor(() => remoteVideoShown(b), 'remote video on bob');
@@ -177,16 +187,16 @@ test('a lost answer does not block later camera changes', async () => {
 // Mid-deploy: an older answerer doesn't echo gen; its answers must still be applied.
 test('answers without gen (older client) are still accepted', async () => {
   const room = 'r' + Date.now();
-  const a = await join(room, 'alice');
+  const a = await join(room, 'alice', trackPcs);
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
   await a.evaluate(() => { // strip gen from every answer alice receives
     const pc = Object.values(pcs)[0], orig = pc.signaling;
     pc.signaling = d => orig(d && d.type == 'answer' ? { type: d.type, sdp: d.sdp } : d);
   });
-  await a.click('#addRemoveCameraBtn');
-  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
-  assert.strictEqual(await a.evaluate(() => Object.values(pcs)[0].makingOffer), false, 'answer applied');
+  await a.evaluate(() => __raw.at(-1).restartIce()); // since #57 camera changes send no offer: an ICE restart does
+  await offerSent(a);
+  await offerAnswered(a, 4000); // applied, not re-offered after 5s
   await a.context().close(); await b.context().close();
 });
 
@@ -370,6 +380,33 @@ test('signaling socket reconnect keeps the call working', async () => {
 const remoteVideoShown = page => page.evaluate(() => [...document.querySelectorAll('#mediaDiv video')]
   .some(v => v.srcObject && v.videoWidth > 0 && !v.style.transform.includes('scaleX')));
 
+// #57: one video transceiver per peer; camera on/off swaps its track, no renegotiation.
+test('camera toggles reuse one video slot, without renegotiation (#57)', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', trackPcs);
+  const b = await join(room, 'bob', trackPcs);
+  await waitFor(async () => (await connectedPeers(a)) === 1 && (await connectedPeers(b)) === 1, 'ICE connected');
+  await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
+  for (const p of [a, b]) await p.evaluate(() => { // count descriptions applied from now on
+    const pc = __raw.at(-1), set = pc.setRemoteDescription.bind(pc);
+    window.__sets = 0;
+    pc.setRemoteDescription = d => (__sets++, set(d));
+  });
+  for (let i = 0; i < 3; i++) {
+    for (const [p, q] of [[a, b], [b, a]]) {
+      await p.click('#addRemoveCameraBtn');
+      await waitFor(() => remoteVideoShown(q), 'remote video on');
+      await p.click('#addRemoveCameraBtn');
+      await waitFor(async () => !(await remoteVideoShown(q)), 'remote video off');
+    }
+  }
+  for (const p of [a, b]) {
+    assert.strictEqual(await p.evaluate(() => __sets), 0, 'no offer/answer per toggle');
+    assert.strictEqual(await p.evaluate(() => __raw.at(-1).getTransceivers().length), 2, 'audio + one video slot');
+  }
+  await a.context().close(); await b.context().close();
+});
+
 test('chat shows messages as text and keeps links clickable', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');
@@ -453,7 +490,7 @@ test('camera changes renegotiate without the server (#11)', async () => {
   for (const p of [a, b]) await p.evaluate(() => socket.disconnect());
   await a.click('#addRemoveCameraBtn'); // initiator: offer over the data channel
   await waitFor(() => remoteVideoShown(b), 'remote video on bob');
-  await b.click('#addRemoveCameraBtn'); // answerer: "transceive"/"renegotiate" over the data channel
+  await b.click('#addRemoveCameraBtn'); // answerer: {video: true} over the data channel
   await waitFor(() => remoteVideoShown(a), 'remote video on alice');
   await a.context().close(); await b.context().close();
 });

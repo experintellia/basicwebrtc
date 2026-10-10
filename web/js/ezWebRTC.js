@@ -8,10 +8,6 @@ function initEzWebRTC(initiator, config) {
     var gen = Math.floor(Math.random() * 1e9); //counts offers; the answer echoes it, so answers to older offers are dropped
 
     var rtcConfig = { //Default Values
-        offerOptions: {
-            offerToReceiveAudio: true, //- depricated - want audio
-            offerToReceiveVideo: true  //- depricated - want video
-        },
         'iceServers': [
             {
                 "urls": "stun:stun.l.google.com:19302"
@@ -44,21 +40,27 @@ function initEzWebRTC(initiator, config) {
         _this.emitEvent("signaling", e.candidate)
     };
 
+    // One video slot per peer (#57): camera and screen share swap its track, no renegotiation.
+    // The initiator offers it, the answerer sends on it too; main.js says {video: true|false} over the data channel.
+    var video = null, videoTrack = null, degradation = null;
+    this.remoteVideo = null; // the peer's video slot, shown while it says {video: true}
+    this.setVideo = function (track) {
+        videoTrack = track;
+        if (video) video.sender.replaceTrack(track).catch(e => console.log("replaceTrack Error", e)); //e.g. closed pc
+    }
+    this.setDegradation = function (pref) { //What the encoder gives up under load, without renegotiation
+        degradation = pref;
+        if (!video) return;
+        var params = video.sender.getParameters();
+        params.degradationPreference = pref;
+        video.sender.setParameters(params).catch(e => console.log("setParameters Error", e));
+    }
+
     var knownStreams = {};
     pc.ontrack = function (event) {
+        if (event.track.kind == "video") return _this.remoteVideo ||= new MediaStream([event.track]);
         event.streams.forEach(eventStream => {
-            _this.emitEvent('track', event.track, eventStream);
-            if (!knownStreams[eventStream.id]) { //emit onStream event
-                _this.emitEvent("stream", eventStream);
-                eventStream.onremovetrack = (event) => {
-                    _this.emitEvent('trackremoved', event.track, eventStream);
-                    let tracks = eventStream.getTracks();
-                    if (tracks.length == 0) { //If no tracks left
-                        _this.emitEvent("streamremoved", eventStream, event.track.kind);
-                    }
-                    delete trackSenders[event.track.id]
-                };
-            }
+            if (!knownStreams[eventStream.id]) _this.emitEvent("stream", eventStream);
             knownStreams[eventStream.id] = true;
         });
     }
@@ -106,10 +108,13 @@ function initEzWebRTC(initiator, config) {
         } else if (signalData && signalData.type == "offer") { //Got an offer -> Create Answer)
             _this.gotOffer = true;
             await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData)) //only the answerer gets offers; have-remote-offer -> have-remote-offer is valid
-            await pc.setLocalDescription(await pc.createAnswer(rtcConfig.offerOptions));
+            if (!video && (video = pc.getTransceivers().find(t => t.receiver.track.kind == "video"))) { // the initiator's video slot: send on it too
+                video.direction = "sendrecv"; // before the answer, so it is negotiated
+                _this.setVideo(videoTrack);
+                if (degradation) _this.setDegradation(degradation);
+            }
+            await pc.setLocalDescription(await pc.createAnswer());
             _this.emitEvent("signaling", { type: "answer", sdp: opusParams(pc.localDescription.sdp), gen: signalData.gen }) //sdp is readonly per spec: send a munged copy
-            if (!initiator)
-                requestMissingTransceivers()
         } else if (signalData && signalData.type == "answer" && initiator) { //Initiator: Setting answer and starting connection
             if (signalData.gen !== undefined && signalData.gen != gen) return; //answer to an older offer (no gen: older client, accept)
             try {
@@ -119,8 +124,6 @@ function initEzWebRTC(initiator, config) {
             }
             _this.makingOffer = false;
             if (offerPending) { offerPending = false; negotiate(); } //e.g. a "renegotiate" that came in meanwhile
-        } else if (signalData && signalData.type == "transceive" && initiator) { //Got an request to transrecive
-            _this.addTransceiver(signalData.kind, signalData.init)
         } else if (signalData && signalData.candidate) { //is a icecandidate thing
             await pc.addIceCandidate(new wrtc.RTCIceCandidate(signalData));
         } else {
@@ -135,50 +138,12 @@ function initEzWebRTC(initiator, config) {
         })
     }
 
-    this.removeStream = function (stream) {
-        stream.getTracks().forEach(track => _this.removeTrack(track));
-    }
-
-    this.addTrack = function (track, stream) {
-        pc.addTrack(track, stream);
-    }
-
-    this.removeTrack = function (track) {
-        if (trackSenders[track.id]) //Unknown track would throw and abort the caller
-            pc.removeTrack(trackSenders[track.id])
-    }
-
-    this.replaceTrack = function (oldTrack, newTrack) { //Swap a sent track without renegotiation
+    this.replaceTrack = function (oldTrack, newTrack) { //Swap the sent mic track without renegotiation
         var sender = trackSenders[oldTrack.id];
         if (!sender) return;
         delete trackSenders[oldTrack.id];
         trackSenders[newTrack.id] = sender;
         sender.replaceTrack(newTrack).catch(e => console.log("replaceTrack Error", e)); //e.g. closed pc
-    }
-
-    this.setDegradation = function (track, pref) { //What the encoder gives up under load, without renegotiation
-        var sender = trackSenders[track.id];
-        if (!sender) return;
-        var params = sender.getParameters();
-        params.degradationPreference = pref;
-        sender.setParameters(params).catch(e => console.log("setParameters Error", e));
-    }
-
-    this.addTransceiver = function (kind, init) {
-        if (initiator) {
-            try {
-                pc.addTransceiver(kind, init)
-            } catch (err) {
-                console.log("addTransceiver Error", err)
-                _this.destroy()
-            }
-        } else {
-            _this.emitEvent("signaling", { // request initiator add a transceiver
-                type: "transceive",
-                kind: kind,
-                init: init
-            })
-        }
     }
 
     this.destroy = function () {
@@ -191,11 +156,8 @@ function initEzWebRTC(initiator, config) {
         _this.isConnected = false;
     }
 
-    if (rtcConfig.stream) {
-        this.addStream(rtcConfig.stream); //Add stream at start, this will trigger negotiation
-    } else if (initiator) { //start negotiation if we are initiator anyway if we have no stream
-        negotiate();
-    }
+    if (rtcConfig.stream) this.addStream(rtcConfig.stream); //the mic; the answerer's track joins the offer's audio slot
+    if (initiator) video = pc.addTransceiver("video", { direction: "sendrecv" }); //triggers the first negotiation
 
     var offerPending = false;
     async function negotiate() {
@@ -205,7 +167,7 @@ function initEzWebRTC(initiator, config) {
         if (initiator) {
             _this.makingOffer = true;
             try {
-                const offer = await pc.createOffer(rtcConfig.offerOptions); //Create offer
+                const offer = await pc.createOffer();
                 if (pc.signalingState != "stable") return _this.makingOffer = false; //dropped, negotiationneeded fires again once stable
                 await pc.setLocalDescription(offer);
             } catch (e) {
@@ -219,21 +181,6 @@ function initEzWebRTC(initiator, config) {
             }, 5000);
         } else if (_this.gotOffer) { //Dont send renegotiate req before getting at least one offer
             _this.emitEvent("signaling", "renegotiate");
-        }
-    }
-
-    function requestMissingTransceivers() {
-        if (pc.getTransceivers) {
-            try {
-                pc.getTransceivers().forEach(transceiver => {
-                    if (!transceiver.mid && transceiver.sender.track && !transceiver.requested) {
-                        transceiver.requested = true // HACK: Safari returns negotiated transceivers with a null mid
-                        _this.addTransceiver(transceiver.sender.track.kind)
-                    }
-                })
-            } catch (e) {
-                console.log("Faild to add transriver!", e)
-            }
         }
     }
 

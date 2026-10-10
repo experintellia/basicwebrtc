@@ -82,7 +82,7 @@ after(async () => {
 });
 
 // A call between Chromium and the other browser. Who joins first decides who sends the offer, so both orders run.
-// The other browser then turns its camera on: renegotiation from its side (Safari's null-mid transceiver path).
+// The other browser then turns its camera on: it sends on the video slot it answered (#57), no renegotiation.
 async function call(other, otherFirst) {
   const room = 'x' + Date.now(), log = [];
   const page = await (await chrome.newContext()).newPage();
