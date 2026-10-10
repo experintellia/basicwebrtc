@@ -11,8 +11,7 @@ const HTTP_IP = process.env.listen_ip ? process.env.listen_ip : "0.0.0.0";
 var fs = require('fs');
 var express = require('express');
 var app = require('http').createServer(express().use(express.static(__dirname + '/web')));
-var ioServer = require('socket.io')(app, {
-    cors: { origin: "*" },
+var ioServer = require('socket.io')(app, { // no CORS headers: the page is served from here
     pingInterval: 10000, pingTimeout: 10000, // a dead socket (e.g. after wifi -> cellular) is noticed in 20s, not 45s
 });
 var crypto = require('crypto');

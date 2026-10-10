@@ -357,6 +357,12 @@ test('unlocking lets the waiting knockers in', async () => {
   assert.deepStrictEqual(await ack(k, 'joinRoom', { roomname: 'room-ul' }), ['UL1']);
 });
 
+test('no CORS headers for other origins', async () => {
+  const headers = { Origin: 'https://evil.example' };
+  const poll = await fetch(`${URL}/socket.io/?EIO=4&transport=polling`, { headers });
+  assert.strictEqual(poll.headers.get('access-control-allow-origin'), null);
+});
+
 test('the first one in can open the room closed; later joiners cannot lock it this way', async () => {
   const a = await client('F1'), b = await client('F2'), c = await client('F3');
   assert.deepStrictEqual(await ack(a, 'roomInfo', 'room-f'), { empty: true });

@@ -31,9 +31,10 @@ after(async () => {
 async function open(room, name, initScript, file = '') {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
+  await page.addInitScript(n => sessionStorage.username ||= n, name); // as if typed in the lobby before; never in the URL
   if (initScript) await page.addInitScript(initScript);
   page.on('pageerror', e => console.log(`[${name}] pageerror`, e.message));
-  await page.goto(`${BASE}${file}#roomname=${room}&username=${encodeURIComponent(name)}`);
+  await page.goto(`${BASE}${file}#roomname=${room}`);
   return page;
 }
 
@@ -91,7 +92,7 @@ test('own tile shows "connecting…" until joined and "reconnecting…" while th
   const ctx = await browser.newContext();
   await ctx.route('**/socket.io/**', r => r.abort()); // server unreachable
   const a = await ctx.newPage();
-  await a.goto(`${BASE}#roomname=r${Date.now()}&username=alice`);
+  await a.goto(`${BASE}#roomname=r${Date.now()}`);
   assert.strictEqual(await selfStatus(a), '', 'nothing while in the lobby');
   await a.click('#joinBtn');
   await waitFor(async () => (await selfStatus(a)) === 'connecting…', 'connecting shown');
@@ -731,7 +732,7 @@ test('late answer does not cancel an ICE restart', { skip: !canDropUdp && 'needs
   await a.context().close(); await b.context().close();
 });
 
-test('rename updates the name for peers, chat and the URL', async () => {
+test('rename updates the name for peers and chat, survives a reload, stays out of the URL', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');
   const b = await join(room, 'bob');
@@ -740,62 +741,64 @@ test('rename updates the name for peers, chat and the URL', async () => {
   await a.click('#moreBtn'); await a.click('#changeNameBtn');
   await waitFor(() => b.evaluate(() => Object.values(allUserStreams).some(s => s.username == 'zoe smith')), 'new name on bob');
   assert.strictEqual(await b.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('ZO')), true, 'initials updated');
-  assert.strictEqual(await a.evaluate(() => getUrlParam('username', 'NA')), 'zoe smith', 'kept in URL for reloads');
+  assert.strictEqual(await a.evaluate(() => location.hash), `#roomname=${room}`, 'name not in the URL');
   await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
   await a.fill('#chatInputText', 'hi');
   await a.press('#chatInputText', 'Enter');
   await waitFor(() => b.evaluate(() => document.querySelector('#chatText').textContent.includes('zoe smith: hi')), 'chat uses new name');
+  await a.reload();
+  assert.strictEqual(await a.evaluate(() => username), 'zoe smith', 'kept for reloads in this tab');
   await a.context().close(); await b.context().close();
 });
 
-test('share button shares the room link without the username', async () => {
+test('share link is just the room, whatever else the URL holds', async () => {
   const room = 'r' + Date.now();
-  const a = await join(room, 'alice', () => { navigator.share = d => { window.__shared = d; return Promise.resolve(); }; });
+  const a = await join(room, 'alice', () => { navigator.share = d => { window.__shared = d; return Promise.resolve(); }; }, `?username=bob&camon=true&x=1`);
   await a.click('#moreBtn'); await a.click('#shareBtn');
   const shared = await a.evaluate(() => window.__shared);
   assert.strictEqual(shared.url, `${BASE}#roomname=${room}`);
+  assert.strictEqual(await a.evaluate(() => username), 'alice', '?username= ignored too');
   await a.context().close();
 });
 
-test('share link also drops username and camon from the query string', async () => {
-  const room = 'r' + Date.now();
-  const a = await join(room, 'alice', () => { navigator.share = d => { window.__shared = d; return Promise.resolve(); }; }, '?username=bob&camon=true&x=1');
-  await a.click('#moreBtn'); await a.click('#shareBtn');
-  const shared = await a.evaluate(() => window.__shared);
-  assert.strictEqual(shared.url, `${BASE}?x=1#roomname=${room}`);
+test('old link params are ignored: username, camon', async () => {
+  const a = await (await browser.newContext()).newPage();
+  await a.goto(`${BASE}#roomname=old&username=bob&camon=true`);
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown');
+  assert.deepStrictEqual(await a.evaluate(() => [username, $('#nameInput').value, $('#lobbyCamera').value]), ['NA', '', 'off']);
   await a.context().close();
 });
 
-test('rename keeps other URL params byte-identical and cannot switch them on', async () => {
-  const ctx = await browser.newContext();
-  const a = await ctx.newPage();
-  await a.goto(`${BASE}#roomname=a+b=c&username=alice`);
-  await a.click('#joinBtn');
-  a.once('dialog', d => d.accept('my camon name'));
-  await a.click('#moreBtn'); await a.click('#changeNameBtn');
-  assert.strictEqual(await a.evaluate(() => location.hash), '#roomname=a+b=c&username=my%20camon%20name');
-  await a.reload();
-  assert.deepStrictEqual(await a.evaluate(() => [getUrlParam('camon', false), getUrlParam('username', 'NA')]),
-    [false, 'my camon name']);
-  await ctx.close();
-});
-
-test('URL params: exact keys, no double #, stray % does not break the page', async () => {
+test('URL params: missing room gets a fresh one; "+", "=" and a stray % stay as typed', async () => {
   const ctx = await browser.newContext();
   const a = await ctx.newPage();
   const errors = [];
   a.on('pageerror', e => errors.push(e.message));
-  await a.goto(`${BASE}#username=bob`); // no roomname: one gets added with &, not a second #
-  assert.match(await a.evaluate(() => location.hash), /^#username=bob&roomname=r\d+$/);
-  assert.deepStrictEqual(await a.evaluate(() => [username, getUrlParam('roomname', 'unknown') == roomname]), ['bob', true]);
-  await a.goto(`${BASE}#roomname=camonday`);
-  await a.reload(); // a hash-only goto doesn't reload the page
-  assert.strictEqual(await a.evaluate(() => camOnAtStart), false);
-  await a.goto(`${BASE}#roomname=100%&username=50%`);
-  await a.reload();
-  assert.deepStrictEqual(await a.evaluate(() => [getUrlParam('roomname'), username]), ['100%', '50%']);
+  await a.goto(`${BASE}#username=bob`); // no roomname: a fresh room, old params dropped
+  assert.match(await a.evaluate(() => location.hash), /^#roomname=r\d+$/);
+  await a.goto(`${BASE}#roomname=a+b=100%`); // hash-only: the page reloads itself
+  await waitFor(() => a.evaluate(() => roomname == 'a+b=100%').catch(() => false), 'room a+b=100%');
   assert.deepStrictEqual(errors, []);
   await ctx.close();
+});
+
+test('a room link pasted into an open tab goes to that room', async () => {
+  const a = await open('r' + Date.now() + 'a', 'alice');
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown');
+  const room = 'r' + Date.now() + 'b';
+  await a.evaluate(r => location.hash = 'roomname=' + r, room); // hash-only change: no reload by itself
+  await waitFor(() => a.evaluate(r => roomname == r, room).catch(() => false), 'page on the new room');
+  await a.context().close();
+});
+
+test('the same room link again, or with old params, does not reload the call', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  await a.evaluate(() => window.__still = true);
+  await a.evaluate(r => location.hash = 'roomname=' + r + '&username=bob', room);
+  await new Promise(r => setTimeout(r, 1000));
+  assert.strictEqual(await a.evaluate(() => window.__still), true, 'no reload');
+  await a.context().close();
 });
 
 test('share falls back to a copy dialog when Web Share fails', async () => {
@@ -957,9 +960,9 @@ const slowMedia = () => { // records every stream handed out; camera and screen 
   md.getUserMedia = slow(gum); md.getDisplayMedia = slow(gdm);
 };
 
-test('camon=1 without a working camera still joins with audio', async () => {
+test('camera on from last time, but no working camera: still joins with audio', async () => {
   const room = 'r' + Date.now();
-  const a = await join(room, 'alice', noCamera, '?camon=1');
+  const a = await join(room, 'alice', `(${noCamera})(); sessionStorage.camOn ||= '1';`);
   const b = await join(room, 'bob');
   await waitFor(async () => (await liveRemoteAudio(b)) === 1, 'alice heard by bob');
   await a.context().close(); await b.context().close();
@@ -1191,8 +1194,8 @@ test('name, mic and camera choice survive a reload of the tab, not a new tab', a
   const cam = await a.evaluate(() => [...document.querySelectorAll('#cameraSelect option')].find(o => o.value != selectedCameraId).value);
   await a.selectOption('#cameraSelect', cam);
   await waitFor(() => a.evaluate(c => allUserStreams[MY_UUID].videostream?.getVideoTracks()[0].getSettings().deviceId == c, cam), 'camera switched');
-  await a.goto(`${BASE}#roomname=r${Date.now()}x`); // other room, same tab
-  await a.reload();
+  await a.goto(`${BASE}#roomname=r${Date.now()}x`); // other room, same tab: the page reloads itself
+  await waitFor(() => a.evaluate(() => roomname.endsWith('x')).catch(() => false), 'reloaded into the other room');
   await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown');
   assert.strictEqual(await a.inputValue('#nameInput'), 'dora');
   assert.strictEqual(await a.evaluate(() => webRTCConfig.stream.getAudioTracks()[0].getSettings().deviceId), mic, 'mic kept');
@@ -1253,12 +1256,13 @@ test('lobby: a camera prompt answered with no goes back to Off', async () => {
   await a.context().close();
 });
 
-test('lobby: a camera picked right away is not switched off by camon', async () => {
+test('lobby: a camera picked right away is not switched off by the saved camera state', async () => {
   const ctx = await browser.newContext();
   const a = await ctx.newPage();
-  await a.goto(`${BASE}#roomname=r${Date.now()}&camon=1`);
+  await a.addInitScript(() => sessionStorage.camOn ||= '1'); // camera was on last time in this tab
+  await a.goto(`${BASE}#roomname=r${Date.now()}`);
   await waitFor(() => a.locator('#lobby').isVisible(), 'lobby');
-  await a.selectOption('#lobbyCamera', await a.evaluate(() => [...$('#lobbyCamera').options].at(-1).value)); // within camon's first second
+  await a.selectOption('#lobbyCamera', await a.evaluate(() => [...$('#lobbyCamera').options].at(-1).value)); // within camOnAtStart's first second
   await new Promise(r => setTimeout(r, 1800));
   assert.ok(await a.evaluate(() => camActive), 'camera still on');
   await ctx.close();
