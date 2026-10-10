@@ -313,7 +313,7 @@ function applyScreenMode() { //contentHint is the main effect, degradationPrefer
   const track = allUserStreams[MY_UUID]["videostream"].getVideoTracks()[0];
   const motion = $("#screenModeSelect").value == "motion";
   track.contentHint = motion ? "motion" : "detail";
-  for (var i in pcs) pcs[i].setDegradation(track, motion ? "maintain-framerate" : "maintain-resolution");
+  for (var i in pcs) pcs[i].setDegradation(motion ? "maintain-framerate" : "maintain-resolution");
 }
 
 $("#addRemoveCameraBtn").onclick = toggleCamera;
@@ -332,7 +332,7 @@ $("#cameraSelect").onchange = async function () {
     if (!camActive) return newTrack.stop(); //camera was turned off meanwhile
     newTrack.onended = oldTrack.onended;
     store("camera", selectedCameraId);
-    for (var i in pcs) pcs[i].replaceTrack(oldTrack, newTrack);
+    for (var i in pcs) pcs[i].setVideo(newTrack);
     stream.removeTrack(oldTrack);
     stream.addTrack(newTrack);
     updateUserLayout();
@@ -372,8 +372,8 @@ function toggleCamera() {
 function startVideo(stream, btn) {
   btn.style.color = "#030356";
   stream.getVideoTracks()[0].onended = () => allUserStreams[MY_UUID]["videostream"] == stream && stopVideo(); // unplugged camera, browser's "Stop sharing" bar
-  for (var i in pcs) pcs[i].addStream(stream); //Add stream to all peers
-  allUserStreams[MY_UUID] = allUserStreams[MY_UUID] || {};
+  for (var i in pcs) pcs[i].setVideo(stream.getVideoTracks()[0]);
+  sendToPeers({ video: true });
   allUserStreams[MY_UUID]["videostream"] = stream;
   showPreview();
   updateUserLayout();
@@ -381,7 +381,8 @@ function startVideo(stream, btn) {
 
 function stopVideo() { // camera and screen share use the same slot
   const stream = allUserStreams[MY_UUID]["videostream"];
-  for (var i in pcs) pcs[i].removeStream(stream); //remove stream from all peers
+  for (var i in pcs) pcs[i].setVideo(null);
+  sendToPeers({ video: false });
   stream.getTracks().forEach(track => track.stop());
   delete allUserStreams[MY_UUID]["videostream"];
   $("#addRemoveCameraBtn").style.color = $("#addRemoveScreenBtn").style.color = "black";
@@ -433,7 +434,7 @@ function createRemoteSocket(initiator, UUID) {
   if (initiator) socket.emit("signaling", { destUUID: UUID, signalingData: "reset" }); // peer drops any old pc before our offer
   if (pcs[UUID]) removePeer(UUID); // same user rejoined: start over
   var pc = pcs[UUID] = new initEzWebRTC(initiator, webRTCConfig);
-  if (allUserStreams[MY_UUID]["videostream"]) pc.addStream(allUserStreams[MY_UUID]["videostream"]);
+  pc.setVideo(allUserStreams[MY_UUID]["videostream"]?.getVideoTracks()[0] || null);
   if (screenActive) applyScreenMode(); //late joiner gets the current mode
   pc.on("signaling", function (data) {
     // Socket first: one ordered path, and a data channel can read "open" while nothing gets through. Channel only without a server.
@@ -450,7 +451,7 @@ function createRemoteSocket(initiator, UUID) {
     setStatus(UUID, ["connected", "completed"].includes(state) ? "" : pc.isConnected ? "reconnecting…" : "connecting…");
   });
   pc.on("close", () => pcs[UUID] === pc && removePeer(UUID)); // peer left (or closed its connection)
-  pc.on("open", () => pc.send({ username: username, audioLvl: micMuted ? -1 : 0 }));
+  pc.on("open", () => pc.send({ username: username, audioLvl: micMuted ? -1 : 0, video: !!allUserStreams[MY_UUID]["videostream"] }));
   pc.on("message", function (msg) { // from the peer: untrusted
     if (typeof msg.username == "string") {
       allUserStreams[UUID] = allUserStreams[UUID] || {};
@@ -459,17 +460,17 @@ function createRemoteSocket(initiator, UUID) {
     }
     if (typeof msg.audioLvl == "number") setAudioLevel(UUID, msg.audioLvl);
     if (typeof msg.chat == "string") showMsg(nameOf(UUID), msg.chat.slice(0, 2000));
+    if (typeof msg.video == "boolean") { // camera or screen share on/off: the tile shows the peer's video slot
+      const u = allUserStreams[UUID] ||= {};
+      if (msg.video && pc.remoteVideo) u["videostream"] = pc.remoteVideo;
+      else delete u["videostream"];
+      updateUserLayout();
+    }
     if (msg.bye) removePeer(UUID);
     if (msg.signaling) pc.signaling(msg.signaling).catch(e => console.log("signaling error", e));
   });
-  pc.on("stream", function (stream) {
+  pc.on("stream", function (stream) { // the peer's mic
     gotRemoteStream(stream, UUID)
-  });
-  pc.on("streamremoved", function (stream, kind) {
-    if (kind == "video") {
-      delete allUserStreams[UUID]["videostream"];
-      updateUserLayout();
-    }
   });
 }
 
@@ -483,8 +484,8 @@ function removePeer(UUID) {
 
 function gotRemoteStream(stream, UUID) {
   allUserStreams[UUID] = allUserStreams[UUID] || {};
-  allUserStreams[UUID][stream.getVideoTracks().length ? "videostream" : "audiostream"] = stream;
-  if (!stream.getVideoTracks().length && !byId('audio' + UUID)) { // not in updateUserLayout: that skips while fullscreen
+  allUserStreams[UUID]["audiostream"] = stream;
+  if (!byId('audio' + UUID)) { // not in updateUserLayout: that skips while fullscreen
     const audio = fromHTML('<audio autoplay hidden></audio>');
     audio.id = 'audio' + UUID;
     audio.srcObject = stream;
