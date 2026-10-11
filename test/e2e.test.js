@@ -133,10 +133,10 @@ test('camera toggle reaches the other peer', async () => {
 });
 
 // #3: bob turns on his camera after answering alice's offer, but before alice has applied that
-// answer. His "renegotiate" then arrives while alice is still making an offer and must not be lost.
+// answer: his video must still reach alice. Since #57 a camera change sends no offer, so an ICE restart makes one.
 test('answerer camera change during an in-flight offer reaches the initiator', async () => {
   const room = 'r' + Date.now();
-  const a = await join(room, 'alice'); // already in the room -> initiator
+  const a = await join(room, 'alice', trackPcs); // already in the room -> initiator
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
   await a.evaluate(() => { // hold back bob's answers on alice for 3s
@@ -149,6 +149,7 @@ test('answerer camera change during an in-flight offer reaches the initiator', a
     pc.signaling = d => orig(d).then(() => { if (d && d.type == 'offer') __answered++; });
   });
   await a.click('#addRemoveCameraBtn');
+  await a.evaluate(() => __raw.at(-1).restartIce()); // an offer in flight
   await waitFor(() => b.evaluate(() => __answered > 0), 'bob answered alice\'s offer', 3000);
   await b.click('#addRemoveCameraBtn'); // after bob answered, before alice applied the answer
   await waitFor(() => remoteVideoShown(b), 'remote video on bob');
@@ -157,9 +158,12 @@ test('answerer camera change during an in-flight offer reaches the initiator', a
 });
 
 // #25: one lost answer must not block all later renegotiation.
-test('a lost answer does not block later camera changes', async () => {
+const offerSent = page => waitFor(() => page.evaluate(() => Object.values(pcs)[0].makingOffer), 'offer sent');
+const offerAnswered = (page, ms) => waitFor(() => page.evaluate(() => !Object.values(pcs)[0].makingOffer && __raw.at(-1).signalingState == 'stable'), 'offer answered', ms);
+
+test('a lost answer does not block later negotiation', async () => {
   const room = 'r' + Date.now();
-  const a = await join(room, 'alice');
+  const a = await join(room, 'alice', trackPcs);
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
   await a.evaluate(() => { // drop exactly one answer on alice
@@ -167,6 +171,12 @@ test('a lost answer does not block later camera changes', async () => {
     let dropped = false;
     pc.signaling = d => d && d.type == 'answer' && !dropped ? (dropped = true, Promise.resolve()) : orig(d);
   });
+  await a.evaluate(() => __raw.at(-1).restartIce()); // since #57 camera changes send no offer: an ICE restart does
+  await offerSent(a);
+  await offerAnswered(a); // offered again after the lost answer
+  await a.evaluate(() => __raw.at(-1).restartIce());
+  await offerSent(a);
+  await offerAnswered(a, 4000); // the next one goes through at once
   await a.click('#addRemoveCameraBtn');
   await b.click('#addRemoveCameraBtn');
   await waitFor(() => remoteVideoShown(b), 'remote video on bob');
@@ -177,16 +187,16 @@ test('a lost answer does not block later camera changes', async () => {
 // Mid-deploy: an older answerer doesn't echo gen; its answers must still be applied.
 test('answers without gen (older client) are still accepted', async () => {
   const room = 'r' + Date.now();
-  const a = await join(room, 'alice');
+  const a = await join(room, 'alice', trackPcs);
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
   await a.evaluate(() => { // strip gen from every answer alice receives
     const pc = Object.values(pcs)[0], orig = pc.signaling;
     pc.signaling = d => orig(d && d.type == 'answer' ? { type: d.type, sdp: d.sdp } : d);
   });
-  await a.click('#addRemoveCameraBtn');
-  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
-  assert.strictEqual(await a.evaluate(() => Object.values(pcs)[0].makingOffer), false, 'answer applied');
+  await a.evaluate(() => __raw.at(-1).restartIce()); // since #57 camera changes send no offer: an ICE restart does
+  await offerSent(a);
+  await offerAnswered(a, 4000); // applied, not re-offered after 5s
   await a.context().close(); await b.context().close();
 });
 
@@ -276,6 +286,7 @@ test('screen share mode: detail by default, performance via dropdown, applied to
   await waitFor(() => a.evaluate(() => camActive), 'camera on');
   await a.evaluate(() => { const s = document.getElementById('screenModeSelect'); s.value = 'detail'; s.dispatchEvent(new Event('change')); }); // e.g. a popup left open
   assert.strictEqual(await a.evaluate(() => allUserStreams[MY_UUID].videostream.getVideoTracks()[0].contentHint), '', 'camera track untouched');
+  assert.deepStrictEqual((await screenMode(a)).slice(1), [undefined, undefined], 'the camera does not inherit the share\'s preference (#57: one sender)');
   for (const p of [a, b, c]) await p.context().close();
 });
 
@@ -292,6 +303,13 @@ test('browser "Stop sharing" ends the screen share', async () => {
   await waitFor(async () => !(await remoteVideoShown(b)), 'remote screen gone on bob');
   await a.context().close(); await b.context().close();
 });
+
+// Video path per peer: ICE, tile has video, slot track muted; video elements; raw pcs' transceivers (if tracked).
+const videoState = page => page.evaluate(() => JSON.stringify({
+  pcs: Object.entries(pcs).map(([id, pc]) => [id.slice(0, 4), pc.iceUp(), !!allUserStreams[id]?.videostream, pc.remoteVideo?.getVideoTracks()[0].muted]),
+  videos: [...document.querySelectorAll('#mediaDiv video')].map(v => [v.videoWidth, v.readyState]),
+  raw: window.__raw?.map(r => [r.connectionState, r.getTransceivers().map(t => [t.mid, t.currentDirection, t.sender.track?.readyState])]),
+}));
 
 test('camera turned on before the peer connects', async () => {
   const room = 'r' + Date.now();
@@ -314,7 +332,10 @@ test('camera turned on before the peer connects', async () => {
   await a.evaluate(() => window.__oldPc = Object.values(pcs)[0]);
   await b.evaluate(() => { __raw[0].close(); socket.io.engine.close(); }); // bob's connection dies, his socket reconnects
   await waitFor(() => a.evaluate(() => Object.values(pcs)[0] && Object.values(pcs)[0] !== __oldPc), 'alice rebuilt the pc');
-  await waitFor(() => remoteVideoShown(a), 'remote video on alice after reconnect');
+  await waitFor(() => remoteVideoShown(a), 'remote video on alice after reconnect').catch(async e => { // failed once in CI only: show where it stopped
+    console.log('alice', await videoState(a), 'bob', await videoState(b));
+    throw e;
+  });
   await a.context().close(); await b.context().close();
 });
 
@@ -369,6 +390,41 @@ test('signaling socket reconnect keeps the call working', async () => {
 
 const remoteVideoShown = page => page.evaluate(() => [...document.querySelectorAll('#mediaDiv video')]
   .some(v => v.srcObject && v.videoWidth > 0 && !v.style.transform.includes('scaleX')));
+
+test('a peer\'s {video: true} shows its video slot even before the connection is up (#57)', async () => {
+  const a = await join('r' + Date.now(), 'alice');
+  await waitFor(async () => (await selfStatus(a)) === '', 'joined'); // the join's member list would drop the ghost
+  await a.evaluate(() => { socket.listeners('userJoined')[0]({ UUID: 'ghost', keep: [] }); pcs.ghost.emitEvent('message', { video: true }); }); // no answer yet
+  assert.ok(await a.evaluate(() => allUserStreams.ghost.videostream?.getVideoTracks().length === 1), 'tile has the slot\'s track');
+  await a.context().close();
+});
+
+// #57: one video transceiver per peer; camera on/off swaps its track, no renegotiation.
+test('camera toggles reuse one video slot, without renegotiation (#57)', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', trackPcs);
+  const b = await join(room, 'bob', trackPcs);
+  await waitFor(async () => (await connectedPeers(a)) === 1 && (await connectedPeers(b)) === 1, 'ICE connected');
+  await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
+  for (const p of [a, b]) await p.evaluate(() => { // count descriptions applied from now on
+    const pc = __raw.at(-1), set = pc.setRemoteDescription.bind(pc);
+    window.__sets = 0;
+    pc.setRemoteDescription = d => (__sets++, set(d));
+  });
+  for (let i = 0; i < 3; i++) {
+    for (const [p, q] of [[a, b], [b, a]]) {
+      await p.click('#addRemoveCameraBtn');
+      await waitFor(() => remoteVideoShown(q), 'remote video on');
+      await p.click('#addRemoveCameraBtn');
+      await waitFor(async () => !(await remoteVideoShown(q)), 'remote video off');
+    }
+  }
+  for (const p of [a, b]) {
+    assert.strictEqual(await p.evaluate(() => __sets), 0, 'no offer/answer per toggle');
+    assert.strictEqual(await p.evaluate(() => __raw.at(-1).getTransceivers().length), 2, 'audio + one video slot');
+  }
+  await a.context().close(); await b.context().close();
+});
 
 test('chat shows messages as text and keeps links clickable', async () => {
   const room = 'r' + Date.now();
@@ -453,7 +509,7 @@ test('camera changes renegotiate without the server (#11)', async () => {
   for (const p of [a, b]) await p.evaluate(() => socket.disconnect());
   await a.click('#addRemoveCameraBtn'); // initiator: offer over the data channel
   await waitFor(() => remoteVideoShown(b), 'remote video on bob');
-  await b.click('#addRemoveCameraBtn'); // answerer: "transceive"/"renegotiate" over the data channel
+  await b.click('#addRemoveCameraBtn'); // answerer: {video: true} over the data channel
   await waitFor(() => remoteVideoShown(a), 'remote video on alice');
   await a.context().close(); await b.context().close();
 });
@@ -635,7 +691,7 @@ test('a socketdomain in the link cannot move signaling to another server', async
 
 test('a peer named like an Object.prototype key is an ordinary peer', async () => {
   const a = await join('r' + Date.now(), 'alice');
-  await waitFor(() => a.evaluate(() => socket.connected), 'connected');
+  await waitFor(async () => (await selfStatus(a)) === '', 'joined'); // the join's resync drops peers the server doesn't list
   await a.evaluate(() => socket.listeners('userJoined')[0]({ UUID: '__proto__', keep: [] }));
   assert.deepStrictEqual(await a.evaluate(() => [Object.keys(pcs), !!allUserStreams['__proto__'].tile?.isConnected, 'status' in {}]), [['__proto__'], true, false]);
   await a.context().close();
