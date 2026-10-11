@@ -118,8 +118,8 @@ socket.on("signaling", function (data) {
   pcs[fromUUID].signaling(data.signalingData).catch(e => console.log("signaling error", e));
 })
 
-// MY_UUID is new per page load: a known UUID means that page's socket reconnected. It already dropped
-// peers whose ICE is down and lists the rest in keep; keep the call only if both sides still have it.
+// MY_UUID is new per page load and after a refused registration: a known UUID means that page's socket
+// reconnected. It already dropped peers whose ICE is down and lists the rest in keep; keep the call only if both sides still have it.
 socket.on("userJoined", function (content) {
   const UUID = content["UUID"] || null;
   if (pcs[UUID]?.iceUp() && content.keep?.includes(MY_UUID)) return pcs[UUID].left = false;

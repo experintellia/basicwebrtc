@@ -3,7 +3,6 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
 const { chromium } = require('playwright-core');
-const { io } = require('socket.io-client');
 
 const PORT = 3100 + Math.floor(Math.random() * 500);
 const BASE = `http://127.0.0.1:${PORT}/`;
@@ -619,14 +618,18 @@ test('a page whose UUID was taken while it was offline joins again under a new o
   const a = await join(room, 'alice');
   const b = await join(room, 'bob');
   await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
-  const old = await a.evaluate(() => (socket.disconnect(), MY_UUID));
-  const thief = io(BASE, { transports: ['websocket'] }); // the server keeps a dropped UUID for its owner 15s: try until free
-  await waitFor(() => new Promise(r => thief.emit('registerUUID', { UUID: old, UUID_KEY: 'thief' }, err => r(!err))), 'UUID taken', 25000);
+  const old = await a.evaluate(() => { // the server refuses the next registration, as for a UUID someone else took
+    socket.disconnect();
+    const emit = socket.emit;
+    socket.emit = (e, d, ack) => e == 'registerUUID' ? (delete socket.emit, emit.call(socket, e, { ...d, UUID_KEY: 'stale' }, ack)) : emit.call(socket, e, d, ack);
+    return MY_UUID;
+  });
   await a.evaluate(() => socket.connect());
   await waitFor(async () => (await selfStatus(a)) === '', 'alice joined again');
   for (const p of [a, b]) await waitFor(() => callUp(p), 'call up again'); // bob: alice is a new user, her old pc is gone
-  assert.notStrictEqual(await a.evaluate(() => MY_UUID), old);
-  thief.close();
+  const now = await a.evaluate(() => MY_UUID);
+  assert.notStrictEqual(now, old);
+  assert.deepStrictEqual(await b.evaluate(() => Object.keys(pcs)), [now]); // no ghost of the old UUID
   await a.context().close(); await b.context().close();
 });
 
