@@ -8,12 +8,31 @@
 
   <title>Video Chat!</title>
 
-  <link rel="stylesheet" href="./css/fontawesome5.min.css">
   <link rel="stylesheet" href="./css/main.css">
 
 </head>
 
 <body>
+  <svg style="display: none"><!-- an <svg> ignores the hidden attribute -->
+    <!-- Font Awesome Free 5.13.1 by @fontawesome - https://fontawesome.com, unmodified.
+         License: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), see icons-LICENSE.txt. "pip" below is not from Font Awesome. -->
+    <symbol id="microphone-alt" viewBox="0 0 352 512"><path d="M336 192h-16c-8.84 0-16 7.16-16 16v48c0 74.8-64.49 134.82-140.79 127.38C96.71 376.89 48 317.11 48 250.3V208c0-8.84-7.16-16-16-16H16c-8.84 0-16 7.16-16 16v40.16c0 89.64 63.97 169.55 152 181.69V464H96c-8.84 0-16 7.16-16 16v16c0 8.84 7.16 16 16 16h160c8.84 0 16-7.16 16-16v-16c0-8.84-7.16-16-16-16h-56v-33.77C285.71 418.47 352 344.9 352 256v-48c0-8.84-7.16-16-16-16zM176 352c53.02 0 96-42.98 96-96h-85.33c-5.89 0-10.67-3.58-10.67-8v-16c0-4.42 4.78-8 10.67-8H272v-32h-85.33c-5.89 0-10.67-3.58-10.67-8v-16c0-4.42 4.78-8 10.67-8H272v-32h-85.33c-5.89 0-10.67-3.58-10.67-8v-16c0-4.42 4.78-8 10.67-8H272c0-53.02-42.98-96-96-96S80 42.98 80 96v160c0 53.02 42.98 96 96 96z"/></symbol>
+    <symbol id="microphone-alt-slash" viewBox="0 0 640 512"><path d="M633.82 458.1L476.26 336.33C488.74 312.21 496 284.98 496 256v-48c0-8.84-7.16-16-16-16h-16c-8.84 0-16 7.16-16 16v48c0 17.92-3.96 34.8-10.72 50.2l-26.55-20.52c3.1-9.4 5.28-19.22 5.28-29.67h-43.67l-41.4-32H416v-32h-85.33c-5.89 0-10.67-3.58-10.67-8v-16c0-4.42 4.78-8 10.67-8H416v-32h-85.33c-5.89 0-10.67-3.58-10.67-8v-16c0-4.42 4.78-8 10.67-8H416c0-53.02-42.98-96-96-96s-96 42.98-96 96v45.36L45.47 3.37C38.49-2.05 28.43-.8 23.01 6.18L3.37 31.45C-2.05 38.42-.8 48.47 6.18 53.9l588.36 454.73c6.98 5.43 17.03 4.17 22.46-2.81l19.64-25.27c5.41-6.97 4.16-17.02-2.82-22.45zM400 464h-56v-33.78c11.71-1.62 23.1-4.28 33.96-8.08l-50.4-38.96c-6.71.4-13.41.87-20.35.2-55.85-5.45-98.74-48.63-111.18-101.85L144 241.31v6.85c0 89.64 63.97 169.55 152 181.69V464h-56c-8.84 0-16 7.16-16 16v16c0 8.84 7.16 16 16 16h160c8.84 0 16-7.16 16-16v-16c0-8.84-7.16-16-16-16z"/></symbol>
+    <symbol id="video" viewBox="0 0 576 512"><path d="M336.2 64H47.8C21.4 64 0 85.4 0 111.8v288.4C0 426.6 21.4 448 47.8 448h288.4c26.4 0 47.8-21.4 47.8-47.8V111.8c0-26.4-21.4-47.8-47.8-47.8zm189.4 37.7L416 177.3v157.4l109.6 75.5c21.2 14.6 50.4-.3 50.4-25.8V127.5c0-25.4-29.1-40.4-50.4-25.8z"/></symbol>
+    <symbol id="desktop" viewBox="0 0 576 512"><path d="M528 0H48C21.5 0 0 21.5 0 48v320c0 26.5 21.5 48 48 48h192l-16 48h-72c-13.3 0-24 10.7-24 24s10.7 24 24 24h272c13.3 0 24-10.7 24-24s-10.7-24-24-24h-72l-16-48h192c26.5 0 48-21.5 48-48V48c0-26.5-21.5-48-48-48zm-16 352H64V64h448v288z"/></symbol>
+    <symbol id="caret-up" viewBox="0 0 320 512"><path d="M288.662 352H31.338c-17.818 0-26.741-21.543-14.142-34.142l128.662-128.662c7.81-7.81 20.474-7.81 28.284 0l128.662 128.662c12.6 12.599 3.676 34.142-14.142 34.142z"/></symbol>
+    <symbol id="ellipsis-h" viewBox="0 0 512 512"><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></symbol>
+    <symbol id="comment-dots" viewBox="0 0 512 512"><path d="M144 208c-17.7 0-32 14.3-32 32s14.3 32 32 32 32-14.3 32-32-14.3-32-32-32zm112 0c-17.7 0-32 14.3-32 32s14.3 32 32 32 32-14.3 32-32-14.3-32-32-32zm112 0c-17.7 0-32 14.3-32 32s14.3 32 32 32 32-14.3 32-32-14.3-32-32-32zM256 32C114.6 32 0 125.1 0 240c0 47.6 19.9 91.2 52.9 126.3C38 405.7 7 439.1 6.5 439.5c-6.6 7-8.4 17.2-4.6 26S14.4 480 24 480c61.5 0 110-25.7 139.1-46.3C192 442.8 223.2 448 256 448c141.4 0 256-93.1 256-208S397.4 32 256 32zm0 368c-26.7 0-53.1-4.1-78.4-12.1l-22.7-7.2-19.5 13.8c-14.3 10.1-33.9 21.4-57.5 29 7.3-12.1 14.4-25.7 19.9-40.2l10.6-28.1-20.6-21.8C69.7 314.1 48 282.2 48 240c0-88.2 93.3-160 208-160s208 71.8 208 160-93.3 160-208 160z"/></symbol>
+    <symbol id="user-edit" viewBox="0 0 640 512"><path d="M224 256c70.7 0 128-57.3 128-128S294.7 0 224 0 96 57.3 96 128s57.3 128 128 128zm89.6 32h-16.7c-22.2 10.2-46.9 16-72.9 16s-50.6-5.8-72.9-16h-16.7C60.2 288 0 348.2 0 422.4V464c0 26.5 21.5 48 48 48h274.9c-2.4-6.8-3.4-14-2.6-21.3l6.8-60.9 1.2-11.1 7.9-7.9 77.3-77.3c-24.5-27.7-60-45.5-99.9-45.5zm45.3 145.3l-6.8 61c-1.1 10.2 7.5 18.8 17.6 17.6l60.9-6.8 137.9-137.9-71.7-71.7-137.9 137.8zM633 268.9L595.1 231c-9.3-9.3-24.5-9.3-33.8 0l-37.8 37.8-4.1 4.1 71.8 71.7 41.8-41.8c9.3-9.4 9.3-24.5 0-33.9z"/></symbol>
+    <symbol id="lock" viewBox="0 0 448 512"><path d="M400 224h-24v-72C376 68.2 307.8 0 224 0S72 68.2 72 152v72H48c-26.5 0-48 21.5-48 48v192c0 26.5 21.5 48 48 48h352c26.5 0 48-21.5 48-48V272c0-26.5-21.5-48-48-48zm-104 0H152v-72c0-39.7 32.3-72 72-72s72 32.3 72 72v72z"/></symbol>
+    <symbol id="lock-open" viewBox="0 0 576 512"><path d="M423.5 0C339.5.3 272 69.5 272 153.5V224H48c-26.5 0-48 21.5-48 48v192c0 26.5 21.5 48 48 48h352c26.5 0 48-21.5 48-48V272c0-26.5-21.5-48-48-48h-48v-71.1c0-39.6 31.7-72.5 71.3-72.9 40-.4 72.7 32.1 72.7 72v80c0 13.3 10.7 24 24 24h32c13.3 0 24-10.7 24-24v-80C576 68 507.5-.3 423.5 0z"/></symbol>
+    <symbol id="share-alt" viewBox="0 0 448 512"><path d="M352 320c-22.608 0-43.387 7.819-59.79 20.895l-102.486-64.054a96.551 96.551 0 0 0 0-41.683l102.486-64.054C308.613 184.181 329.392 192 352 192c53.019 0 96-42.981 96-96S405.019 0 352 0s-96 42.981-96 96c0 7.158.79 14.13 2.276 20.841L155.79 180.895C139.387 167.819 118.608 160 96 160c-53.019 0-96 42.981-96 96s42.981 96 96 96c22.608 0 43.387-7.819 59.79-20.895l102.486 64.054A96.301 96.301 0 0 0 256 416c0 53.019 42.981 96 96 96s96-42.981 96-96-42.981-96-96-96z"/></symbol>
+    <symbol id="phone-slash" viewBox="0 0 640 512"><path d="M268.2 381.4l-49.6-60.6c-6.8-8.3-18.2-11.1-28-6.9l-112 48c-10.7 4.6-16.5 16.1-13.9 27.5l24 104c2.5 10.8 12.1 18.6 23.4 18.6 100.7 0 193.7-32.4 269.7-86.9l-80-61.8c-10.9 6.5-22.1 12.7-33.6 18.1zm365.6 76.7L475.1 335.5C537.9 256.4 576 156.9 576 48c0-11.2-7.7-20.9-18.6-23.4l-104-24c-11.3-2.6-22.9 3.3-27.5 13.9l-48 112c-4.2 9.8-1.4 21.3 6.9 28l60.6 49.6c-12.2 26.1-27.9 50.3-46 72.8L45.5 3.4C38.5-2 28.5-.8 23 6.2L3.4 31.4c-5.4 7-4.2 17 2.8 22.4l588.4 454.7c7 5.4 17 4.2 22.5-2.8l19.6-25.3c5.4-6.8 4.1-16.9-2.9-22.3z"/></symbol>
+    <symbol id="paper-plane" viewBox="0 0 512 512"><path d="M476 3.2L12.5 270.6c-18.1 10.4-15.8 35.6 2.2 43.2L121 358.4l287.3-253.2c5.5-4.9 13.3 2.6 8.6 8.3L176 407v80.5c0 23.6 28.5 32.9 42.5 15.8L282 426l124.6 52.2c14.2 6 30.4-2.9 33-18.2l72-432C515 7.8 493.3-6.8 476 3.2z"/></symbol>
+    <symbol id="copy" viewBox="0 0 448 512"><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></symbol>
+    <symbol id="check" viewBox="0 0 512 512"><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></symbol>
+    <symbol id="pip" viewBox="0 0 48 48"><path d="M4 6h40v16h-4V10H8v28h12v4H4zm20 20h20v16H24zm4 4v8h12v-8z"/></symbol>
+  </svg>
   <div id="unsupported">Your browser can't do video calls. Please update to a current Chrome, Firefox, Edge or Safari, and open this page via https.</div>
   <div id="micError" hidden>Could not get your microphone. Allow access to it, then <button onclick="location.reload()">Try again</button></div>
   <div id="mediaDiv"></div>
@@ -22,9 +41,9 @@
     <h2>Ready to join?</h2>
     <div id="lobbyPreview"><video id="lobbyVideo" autoplay muted playsinline hidden></video></div>
     <input id="nameInput" placeholder="Your name" maxlength="64" aria-label="your name" autocomplete="nickname" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
-    <label><i class="fas fa-microphone-alt"></i><select id="lobbyMic" aria-label="microphone"></select></label>
+    <label><svg class="icon" aria-hidden="true"><use href="#microphone-alt"/></svg><select id="lobbyMic" aria-label="microphone"></select></label>
     <meter id="micMeter" min="0" max="2" value="0" aria-label="microphone level"></meter>
-    <label><i class="fas fa-video"></i><select id="lobbyCamera" aria-label="camera"></select></label>
+    <label><svg class="icon" aria-hidden="true"><use href="#video"/></svg><select id="lobbyCamera" aria-label="camera"></select></label>
     <label id="closedLabel" hidden><input type="checkbox" id="closedInput"> Closed room: newcomers have to be let in</label>
     <p id="lobbyMsg">Speak to check your mic: the bar moves.</p>
     <button id="joinBtn">Join</button>
@@ -34,7 +53,7 @@
     <div id="chatText"></div>
     <div id="chatInputRow">
       <input id="chatInputText" placeholder="Message..." type="text" enterkeyhint="send">
-      <button id="chatSendBtn" aria-label="send"><i class="fas fa-paper-plane"></i></button>
+      <button id="chatSendBtn" aria-label="send"><svg class="icon" aria-hidden="true"><use href="#paper-plane"/></svg></button>
     </div>
   </div>
   <dialog id="shareDialog">
@@ -43,33 +62,33 @@
     <p>Send this link to the people you want to talk to. Anyone with it can join: the room is the part after #.</p>
     <div>
       <input id="shareLink" readonly aria-label="room link">
-      <button id="copyLinkBtn"><i class="far fa-copy"></i> Copy</button>
+      <button id="copyLinkBtn"><svg class="icon" aria-hidden="true"><use href="#copy"/></svg> Copy</button>
     </div>
   </dialog>
   <div id="mediaControllContainer">
     <div id="mediaControll">
       <div id="micGroup" class="deviceGroup">
-        <div title="mute / unmute microphon!" id="muteUnmuteMicBtn" class="callBtn"><i class="fas fa-microphone-alt"></i></div>
-        <div title="select microphone" id="selectMicBtn" class="selectDeviceBtn" style="display:none;"><i class="fas fa-caret-up"></i><select id="micSelect" aria-label="select microphone"></select></div>
+        <div title="mute / unmute microphon!" id="muteUnmuteMicBtn" class="callBtn"><svg class="icon" aria-hidden="true"><use href="#microphone-alt"/></svg></div>
+        <div title="select microphone" id="selectMicBtn" class="selectDeviceBtn" style="display:none;"><svg class="icon" aria-hidden="true"><use href="#caret-up"/></svg><select id="micSelect" aria-label="select microphone"></select></div>
       </div>
       <div id="cameraGroup" class="deviceGroup">
-        <div title="add / remove camera!" id="addRemoveCameraBtn" class="callBtn"><i class="fas fa-video"></i></div>
-        <div title="select camera" id="selectCameraBtn" class="selectDeviceBtn" style="display:none;"><i class="fas fa-caret-up"></i><select id="cameraSelect" aria-label="select camera"></select></div>
+        <div title="add / remove camera!" id="addRemoveCameraBtn" class="callBtn"><svg class="icon" aria-hidden="true"><use href="#video"/></svg></div>
+        <div title="select camera" id="selectCameraBtn" class="selectDeviceBtn" style="display:none;"><svg class="icon" aria-hidden="true"><use href="#caret-up"/></svg><select id="cameraSelect" aria-label="select camera"></select></div>
       </div>
       <div id="screenGroup" class="deviceGroup">
-        <div title="add / remove screen!" id="addRemoveScreenBtn" class="callBtn"><i class="fas fa-desktop"></i></div>
-        <div title="screen share quality" id="selectScreenModeBtn" class="selectDeviceBtn" style="display:none;"><i class="fas fa-caret-up"></i><select id="screenModeSelect" aria-label="screen share quality"><option value="detail">Sharp text</option><option value="motion">Smooth motion</option></select></div>
+        <div title="add / remove screen!" id="addRemoveScreenBtn" class="callBtn"><svg class="icon" aria-hidden="true"><use href="#desktop"/></svg></div>
+        <div title="screen share quality" id="selectScreenModeBtn" class="selectDeviceBtn" style="display:none;"><svg class="icon" aria-hidden="true"><use href="#caret-up"/></svg><select id="screenModeSelect" aria-label="screen share quality"><option value="detail">Sharp text</option><option value="motion">Smooth motion</option></select></div>
       </div>
       <div id="moreGroup">
-        <div title="more" id="moreBtn" class="callBtn"><i class="fas fa-ellipsis-h"></i></div>
+        <div title="more" id="moreBtn" class="callBtn"><svg class="icon" aria-hidden="true"><use href="#ellipsis-h"/></svg></div>
         <div id="moreMenu" hidden>
-          <button id="addRemoveChatBtn"><i class="far fa-comment-dots"></i> Chat</button>
-          <button id="changeNameBtn"><i class="fas fa-user-edit"></i> Change name</button>
-          <button id="lockBtn"><i class="fas fa-lock"></i> Lock room</button>
-          <button id="shareBtn"><i class="fas fa-share-alt"></i> Share link</button>
+          <button id="addRemoveChatBtn"><svg class="icon" aria-hidden="true"><use href="#comment-dots"/></svg> Chat</button>
+          <button id="changeNameBtn"><svg class="icon" aria-hidden="true"><use href="#user-edit"/></svg> Change name</button>
+          <button id="lockBtn"><svg class="icon" aria-hidden="true"><use href="#lock"/></svg> Lock room</button>
+          <button id="shareBtn"><svg class="icon" aria-hidden="true"><use href="#share-alt"/></svg> Share link</button>
         </div>
       </div>
-      <div title="cancel call!" id="cancelCallBtn" class="callBtn"><i class="fas fa-phone-slash"></i></div>
+      <div title="cancel call!" id="cancelCallBtn" class="callBtn"><svg class="icon" aria-hidden="true"><use href="#phone-slash"/></svg></div>
     </div>
   </div>
   <div id="audioStreams"></div>
