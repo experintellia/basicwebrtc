@@ -28,10 +28,7 @@ var username = stored("username") || "NA";
 const knockId = stored("knockId") || crypto.randomUUID(); // a locked room's reject cooldown outlives a reload
 store("knockId", knockId);
 
-var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-if (isMobile || !navigator.mediaDevices.getDisplayMedia) { //No Screenshare on mobile devices
-  $("#screenGroup").hidden = true;
-}
+$("#screenGroup").hidden = !navigator.mediaDevices.getDisplayMedia; // phone browsers have none (Android Chrome 72-88 had one that always failed)
 
 // Always the server that served this page: whoever runs signaling could sit in the middle of the call.
 const socket = io({ path: subdir + "socket.io" }); // works on subpaths too
