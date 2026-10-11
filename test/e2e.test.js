@@ -709,11 +709,20 @@ test('icons: every one used is in the sprite, with its CC BY credit', async () =
   await a.context().close();
 });
 
-test('hang up leads to the end screen', async () => {
-  const a = await join('r' + Date.now(), 'alice');
+test('end screen: how long, with whom, how connected, and a new call', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(() => a.evaluate(() => Object.keys(pcs).some(id => nameOf(id) == 'bob' && pcs[id].iceUp())), 'in a call with bob');
   await a.click('#cancelCallBtn');
-  await a.waitForURL(/endcall\.html/, { timeout: 5000 });
-  await a.context().close();
+  await a.waitForURL(/endcall\.html$/, { timeout: 5000 });
+  assert.match(await a.locator('#duration').innerText(), /^0:0\d$/);
+  const stats = await a.locator('#stats').innerText();
+  for (const re of [/With\s+bob/, /Connection\s+Direct/, /Round trip\s+\d+ ms/, /Encryption\s+End to end/]) assert.match(stats, re);
+  await a.click('#newCallBtn');
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby of a new call');
+  assert.ok(/#roomname=r\d+$/.test(a.url()) && !a.url().includes(room), `a new room: ${a.url()}`);
+  await a.context().close(); await b.context().close();
 });
 
 test('browsers without WebRTC get an upgrade notice', async () => {

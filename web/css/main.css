@@ -187,7 +187,7 @@ video {
   display: none;
 }
 
-#chatDiv, #shareDialog, #moreMenu, #lobby, .knock {
+#chatDiv, #shareDialog, #moreMenu, #lobby, .knock, #endCard {
   border: 1px solid #80808087;
   border-radius: 12px;
   background: rgb(43, 42, 42);
@@ -209,12 +209,12 @@ video {
   color: #fff;
 }
 
-#chatSendBtn, #copyLinkBtn, #joinBtn, .knock button {
+#chatSendBtn, #copyLinkBtn, #joinBtn, .knock button, #newCallBtn {
   background: #3b6fd6;
   color: #fff;
 }
 
-#chatSendBtn:hover, #copyLinkBtn:hover, #joinBtn:hover, .knock button:hover {
+#chatSendBtn:hover, #copyLinkBtn:hover, #joinBtn:hover, .knock button:hover, #newCallBtn:hover {
   background: #4c80e8;
 }
 
@@ -559,7 +559,7 @@ video.mirror {
   display: none;
 }
 
-#lobby {
+#lobby, #endCard {
   position: fixed;
   inset: 0;
   margin: auto;
@@ -579,7 +579,7 @@ video.mirror {
   display: none;
 }
 
-#lobby h2 {
+#lobby h2, #endCard h2 {
   margin: 0;
   font-size: 1.3em;
   color: #fff;
@@ -637,22 +637,55 @@ video.mirror {
   height: 8px;
 }
 
-#lobbyMsg {
+#lobbyMsg, #endCard p {
   margin: 0;
   color: #aaa;
 }
 
-#joinBtn {
+#joinBtn, #newCallBtn {
   padding: 14px;
   font-size: 1.15em;
   font-weight: bold;
 }
 
-#nameInput, #joinBtn {
+#nameInput, #joinBtn, #newCallBtn {
   padding: 10px 14px;
   border-radius: 8px;
   font-family: sans-serif;
   font-size: 16px; /* below 16px iOS zooms in on focus */
+}
+
+/* end screen (endcall.html): the call in a few lines, and a way to start the next one */
+#duration {
+  font-size: 3em;
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}
+
+#duration:empty, #stats:empty {
+  display: none;
+}
+
+#stats {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  margin: 4px 0;
+}
+
+#stats dt {
+  color: #aaa;
+}
+
+#stats dd {
+  margin: 0;
+  color: #fff;
+}
+
+#newCallBtn {
+  text-align: center;
+  text-decoration: none;
 }
 
 #joinBtn:disabled {

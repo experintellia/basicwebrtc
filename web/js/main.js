@@ -127,6 +127,8 @@ socket.on("userJoined", function (content) {
 const sendToPeers = obj => { for (var i in pcs) pcs[i].send(obj) };
 window.addEventListener("pagehide", () => sendToPeers({ bye: true })); // hang up, tab closed or reload
 const realName = n => n && n != "NA" ? n : ""; // "NA": no name set
+var callStart = 0; // first join, for the end screen
+const met = new Map(); // everyone the call reached: UUID -> name, for the end screen
 const nameOf = UUID => realName(allUserStreams[UUID]?.username);
 
 function setAudioLevel(UUID, level) {
@@ -420,11 +422,27 @@ $("#shareDialog").onclose = () => $("#copyLinkBtn").innerHTML = icon("copy") + "
 
 $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end screen
   this.onclick = null;
+  let summary = null;
+  callSummary().then(s => summary = s, () => { }); // while the peer connections are still up; takes milliseconds
   for (const s of [webRTCConfig["stream"], allUserStreams[MY_UUID]["videostream"]]) s?.getTracks().forEach(t => t.stop());
   socket.disconnect();
   document.body.insertAdjacentHTML("beforeend", '<div id="topDiv"></div><div id="bottomDiv"></div>');
   setTimeout(() => document.body.insertAdjacentHTML("beforeend", '<div id="centerDiv"></div>'), 500);
-  setTimeout(() => location = "./endcall.html", 1400);
+  setTimeout(() => {
+    store("lastCall", JSON.stringify(summary)); // for endcall.html, this tab only
+    location = "./endcall.html";
+  }, 1400);
+}
+
+async function callSummary() { // for endcall.html: how long, with whom, how it was connected
+  const routes = (await Promise.all(Object.values(pcs).map(pc => pc.route().catch(() => null)))).filter(Boolean);
+  const rtts = routes.map(r => r.rtt).filter(t => t >= 0); // ponytail: only peers still in the call at hang-up
+  return {
+    ms: callStart && Date.now() - callStart,
+    names: [...met.values()],
+    relay: routes.length ? routes.some(r => r.relay) : null,
+    rtt: rtts.length ? Math.max(...rtts) : null,
+  };
 }
 
 //This is where the WEBRTC Magic happens!!!
@@ -454,6 +472,7 @@ function createRemoteSocket(initiator, UUID) {
     if (typeof msg.username == "string") {
       allUserStreams[UUID] = allUserStreams[UUID] || {};
       allUserStreams[UUID]["username"] = msg.username.slice(0, 64);
+      met.set(UUID, nameOf(UUID)); // sent once the data channel is open: a real connection
       updateUserLayout();
     }
     if (typeof msg.audioLvl == "number") setAudioLevel(UUID, msg.audioLvl);
@@ -565,6 +584,7 @@ function joinRoom(onJoined) {
   const lock = !$("#closedLabel").hidden && $("#closedInput").checked; // only a pick on screen: Firefox restores a hidden tick on reload
   socket.emit("joinRoom", { roomname, keep: Object.keys(pcs), name: username, knockId, lock }, function (res) {
     if (!Array.isArray(res)) return retryJoin = () => joinRoom(onJoined), atTheDoor(res.wait);
+    callStart ||= Date.now();
     showLobby(false);
     if (lock && res.length) showMsg("", "Someone was in first: the room is open. Use Lock room to close it.");
     $("#closedInput").checked = false; // picked once: a later rejoin keeps what the members set since
