@@ -76,9 +76,10 @@ test('stale socket disconnect does not unregister the reconnected socket', async
 });
 
 test('ICE servers: legacy "url" becomes "urls", TURN gets HMAC credentials', async () => {
-  const c = io(URL, { transports: ['websocket'], reconnection: false });
-  clients.push(c);
-  const [stun, turn] = await nextEvent(c, 'currentIceServers');
+  const cl = await client('IS1');
+  const got = nextEvent(cl.c, 'currentIceServers');
+  await join(cl, 'room-is');
+  const [stun, turn] = await got;
   assert.deepStrictEqual(stun, { urls: 'stun:legacy.example:3478' });
   assert.strictEqual(turn.urls, 'turn:turn.example:3478');
   assert.ok(!('turnServerCredential' in turn), 'secret must not leak');
@@ -86,6 +87,49 @@ test('ICE servers: legacy "url" becomes "urls", TURN gets HMAC credentials', asy
   assert.strictEqual(name, 'bob');
   assert.ok(+expiry > Date.now() / 1000, 'expiry in the future');
   assert.strictEqual(turn.credential, crypto.createHmac('sha1', 's3cret').update(turn.username).digest('base64'));
+});
+
+test('ICE servers and TURN credentials go to room members only (#61)', async () => {
+  const c = io(URL, { transports: ['websocket'], reconnection: false });
+  clients.push(c);
+  const seen = [];
+  c.onAny(ev => seen.push(ev)); // from before the connect
+  await new Promise(r => c.on('connect', r));
+  const k = { c, uuid: 'IM1', key: 'k' };
+  await sync(k); // registered
+  c.emit('getIceServers');
+  const m = await client('IM2'), got = nextEvent(m.c, 'currentIceServers');
+  await ack(m, 'joinRoom', { roomname: 'room-im', lock: true });
+  await got; // a member gets them
+  assert.deepStrictEqual(await ack(k, 'joinRoom', { roomname: 'room-im' }), { wait: 0 }, 'knocking');
+  c.emit('getIceServers');
+  await sync(k);
+  assert.deepStrictEqual(seen, [], 'nothing on connect, register, knock or asking');
+});
+
+test('fresh TURN credentials, valid 1h: on each join, to members before userJoined, and when asked (#28)', async () => {
+  const a = await client('IF1'), b = await client('IF2');
+  const now = Date.now;
+  let t = now();
+  Date.now = () => t;
+  const expiry = async ev => +(await ev)[1].username.split(':')[0];
+  const fresh = () => Math.floor(t / 1000) + 3600;
+  try {
+    const first = nextEvent(a.c, 'currentIceServers');
+    await join(a, 'room-if');
+    assert.strictEqual(await expiry(first), fresh());
+    t += 2 * 3600e3; // two hours into the call, b joins
+    const seen = [], again = nextEvent(a.c, 'currentIceServers'), joined = nextEvent(a.c, 'userJoined');
+    a.c.onAny(ev => seen.push(ev));
+    b.c.emit('joinRoom', { roomname: 'room-if' });
+    await joined;
+    assert.deepStrictEqual(seen, ['currentIceServers', 'userJoined'], 'before the new peer connection is made');
+    assert.strictEqual(await expiry(again), fresh());
+    t += 2 * 3600e3; // an ICE restart later on
+    const asked = nextEvent(a.c, 'currentIceServers');
+    a.c.emit('getIceServers');
+    assert.strictEqual(await expiry(asked), fresh());
+  } finally { Date.now = now; }
 });
 
 test('room members get userJoined / userDiscconected', async () => {

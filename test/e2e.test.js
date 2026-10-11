@@ -555,6 +555,19 @@ test('network switch: ICE and socket lost together, the call comes back', async 
   await a.context().close(); await b.context().close();
 });
 
+test('ICE down: fresh ICE servers are fetched and set on the connection for its restart (#28)', async () => {
+  const room = 'r' + Date.now();
+  const spy = () => { const s = RTCPeerConnection.prototype.setConfiguration; window.__configs = []; RTCPeerConnection.prototype.setConfiguration = function (c) { __configs.push(c); return s.call(this, c); }; };
+  const a = await join(room, 'alice', spy);
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  assert.strictEqual(await a.evaluate(() => __configs.length), 0);
+  await a.evaluate(() => Object.values(pcs)[0].emitEvent('icestate', 'disconnected')); // as when the path drops
+  await waitFor(() => a.evaluate(() => __configs.length), 'ICE servers set');
+  assert.ok(await a.evaluate(() => __configs[0].iceServers === webRTCConfig.iceServers), 'the ones just sent by the server');
+  await a.context().close(); await b.context().close();
+});
+
 test('rejoining peer that still has the call gets a reset when the other side rebuilds', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');

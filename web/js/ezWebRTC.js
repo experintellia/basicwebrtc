@@ -30,6 +30,7 @@ function initEzWebRTC(initiator, config) {
     dc.onmessage = e => { try { var msg = JSON.parse(e.data) } catch (err) { return } if (msg && typeof msg == "object") _this.emitEvent("message", msg) };
     this.send = obj => dc.readyState == "open" && (dc.send(JSON.stringify(obj)), true); // false: not open (yet)
     this.iceUp = () => pc.iceConnectionState == "connected" || pc.iceConnectionState == "completed";
+    this.setIceServers = iceServers => { try { pc.setConfiguration({ iceServers }) } catch (e) { console.log("setConfiguration error", e) } }; // used from the next ICE restart on
 
     pc.onsignalingstatechange = function (event) {
         _this.emitEvent("onsignalingstatechange", event);
