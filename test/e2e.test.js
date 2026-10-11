@@ -393,7 +393,7 @@ const remoteVideoShown = page => page.evaluate(() => [...document.querySelectorA
 
 test('a peer\'s {video: true} shows its video slot even before the connection is up (#57)', async () => {
   const a = await join('r' + Date.now(), 'alice');
-  await waitFor(() => a.evaluate(() => socket.connected), 'connected');
+  await waitFor(async () => (await selfStatus(a)) === '', 'joined'); // the join's member list would drop the ghost
   await a.evaluate(() => { socket.listeners('userJoined')[0]({ UUID: 'ghost', keep: [] }); pcs.ghost.emitEvent('message', { video: true }); }); // no answer yet
   assert.ok(await a.evaluate(() => allUserStreams.ghost.videostream?.getVideoTracks().length === 1), 'tile has the slot\'s track');
   await a.context().close();
