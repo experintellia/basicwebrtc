@@ -389,7 +389,7 @@ test('signaling socket reconnect keeps the call working', async () => {
 });
 
 const remoteVideoShown = page => page.evaluate(() => [...document.querySelectorAll('#mediaDiv video')]
-  .some(v => v.srcObject && v.videoWidth > 0 && !v.style.transform.includes('scaleX')));
+  .some(v => v.srcObject && v.videoWidth > 0 && !v.classList.contains('mirror')));
 
 test('a peer\'s {video: true} shows its video slot even before the connection is up (#57)', async () => {
   const a = await join('r' + Date.now(), 'alice');
@@ -698,7 +698,7 @@ test('mute button toggles the mic track', async () => {
   const micEnabled = () => a.evaluate(() => allUserStreams[MY_UUID].audiostream.getAudioTracks()[0].enabled);
   await a.click('#muteUnmuteMicBtn');
   assert.strictEqual(await micEnabled(), false);
-  assert.ok(await a.locator('#muteUnmuteMicBtn .fa-microphone-alt-slash').count());
+  assert.ok(await a.locator('#muteUnmuteMicBtn [href="#microphone-alt-slash"]').count());
   await a.click('#muteUnmuteMicBtn');
   assert.strictEqual(await micEnabled(), true);
   await a.context().close();
@@ -730,17 +730,15 @@ test('a peer named like an Object.prototype key is an ordinary peer', async () =
   await a.context().close();
 });
 
-test('Font Awesome: woff2 only, all served, license complete', async () => {
+test('icons: every one used is in the sprite, with its CC BY credit', async () => {
   const a = await open('r' + Date.now(), 'alice');
-  const faces = await a.evaluate(() => Promise.all(['900', '400'].map(w => document.fonts.load(w + ' 1em "Font Awesome 5 Free"'))));
-  assert.deepStrictEqual(faces.map(f => f.length), [1, 1], 'solid and regular icons load');
-  const css = await (await fetch(BASE + 'css/fontawesome5.min.css')).text();
-  const urls = css.match(/url\([^)]*\)/g).map(u => u.slice(4, -1));
-  assert.deepStrictEqual(urls, ['../webfonts/fa-regular-400.woff2', '../webfonts/fa-solid-900.woff2']);
-  for (const u of urls) assert.strictEqual((await fetch(BASE + 'css/' + u)).status, 200, u);
-  assert.ok(css.startsWith("/*!\n * Font Awesome Free 5.13.1 by @fontawesome - https://fontawesome.com\n * License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License)\n */"), 'CSS notice kept');
-  const license = await (await fetch(BASE + 'webfonts/LICENSE.txt')).text(); // OFL 1.1 and MIT want their full text with the files
-  for (const t of ['Font Awesome Free License', 'SIL OPEN FONT LICENSE Version 1.1', 'Permission is hereby granted, free of charge']) assert.ok(license.includes(t), t);
+  const [html, js] = await Promise.all(['', 'js/main.js'].map(async f => (await fetch(BASE + f)).text()));
+  const used = [...(html + js).matchAll(/href="#([\w-]+)"|icon\(([^)]*)\)/g)].flatMap(m => m[1] ? [m[1]] : [...m[2].matchAll(/"([\w-]+)"/g)].map(q => q[1]));
+  assert.ok(new Set(used).size >= 16, `found ${new Set(used).size}`);
+  assert.deepStrictEqual(await a.evaluate(used => used.filter(n => !document.querySelector('symbol#' + n)), used), [], 'missing in the sprite');
+  assert.strictEqual(await a.evaluate(() => document.querySelector('body > svg').getClientRects().length), 0, 'the sprite takes no space');
+  assert.ok(html.includes('Font Awesome Free 5.13.1 by @fontawesome - https://fontawesome.com') && html.includes('CC BY 4.0'), 'credit in the sprite');
+  assert.ok((await (await fetch(BASE + 'icons-LICENSE.txt')).text()).startsWith('Font Awesome Free License'));
   await a.context().close();
 });
 
@@ -1024,10 +1022,11 @@ test('chat, rename and share live in the more menu', async () => {
   await a.context().close();
 });
 
+const noScreenShare = () => { delete MediaDevices.prototype.getDisplayMedia; }; // phone browsers: no getDisplayMedia
+
 test('all call buttons fit on screen from phone to small desktop widths', async () => {
-  const phone = 'Mozilla/5.0 (Linux; Android 14) Mobile'; // phones hide the screen share button
-  for (const [width, height, userAgent] of [[320, 568, phone], [568, 320, phone], [520, 800], [600, 800]]) {
-    const ctx = await browser.newContext({ viewport: { width, height }, userAgent });
+  for (const [width, height] of [[320, 568], [568, 320], [520, 800], [600, 800]]) { // with the screen share button: the widest bar
+    const ctx = await browser.newContext({ viewport: { width, height } });
     const a = await ctx.newPage();
     await a.goto(`${BASE}#roomname=r${Date.now()}`);
     await a.click('#joinBtn');
@@ -1035,6 +1034,18 @@ test('all call buttons fit on screen from phone to small desktop widths', async 
     const overflow = await a.evaluate(() => [...document.querySelectorAll('.callBtn')]
       .filter(b => b.offsetParent && b.getBoundingClientRect().right > innerWidth).map(b => b.id));
     assert.deepStrictEqual(overflow, [], `${width}x${height}`);
+    await ctx.close();
+  }
+});
+
+test('screen share button follows getDisplayMedia, not the user agent', async () => {
+  for (const [init, shown] of [[null, true], [noScreenShare, false]]) {
+    const ctx = await browser.newContext({ userAgent: 'Mozilla/5.0 (Linux; Android 14) Mobile' });
+    const a = await ctx.newPage();
+    if (init) await a.addInitScript(init);
+    await a.goto(`${BASE}#roomname=r${Date.now()}`);
+    await a.click('#joinBtn');
+    assert.strictEqual(await a.locator('#addRemoveScreenBtn').isVisible(), shown, init ? 'no getDisplayMedia' : 'Android with getDisplayMedia');
     await ctx.close();
   }
 });
@@ -1167,6 +1178,20 @@ test('tile initials do not split an emoji', async () => {
   await waitFor(() => a.evaluate(() => byId(MY_UUID)?.querySelector('.userPlaceholder').textContent), 'own tile');
   assert.strictEqual(await a.evaluate(() => byId(MY_UUID).querySelector('.userPlaceholder').textContent), 'A😀');
   await a.context().close();
+});
+
+test('tiles: rows fill the window, a video fits its tile, also right after a resize', async () => {
+  const room = 'r' + Date.now();
+  const [a, b, c] = [await join(room, 'alice'), await join(room, 'bob'), await join(room, 'carol')];
+  await b.click('#addRemoveCameraBtn');
+  await waitFor(() => a.evaluate(() => document.querySelectorAll('#mediaDiv .videoplaceholder').length == 3 && document.querySelector('#mediaDiv video')?.readyState > 0), 'three tiles, bob\'s with video');
+  const boxes = () => a.evaluate(() => [...document.querySelectorAll('#mediaDiv .videoplaceholder, #mediaDiv video')]
+    .map(e => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round).join(); }));
+  // 1280x720: two tiles on top, the third centered below; bob's video (listed after his tile) is as big as his tile allows
+  assert.deepStrictEqual(await boxes(), ['0,0,640,360', '640,0,640,360', '640,0,640,360', '320,360,640,360']);
+  await a.setViewportSize({ width: 1280, height: 400 });
+  assert.deepStrictEqual(await boxes(), ['0,0,640,200', '640,0,640,200', '640,0,640,200', '320,200,640,200'], 'no re-layout needed');
+  for (const p of [a, b, c]) await p.context().close();
 });
 
 test('picture-in-picture survives a re-layout (#27)', async () => {
