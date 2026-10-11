@@ -60,7 +60,7 @@ The server is listening on Ports 443 and 4433 because on many firewalls only web
 
 If your server ip is 10.10.10.10 and your want to name it "myturnserver" run it like this:
 
-Run `docker run -d --net=host --restart=always rofl256/turnserver usernameAdmin passwordAdmin realm "10.10.10.10" "10.10.10.10" "10.10.10.10" authSecret`
+Run `docker run -d --net=host --restart=always -v /etc/letsencrypt/live/turn.example.com/fullchain.pem:/etc/ssl/turn_server_cert.pem:ro -v /etc/letsencrypt/live/turn.example.com/privkey.pem:/etc/ssl/turn_server_pkey.pem:ro rofl256/turnserver usernameAdmin passwordAdmin realm "10.10.10.10" "10.10.10.10" "10.10.10.10" authSecret`
 
 Don't forget to change the admin username, password and authSecret. 
 
@@ -79,7 +79,7 @@ If you have the turn server running as turn.example.com, put it into /iceservers
     }
 ]
 ```
-The `?transport=tcp` url lets clients on UDP-blocked networks still connect. Firewalls that inspect traffic also drop plain TURN over TCP on 443; the `turns:` url (TURN over TLS) gets through them. It needs a certificate for that name in coturn (`cert=` and `pkey=`, e.g. from Let's Encrypt); coturn accepts TLS and plain TURN on the same port.
+The `?transport=tcp` url lets clients on UDP-blocked networks still connect. Firewalls that inspect traffic also drop plain TURN over TCP on 443; the `turns:` url (TURN over TLS) gets through them. It needs a certificate for that name (e.g. from Let's Encrypt), mounted by the two `-v` options above: the image rewrites its coturn config on every start, so `cert=`/`pkey=` edits don't stick. Restart the container after a renewal. coturn accepts TLS and plain TURN on the same port.
 Change the names and authSecret as defined on docker run. The username can be set to anything you want or leave it like this then restart the basicwebrtc server.
 
 ## Credits ##

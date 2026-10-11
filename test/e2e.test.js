@@ -11,6 +11,7 @@ let browser;
 before(async () => {
   process.env.listen_port = String(PORT);
   process.env.listen_ip = '127.0.0.1';
+  process.env.ICESERVERS_FILE = require('path').join(__dirname, '../iceservers.example.json'); // public STUN only, whatever the local iceservers.json says
   require('../server.js'); // ponytail: in-process, runner exits via --test-force-exit
   browser = await chromium.launch({
     executablePath: process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium',
@@ -788,7 +789,7 @@ test('late answer does not cancel an ICE restart', { skip: !canDropUdp && 'needs
   await a.context().close(); await b.context().close();
 });
 
-// #56: the test server has no iceservers.json, so public STUN only. No UDP: the call can never connect.
+// #56: the test server uses iceservers.example.json, so public STUN only. No UDP: the call can never connect.
 test('no TURN configured and ICE fails: the tile says so instead of "connecting…" forever', { skip: !canDropUdp && 'needs root + iptables' }, async () => {
   const room = 'r' + Date.now();
   try { for (;;) iptables('-D ' + UDP_DROP + ' 2>/dev/null'); } catch { }
@@ -798,7 +799,10 @@ test('no TURN configured and ICE fails: the tile says so instead of "connecting�
     const b = await join(room, 'bob');
     const hint = "no relay configured: some networks can't connect";
     await waitFor(async () => (await peerStatus(a)) === hint && (await peerStatus(b)) === hint, 'no relay hint', 30000);
-    await a.evaluate(() => webRTCConfig.iceServers = [{ urls: 'turns:turn.example.com:443?transport=tcp' }]); // as if TURN were configured
+    await a.evaluate(() => { // as if TURN were configured; the server's STUN-only list must not overwrite it
+      socket.off('currentIceServers');
+      webRTCConfig.iceServers = [{ urls: ['turn:turn.example.com:443', 'turns:turn.example.com:443?transport=tcp'] }];
+    });
     await waitFor(async () => (await peerStatus(a)) === 'connecting…', 'no hint with TURN configured', 30000);
     await a.context().close(); await b.context().close();
   } finally {
