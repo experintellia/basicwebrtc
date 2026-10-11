@@ -190,6 +190,36 @@ test('answers without gen (older client) are still accepted', async () => {
   await a.context().close(); await b.context().close();
 });
 
+// #59: a delayed offer and the re-offer behind it reach bob in the same tick; he must answer each in turn.
+test('back-to-back offers each get their own answer', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  const errors = [];
+  b.on('console', m => m.text().includes('signaling error') && errors.push(m.text()));
+  await b.evaluate(() => { // hold alice's offers on bob until her 5s timeout re-offers, then hand both over at once; record bob's answers
+    const h = socket.listeners('signaling')[0];
+    let held = [];
+    socket.off('signaling', h);
+    socket.on('signaling', d => {
+      if (!held || d.signalingData?.type != 'offer') return h(d);
+      if (held.push(d) < 2) return;
+      window.__offerGens = held.map(d => d.signalingData.gen);
+      held.forEach(h); held = null;
+    });
+    const emit = socket.emit;
+    window.__answerGens = [];
+    socket.emit = function (ev, d) { if (d?.signalingData?.type == 'answer') __answerGens.push(d.signalingData.gen); return emit.apply(this, arguments); };
+  });
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => b.evaluate(() => __answerGens.length >= 2), 'two answers', 15000);
+  assert.deepStrictEqual(await b.evaluate(() => __answerGens.slice(0, 2)), await b.evaluate(() => __offerGens), 'one answer per offer, same gen'); // later offers may follow
+  assert.deepStrictEqual(errors, []);
+  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
+  await a.context().close(); await b.context().close();
+});
+
 // #6: bob's socket reconnects; alice's old pc still sends an offer to bob before alice rebuilds it.
 test('stale offer from the old connection after a fast reconnect', async () => {
   const room = 'r' + Date.now();

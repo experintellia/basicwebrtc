@@ -100,7 +100,9 @@ function initEzWebRTC(initiator, config) {
         negotiate();
     }
 
-    this.signaling = async function (signalData) { //Handle signaling
+    var queue = Promise.resolve(); //one message at a time, in order: two offers must not interleave their awaits (#59)
+    this.signaling = d => queue = queue.catch(() => { }).then(() => handle(d)); //a failed message still rejects for its caller
+    async function handle(signalData) { //Handle signaling
         if (signalData == "renegotiate" && initiator) { //Got renegotiate request, so do it
             negotiate();
         } else if (signalData && signalData.type == "offer") { //Got an offer -> Create Answer)
