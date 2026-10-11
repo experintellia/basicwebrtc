@@ -791,6 +791,7 @@ test('late answer does not cancel an ICE restart', { skip: !canDropUdp && 'needs
 // #4: only bob's connectivity checks get lost; alice's checks and bob's replies pass, so only bob's ICE fails.
 // The drop matches bob's current port only: an ICE restart gathers new ports and gets through.
 test('call recovers when only the answerer sees ICE fail', { skip: !canDropUdp && 'needs root + iptables' }, async () => {
+  for (const r of String(iptables('-S OUTPUT')).split('\n')) if (r.includes('basicwebrtc-test')) iptables(r.replace('-A', '-D')); // leftovers from a killed run, any port
   const room = 'r' + Date.now();
   const a = await join(room, 'alice', trackPcs);
   const b = await join(room, 'bob', trackPcs);

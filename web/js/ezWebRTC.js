@@ -106,7 +106,7 @@ function initEzWebRTC(initiator, config) {
 
     this.signaling = async function (signalData) { //Handle signaling
         if (signalData == "renegotiate" && initiator) { //Got renegotiate request, so do it
-            if (!retrying) pc.restartIce(); //its ICE may be down while ours looks fine (#4); ours down: retry() restarts. ponytail: its track changes restart ICE too
+            if (!retrying) pc.restartIce(); //its ICE may be down while ours looks fine (#4); ours down: retry() restarts
             negotiate();
         } else if (signalData && signalData.type == "offer") { //Got an offer -> Create Answer)
             _this.gotOffer = true;
