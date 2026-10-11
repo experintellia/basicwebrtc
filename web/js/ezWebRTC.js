@@ -59,7 +59,7 @@ function initEzWebRTC(initiator, config) {
 
     var knownStreams = {};
     pc.ontrack = function (event) {
-        if (event.track.kind == "video") return _this.remoteVideo ||= new MediaStream([event.track]);
+        if (event.track.kind == "video") return; // the video slot's track is known from the start: remoteVideo
         event.streams.forEach(eventStream => {
             if (!knownStreams[eventStream.id]) _this.emitEvent("stream", eventStream);
             knownStreams[eventStream.id] = true;
@@ -111,6 +111,7 @@ function initEzWebRTC(initiator, config) {
             await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData)) //only the answerer gets offers; have-remote-offer -> have-remote-offer is valid
             if (!video && (video = pc.getTransceivers().find(t => t.receiver.track.kind == "video"))) { // the initiator's video slot: send on it too
                 video.direction = "sendrecv"; // before the answer, so it is negotiated
+                _this.remoteVideo = new MediaStream([video.receiver.track]);
                 _this.setVideo(videoTrack);
                 if (degradation) _this.setDegradation(degradation);
             }
@@ -158,7 +159,10 @@ function initEzWebRTC(initiator, config) {
     }
 
     if (rtcConfig.stream) this.addStream(rtcConfig.stream); //the mic; the answerer's track joins the offer's audio slot
-    if (initiator) video = pc.addTransceiver("video", { direction: "sendrecv" }); //triggers the first negotiation
+    if (initiator) { //the video slot triggers the first negotiation
+        video = pc.addTransceiver("video", { direction: "sendrecv" });
+        this.remoteVideo = new MediaStream([video.receiver.track]); //exists before any {video: true} can arrive, no wait for ontrack
+    }
 
     var offerPending = false;
     async function negotiate() {

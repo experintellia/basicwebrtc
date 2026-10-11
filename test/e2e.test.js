@@ -304,6 +304,13 @@ test('browser "Stop sharing" ends the screen share', async () => {
   await a.context().close(); await b.context().close();
 });
 
+// Video path per peer: ICE, tile has video, slot track muted; video elements; raw pcs' transceivers (if tracked).
+const videoState = page => page.evaluate(() => JSON.stringify({
+  pcs: Object.entries(pcs).map(([id, pc]) => [id.slice(0, 4), pc.iceUp(), !!allUserStreams[id]?.videostream, pc.remoteVideo?.getVideoTracks()[0].muted]),
+  videos: [...document.querySelectorAll('#mediaDiv video')].map(v => [v.videoWidth, v.readyState]),
+  raw: window.__raw?.map(r => [r.connectionState, r.getTransceivers().map(t => [t.mid, t.currentDirection, t.sender.track?.readyState])]),
+}));
+
 test('camera turned on before the peer connects', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');
@@ -325,7 +332,10 @@ test('camera turned on before the peer connects', async () => {
   await a.evaluate(() => window.__oldPc = Object.values(pcs)[0]);
   await b.evaluate(() => { __raw[0].close(); socket.io.engine.close(); }); // bob's connection dies, his socket reconnects
   await waitFor(() => a.evaluate(() => Object.values(pcs)[0] && Object.values(pcs)[0] !== __oldPc), 'alice rebuilt the pc');
-  await waitFor(() => remoteVideoShown(a), 'remote video on alice after reconnect');
+  await waitFor(() => remoteVideoShown(a), 'remote video on alice after reconnect').catch(async e => { // failed once in CI only: show where it stopped
+    console.log('alice', await videoState(a), 'bob', await videoState(b));
+    throw e;
+  });
   await a.context().close(); await b.context().close();
 });
 
@@ -380,6 +390,14 @@ test('signaling socket reconnect keeps the call working', async () => {
 
 const remoteVideoShown = page => page.evaluate(() => [...document.querySelectorAll('#mediaDiv video')]
   .some(v => v.srcObject && v.videoWidth > 0 && !v.style.transform.includes('scaleX')));
+
+test('a peer\'s {video: true} shows its video slot even before the connection is up (#57)', async () => {
+  const a = await join('r' + Date.now(), 'alice');
+  await waitFor(() => a.evaluate(() => socket.connected), 'connected');
+  await a.evaluate(() => { socket.listeners('userJoined')[0]({ UUID: 'ghost', keep: [] }); pcs.ghost.emitEvent('message', { video: true }); }); // no answer yet
+  assert.ok(await a.evaluate(() => allUserStreams.ghost.videostream?.getVideoTracks().length === 1), 'tile has the slot\'s track');
+  await a.context().close();
+});
 
 // #57: one video transceiver per peer; camera on/off swaps its track, no renegotiation.
 test('camera toggles reuse one video slot, without renegotiation (#57)', async () => {
