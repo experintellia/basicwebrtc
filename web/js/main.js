@@ -7,8 +7,8 @@ document.getElementById("unsupported").remove();
 const $ = s => document.querySelector(s);
 const byId = id => document.getElementById(id); // ids are peer-supplied UUIDs: never build selectors from them
 
-const MY_UUID = crypto.randomUUID();
-const MY_UUID_KEY = crypto.randomUUID();
+let MY_UUID = crypto.randomUUID(); // a new one if the server refuses it, see "connect"
+let MY_UUID_KEY = crypto.randomUUID();
 
 const subdir = location.pathname.replace(/[^/]*$/, ""); // folder of the page: "/basicwebrtc/index.html" -> "/basicwebrtc/"
 
@@ -151,9 +151,15 @@ socket.on("userDiscconected", function (UUID) {
 })
 
 // Every (re)connect registers and joins again; peers with live ICE are kept, the rest rebuilt by the rejoin.
-socket.on("connect", function () {
+socket.on("connect", function register() {
   socket.emit("registerUUID", { "UUID": MY_UUID, "UUID_KEY": MY_UUID_KEY }, async function (err) {
-    if (err) return console.log(err);
+    if (err) { // UUID taken, e.g. offline longer than the server keeps it: join as a new user, peers handle that
+      const me = allUserStreams[MY_UUID];
+      delete allUserStreams[MY_UUID];
+      allUserStreams[MY_UUID = crypto.randomUUID()] = me;
+      MY_UUID_KEY = crypto.randomUUID();
+      return register(); // ponytail: no backoff, a server refusing every UUID gets asked again right away
+    }
     await mediaReady;
     for (const id in pcs) if (!pcs[id].iceUp()) removePeer(id);
     joinRoom(members => { // userJoined/userDiscconected missed while offline: resync who left the server

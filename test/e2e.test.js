@@ -3,6 +3,7 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
 const { chromium } = require('playwright-core');
+const { io } = require('socket.io-client');
 
 const PORT = 3100 + Math.floor(Math.random() * 500);
 const BASE = `http://127.0.0.1:${PORT}/`;
@@ -553,6 +554,23 @@ test('peer that crashed while we were off the server is removed after we rejoin'
   (await b.context().newCDPSession(b)).send('Page.crash').catch(() => { }); // never resolves: the renderer is gone
   await a.evaluate(() => socket.connect());
   await waitFor(async () => (await a.locator('#mediaDiv .videoplaceholder').count()) === 1, 'tile removed', 30000);
+  await a.context().close(); await b.context().close();
+});
+
+// #62: offline past the grace time and someone else registered our UUID: join as a new user, not "reconnecting…" forever.
+test('a page whose UUID was taken while it was offline joins again under a new one', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  const old = await a.evaluate(() => (socket.disconnect(), MY_UUID));
+  const thief = io(BASE, { transports: ['websocket'] }); // the server keeps a dropped UUID for its owner 15s: try until free
+  await waitFor(() => new Promise(r => thief.emit('registerUUID', { UUID: old, UUID_KEY: 'thief' }, err => r(!err))), 'UUID taken', 25000);
+  await a.evaluate(() => socket.connect());
+  await waitFor(async () => (await selfStatus(a)) === '', 'alice joined again');
+  for (const p of [a, b]) await waitFor(() => callUp(p), 'call up again'); // bob: alice is a new user, her old pc is gone
+  assert.notStrictEqual(await a.evaluate(() => MY_UUID), old);
+  thief.close();
   await a.context().close(); await b.context().close();
 });
 
