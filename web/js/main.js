@@ -449,7 +449,8 @@ function createRemoteSocket(initiator, UUID) {
     if (pc.left && !pc.iceUp()) return removePeer(UUID);
     setStatus(UUID, ["connected", "completed"].includes(state) ? "" : pc.isConnected ? "reconnecting…" : "connecting…");
   });
-  pc.on("close", () => pcs[UUID] === pc && removePeer(UUID)); // peer left (or closed its connection)
+  // Off the server too: gone. Still on it: SCTP gave up in a long outage (#58), so the initiator rebuilds; its reset replaces the answerer's pc.
+  pc.on("close", () => pcs[UUID] === pc && (pc.left ? removePeer(UUID) : initiator && createRemoteSocket(true, UUID)));
   pc.on("open", () => pc.send({ username: username, audioLvl: micMuted ? -1 : 0 }));
   pc.on("message", function (msg) { // from the peer: untrusted
     if (typeof msg.username == "string") {
