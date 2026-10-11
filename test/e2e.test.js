@@ -635,7 +635,7 @@ test('a socketdomain in the link cannot move signaling to another server', async
 
 test('a peer named like an Object.prototype key is an ordinary peer', async () => {
   const a = await join('r' + Date.now(), 'alice');
-  await waitFor(() => a.evaluate(() => socket.connected), 'connected');
+  await waitFor(async () => (await selfStatus(a)) === '', 'joined'); // the join's resync drops peers the server doesn't list
   await a.evaluate(() => socket.listeners('userJoined')[0]({ UUID: '__proto__', keep: [] }));
   assert.deepStrictEqual(await a.evaluate(() => [Object.keys(pcs), !!byId('__proto__'), 'status' in {}]), [['__proto__'], true, false]);
   await a.context().close();
