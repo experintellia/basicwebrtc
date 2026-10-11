@@ -71,11 +71,12 @@ function initEzWebRTC(initiator, config) {
                 _this.isConnected = true;
                 _this.emitEvent("connect", true)
             }
-        } else if (["disconnected", "failed"].includes(pc.iceConnectionState) && initiator && !retrying) {
+        } else if (["disconnected", "failed"].includes(pc.iceConnectionState) && !retrying) {
             retrying = true;
             setTimeout(function retry() { //give it a few seconds to come back on its own, then keep restarting until it does
                 if (!["disconnected", "failed"].includes(pc.iceConnectionState)) return retrying = false;
-                restartIce();
+                if (initiator) restartIce();
+                else _this.emitEvent("signaling", "renegotiate"); //only the initiator can restart ICE, and its side may look fine (#4)
                 setTimeout(retry, 5000); //one restart can fail while the path is still down, without any further state change (#22)
             }, 3000);
         }
@@ -102,6 +103,7 @@ function initEzWebRTC(initiator, config) {
 
     this.signaling = async function (signalData) { //Handle signaling
         if (signalData == "renegotiate" && initiator) { //Got renegotiate request, so do it
+            if (!retrying) pc.restartIce(); //its ICE may be down while ours looks fine (#4); ours down: retry() restarts. ponytail: its track changes restart ICE too
             negotiate();
         } else if (signalData && signalData.type == "offer") { //Got an offer -> Create Answer)
             _this.gotOffer = true;
