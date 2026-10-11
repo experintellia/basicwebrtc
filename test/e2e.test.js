@@ -389,7 +389,7 @@ test('signaling socket reconnect keeps the call working', async () => {
 });
 
 const remoteVideoShown = page => page.evaluate(() => [...document.querySelectorAll('#mediaDiv video')]
-  .some(v => v.srcObject && v.videoWidth > 0 && !v.style.transform.includes('scaleX')));
+  .some(v => v.srcObject && v.videoWidth > 0 && !v.classList.contains('mirror')));
 
 test('a peer\'s {video: true} shows its video slot even before the connection is up (#57)', async () => {
   const a = await join('r' + Date.now(), 'alice');
@@ -1145,6 +1145,20 @@ test('tile initials do not split an emoji', async () => {
   await waitFor(() => a.evaluate(() => byId(MY_UUID)?.querySelector('.userPlaceholder').textContent), 'own tile');
   assert.strictEqual(await a.evaluate(() => byId(MY_UUID).querySelector('.userPlaceholder').textContent), 'A😀');
   await a.context().close();
+});
+
+test('tiles: rows fill the window, a video fits its tile, also right after a resize', async () => {
+  const room = 'r' + Date.now();
+  const [a, b, c] = [await join(room, 'alice'), await join(room, 'bob'), await join(room, 'carol')];
+  await b.click('#addRemoveCameraBtn');
+  await waitFor(() => a.evaluate(() => document.querySelectorAll('#mediaDiv .videoplaceholder').length == 3 && document.querySelector('#mediaDiv video')?.readyState > 0), 'three tiles, bob\'s with video');
+  const boxes = () => a.evaluate(() => [...document.querySelectorAll('#mediaDiv .videoplaceholder, #mediaDiv video')]
+    .map(e => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round).join(); }));
+  // 1280x720: two tiles on top, the third centered below; bob's video (listed after his tile) is as big as his tile allows
+  assert.deepStrictEqual(await boxes(), ['0,0,640,360', '640,0,640,360', '640,0,640,360', '320,360,640,360']);
+  await a.setViewportSize({ width: 1280, height: 400 });
+  assert.deepStrictEqual(await boxes(), ['0,0,640,200', '640,0,640,200', '640,0,640,200', '320,200,640,200'], 'no re-layout needed');
+  for (const p of [a, b, c]) await p.context().close();
 });
 
 test('picture-in-picture survives a re-layout (#27)', async () => {
