@@ -421,11 +421,16 @@ $("#shareDialog").onclose = () => $("#copyLinkBtn").innerHTML = '<i class="far f
 
 $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end screen
   this.onclick = null;
+  // The page stays: undo what leaving it would have. The mic check would reopen the mic on a devicechange.
+  navigator.mediaDevices.removeEventListener("devicechange", checkMic);
+  stopMicMeter?.();
   for (const s of [webRTCConfig["stream"], allUserStreams[MY_UUID]["videostream"]]) s?.getTracks().forEach(t => t.stop());
+  for (const id in pcs) removePeer(id); // closed connection: peers drop the tile at once
   socket.disconnect();
+  history.replaceState(null, "", location.pathname); // a reload opens a new room, not this call again
   document.body.insertAdjacentHTML("beforeend", '<div id="topDiv"></div><div id="bottomDiv"></div>');
   setTimeout(() => document.body.insertAdjacentHTML("beforeend", '<div id="centerDiv"></div>'), 500);
-  setTimeout(() => location = "./endcall.html", 1400);
+  setTimeout(() => document.body.insertAdjacentHTML("beforeend", '<div id="ended">Call ended. You may close this tab now.</div>'), 1400);
 }
 
 //This is where the WEBRTC Magic happens!!!

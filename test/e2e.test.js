@@ -655,11 +655,19 @@ test('Font Awesome: woff2 only, all served, license complete', async () => {
   await a.context().close();
 });
 
-test('hang up leads to the end screen', async () => {
-  const a = await join('r' + Date.now(), 'alice');
+test('hang up: end screen in place, the peer sees us leave, a reload does not rejoin', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
   await a.click('#cancelCallBtn');
-  await a.waitForURL(/endcall\.html/, { timeout: 5000 });
-  await a.context().close();
+  await waitFor(() => a.locator('#ended').isVisible(), 'end screen', 5000);
+  assert.ok(!a.url().includes(room), 'room gone from the URL: a reload opens a new one');
+  await waitFor(() => b.evaluate(() => !Object.keys(pcs).length), 'alice gone on bob', 5000);
+  await a.evaluate(() => navigator.mediaDevices.dispatchEvent(new Event('devicechange'))); // a headset plugged in
+  await new Promise(r => setTimeout(r, 500));
+  assert.strictEqual(await a.evaluate(() => webRTCConfig.stream.getAudioTracks()[0].readyState), 'ended', 'mic stays off');
+  await a.context().close(); await b.context().close();
 });
 
 test('browsers without WebRTC get an upgrade notice', async () => {
