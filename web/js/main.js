@@ -5,6 +5,7 @@ if (!window.RTCPeerConnection || !navigator.mediaDevices || !navigator.mediaDevi
 document.getElementById("unsupported").remove();
 
 const $ = s => document.querySelector(s);
+const icon = name => `<svg class="icon" aria-hidden="true"><use href="#${name}"/></svg>`; // from the sprite in index.html
 
 const MY_UUID = crypto.randomUUID();
 const MY_UUID_KEY = crypto.randomUUID();
@@ -27,10 +28,7 @@ var username = stored("username") || "NA";
 const knockId = stored("knockId") || crypto.randomUUID(); // a locked room's reject cooldown outlives a reload
 store("knockId", knockId);
 
-var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-if (isMobile || !navigator.mediaDevices.getDisplayMedia) { //No Screenshare on mobile devices
-  $("#screenGroup").hidden = true;
-}
+$("#screenGroup").hidden = !navigator.mediaDevices.getDisplayMedia; // phone browsers have none (Android Chrome 72-88 had one that always failed)
 
 // Always the server that served this page: whoever runs signaling could sit in the middle of the call.
 const socket = io({ path: subdir + "socket.io" }); // works on subpaths too
@@ -137,7 +135,7 @@ function setAudioLevel(UUID, level) {
   if (!tile) return;
   tile.querySelector(".audioMuted")?.remove();
   if (level < 0) { //Muted
-    tile.insertAdjacentHTML("beforeend", '<div style="position:absolute; top: 0px; color: white; font-size: 1.7em; padding: 10px;" class="audioMuted"><i class="fas fa-microphone-alt-slash"></i></div>');
+    tile.insertAdjacentHTML("beforeend", '<div class="audioMuted">' + icon("microphone-alt-slash") + '</div>');
   } else {
     tile.querySelector(".userPlaceholder").style.border = "2px solid rgb(255 255 255 / " + level * 50 + "%)";
   }
@@ -208,7 +206,7 @@ function showLobby(on) {
   $("#lobby").hidden = !on;
   document.body.classList.toggle("inLobby", on);
   showPreview();
-  if (!on) updateUserLayout(); // video sizes are measured: redo them now the call is visible
+  if (!on) updateUserLayout(); // starts the videos now the call is visible
 }
 
 function showPreview() { // own camera in the lobby; let go of it while the lobby is hidden
@@ -254,7 +252,7 @@ $("#micSelect").onchange = async function () { //Swap the mic track in place, so
 
 $("#muteUnmuteMicBtn").onclick = function () {
   micMuted = !micMuted;
-  this.innerHTML = micMuted ? '<i class="fas fa-microphone-alt-slash"></i>' : '<i class="fas fa-microphone-alt"></i>';
+  this.innerHTML = icon(micMuted ? "microphone-alt-slash" : "microphone-alt");
   if (allUserStreams[MY_UUID] && allUserStreams[MY_UUID]["audiostream"]) {
     allUserStreams[MY_UUID]["audiostream"].getAudioTracks()[0].enabled = !micMuted;
     if (micMuted) sendToPeers({ audioLvl: -1 });
@@ -416,9 +414,9 @@ $("#shareBtn").onclick = function () {
 
 $("#copyLinkBtn").onclick = function () {
   if (!navigator.clipboard) return $("#shareLink").select();
-  navigator.clipboard.writeText($("#shareLink").value).then(() => this.innerHTML = '<i class="fas fa-check"></i> Copied!', () => $("#shareLink").select());
+  navigator.clipboard.writeText($("#shareLink").value).then(() => this.innerHTML = icon("check") + " Copied!", () => $("#shareLink").select());
 }
-$("#shareDialog").onclose = () => $("#copyLinkBtn").innerHTML = '<i class="far fa-copy"></i> Copy';
+$("#shareDialog").onclose = () => $("#copyLinkBtn").innerHTML = icon("copy") + " Copy";
 
 $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end screen
   this.onclick = null;
@@ -503,7 +501,7 @@ function updateUserLayout() {
   if (document.fullscreenElement) { //Dont do things on fullscreen
     return;
   }
-  var allUserDivs = Object.create(null);
+  const tiles = [], count = Object.keys(allUserStreams).length;
   for (var i in allUserStreams) {
     var userStream = allUserStreams[i];
     var name = userStream["username"] && userStream["username"] != "NA" ? userStream["username"] : "";
@@ -514,28 +512,25 @@ function updateUserLayout() {
       </div>
     </div>`);
     userStream.tile = userDiv;
+    if (count == 2 && i == MY_UUID) userDiv.classList.add("selfPreview"); // 1:1 call: the other one fills the screen
     userDiv.querySelector(".userPlaceholder").textContent = [...(name || i)].slice(0, 2).join("").toUpperCase();
     userDiv.append(Object.assign(document.createElement("div"), { className: "peerStatus", textContent: userStream["status"] || "" }));
 
     if (userStream["videostream"]) {
       var mirror = i == MY_UUID && !screenActive && userStream["videostream"].getVideoTracks()[0].getSettings().facingMode != "environment"; //Don't mirror rear cameras
-      userDiv.append(fromHTML(`<div class="userCont" style="position: absolute; width: 100%; height: 100%;">
-          <div style="top: 0px; width: 100%;">
-            <div class="userName" style="position: absolute; color: white; top: 7px; left: 7px; font-size: 1.3em; z-index:10; text-shadow: 1px 0 0 #000, 0 -1px 0 #000, 0 1px 0 #000, -1px 0 0 #000;"></div>
-            <video style="${mirror ? "transform: scaleX(-1);" : ""}" autoplay muted playsinline></video>
-            <button title="Enable Picture in Picture" style="cursor:pointer; position:absolute; top:5px; right:10px; background:transparent; border:0px;" class="pipBtn">
-              <img style="width: 30px;" src="./images/picInPic.png">
-            </button>
-          </div>
+      userDiv.append(fromHTML(`<div class="userCont">
+          <div class="userName"></div>
+          <video autoplay muted playsinline></video>
+          <button title="Enable Picture in Picture" class="pipBtn">${icon("pip")}</button>
         </div>`));
       userDiv.querySelector(".userName").textContent = name ? name.charAt(0).toUpperCase() + name.slice(1) : i.substr(0, 2).toUpperCase();
       let video = userDiv.querySelector("video");
       const old = [...document.querySelectorAll("#mediaDiv video")].find(v => v.srcObject == userStream["videostream"]);
       if (old) { // reuse the element: replacing it would close picture-in-picture
-        old.style.transform = video.style.transform;
         video.replaceWith(old);
         video = old;
       }
+      video.classList.toggle("mirror", mirror);
       video.srcObject = userStream["videostream"];
       userDiv.querySelector(".userPlaceholderContainer").hidden = true;
 
@@ -549,47 +544,14 @@ function updateUserLayout() {
       }
     }
 
-    allUserDivs[i] = userDiv;
+    tiles.push(userDiv);
   }
 
-  const mediaDiv = $("#mediaDiv");
-  mediaDiv.replaceChildren();
-  var streamCnt = Object.keys(allUserDivs).length;
-
-  if (streamCnt == 2) { //Display 2 users side by side
-    for (var i in allUserDivs) {
-      if (i == MY_UUID) {
-        allUserDivs[i].classList.add("selfPreview");
-        Object.assign(allUserDivs[i].style, { width: '20%', height: '30%', position: 'absolute', left: '20px', bottom: 'var(--selfPreviewBottomOffset)', zIndex: '1' });
-      } else {
-        Object.assign(allUserDivs[i].style, { width: '100%', height: '100%', float: 'left' });
-      }
-      mediaDiv.append(allUserDivs[i])
-    }
-  } else {
-    var lineCnt = Math.round(Math.sqrt(streamCnt));
-    var lines = [];
-    for (var l = 0; l < lineCnt; l++) {
-      lines.push(mediaDiv.appendChild(document.createElement("div")));
-    }
-    let userPerLine = streamCnt <= 2 ? 1 : Math.ceil(streamCnt / lineCnt);
-    let cucnt = 0;
-    for (var i in allUserDivs) {
-      Object.assign(allUserDivs[i].style, { width: 100 / userPerLine + '%', height: 100 / lineCnt + '%', float: 'left' });
-      lines[Math.floor(cucnt / userPerLine)].append(allUserDivs[i])
-      cucnt++;
-    }
-
-    var lastLine = lines[lineCnt - 1];
-    if (lastLine && lastLine.children.length != userPerLine) { // center an incomplete last line
-      for (const d of lastLine.children) d.style.left = (100 / userPerLine) / 2 + "%";
-    }
-  }
-
-  for (const cont of document.querySelectorAll(".userCont")) {
-    const video = cont.querySelector("video");
-    video.style.maxWidth = cont.offsetWidth + 'px';
-    video.style.maxHeight = cont.offsetHeight + 'px';
+  const mediaDiv = $("#mediaDiv"), inGrid = count == 2 ? 1 : count, rows = Math.round(Math.sqrt(inGrid)); // main.css sizes the tiles
+  mediaDiv.style.setProperty("--rows", rows);
+  mediaDiv.style.setProperty("--cols", Math.ceil(inGrid / rows));
+  mediaDiv.replaceChildren(...tiles);
+  for (const video of mediaDiv.querySelectorAll("video")) {
     if (!video.readyState) video.srcObject = video.srcObject; // Safari doesn't reload a stream after the element was moved: start it again in place
     video.play().catch(() => { });
   }
@@ -647,7 +609,7 @@ socket.on("knockDone", UUID => { knockRows[UUID]?.remove(); delete knockRows[UUI
 var roomLocked = false;
 function showLock(locked) {
   roomLocked = locked;
-  $("#lockBtn").innerHTML = locked ? '<i class="fas fa-lock-open"></i> Unlock room' : '<i class="fas fa-lock"></i> Lock room';
+  $("#lockBtn").innerHTML = locked ? icon("lock-open") + " Unlock room" : icon("lock") + " Lock room";
 }
 socket.on("locked", function ({ locked, by, name }) {
   showLock(locked);
@@ -657,9 +619,3 @@ $("#lockBtn").onclick = () => socket.emit("setLocked", !roomLocked, username);
 
 // iOS Safari can block autoplay of remote audio: any tap retries it
 addEventListener("click", () => document.querySelectorAll("#audioStreams audio").forEach(a => a.paused && a.play().catch(() => { })), true);
-
-var resizeTimeout = null;
-window.onresize = function () {
-  clearTimeout(resizeTimeout);
-  resizeTimeout = setTimeout(updateUserLayout, 2000)
-};
