@@ -203,7 +203,7 @@ test('answers without gen (older client) are still accepted', async () => {
 // #59: a delayed offer and the re-offer behind it reach bob in the same tick; he must answer each in turn.
 test('back-to-back offers each get their own answer', async () => {
   const room = 'r' + Date.now();
-  const a = await join(room, 'alice');
+  const a = await join(room, 'alice', trackPcs);
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
   const errors = [];
@@ -222,10 +222,11 @@ test('back-to-back offers each get their own answer', async () => {
     window.__answerGens = [];
     socket.emit = function (ev, d) { if (d?.signalingData?.type == 'answer') __answerGens.push(d.signalingData.gen); return emit.apply(this, arguments); };
   });
-  await a.click('#addRemoveCameraBtn');
+  await a.evaluate(() => __raw.at(-1).restartIce()); // since #57 camera changes send no offer: an ICE restart does
   await waitFor(() => b.evaluate(() => __answerGens.length >= 2), 'two answers', 15000);
   assert.deepStrictEqual(await b.evaluate(() => __answerGens.slice(0, 2)), await b.evaluate(() => __offerGens), 'one answer per offer, same gen'); // later offers may follow
   assert.deepStrictEqual(errors, []);
+  await a.click('#addRemoveCameraBtn'); // media still flows after both answers
   await waitFor(() => remoteVideoShown(b), 'remote video on bob');
   await a.context().close(); await b.context().close();
 });
