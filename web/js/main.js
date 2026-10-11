@@ -642,7 +642,7 @@ socket.on("knock", function ({ UUID, name }) { // someone at the door: any membe
   row.querySelectorAll("button").forEach((btn, i) => btn.onclick = () => socket.emit("answerKnock", { UUID, accept: !i }));
   $("#knocks").append(row);
 });
-socket.on("knockDone", UUID => knockRows[UUID]?.remove());
+socket.on("knockDone", UUID => { knockRows[UUID]?.remove(); delete knockRows[UUID]; });
 
 var roomLocked = false;
 function showLock(locked) {
