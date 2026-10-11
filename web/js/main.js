@@ -381,7 +381,7 @@ function startVideo(stream, btn) {
 
 function stopVideo() { // camera and screen share use the same slot
   const stream = allUserStreams[MY_UUID]["videostream"];
-  for (var i in pcs) pcs[i].setVideo(null);
+  for (var i in pcs) pcs[i].setVideo(null), pcs[i].setDegradation(null); // the slot outlives the share: the camera gets the default again
   sendToPeers({ video: false });
   stream.getTracks().forEach(track => track.stop());
   delete allUserStreams[MY_UUID]["videostream"];

@@ -48,11 +48,12 @@ function initEzWebRTC(initiator, config) {
         videoTrack = track;
         if (video) video.sender.replaceTrack(track).catch(e => console.log("replaceTrack Error", e)); //e.g. closed pc
     }
-    this.setDegradation = function (pref) { //What the encoder gives up under load, without renegotiation
+    this.setDegradation = function (pref) { //What the encoder gives up under load, without renegotiation; null: browser default
         degradation = pref;
         if (!video) return;
         var params = video.sender.getParameters();
-        params.degradationPreference = pref;
+        if (pref) params.degradationPreference = pref;
+        else delete params.degradationPreference;
         video.sender.setParameters(params).catch(e => console.log("setParameters Error", e));
     }
 

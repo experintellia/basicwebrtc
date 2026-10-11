@@ -286,6 +286,7 @@ test('screen share mode: detail by default, performance via dropdown, applied to
   await waitFor(() => a.evaluate(() => camActive), 'camera on');
   await a.evaluate(() => { const s = document.getElementById('screenModeSelect'); s.value = 'detail'; s.dispatchEvent(new Event('change')); }); // e.g. a popup left open
   assert.strictEqual(await a.evaluate(() => allUserStreams[MY_UUID].videostream.getVideoTracks()[0].contentHint), '', 'camera track untouched');
+  assert.deepStrictEqual((await screenMode(a)).slice(1), [undefined, undefined], 'the camera does not inherit the share\'s preference (#57: one sender)');
   for (const p of [a, b, c]) await p.context().close();
 });
 
