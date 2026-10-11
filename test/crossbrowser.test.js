@@ -44,9 +44,7 @@ const STATE = `JSON.stringify((window.__raw || []).map(p => ({ sig: p.signalingS
 
 before(async () => {
   if (!process.env.FIREFOX && !process.env.SAFARI) return;
-  process.env.listen_port = String(PORT);
-  process.env.listen_ip = '127.0.0.1';
-  require('../server.js'); // ponytail: in-process, runner exits via --test-force-exit
+  require('./boot')({ listen_port: PORT });
   chrome = await chromium.launch({
     executablePath: process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium',
     args: [
