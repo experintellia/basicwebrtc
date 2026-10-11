@@ -562,9 +562,9 @@ test('ICE down: fresh ICE servers are fetched and set on the connection for its 
   const b = await join(room, 'bob');
   await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
   assert.strictEqual(await a.evaluate(() => __configs.length), 0);
-  await a.evaluate(() => Object.values(pcs)[0].emitEvent('icestate', 'disconnected')); // as when the path drops
+  await a.evaluate(() => { window.__old = webRTCConfig.iceServers; Object.values(pcs)[0].emitEvent('icestate', 'disconnected'); }); // as when the path drops
   await waitFor(() => a.evaluate(() => __configs.length), 'ICE servers set');
-  assert.ok(await a.evaluate(() => __configs[0].iceServers === webRTCConfig.iceServers), 'the ones just sent by the server');
+  assert.ok(await a.evaluate(() => __configs[0].iceServers === webRTCConfig.iceServers && __configs[0].iceServers !== __old), 'the ones just sent by the server, not the cached ones');
   await a.context().close(); await b.context().close();
 });
 

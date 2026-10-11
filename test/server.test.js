@@ -109,25 +109,27 @@ test('ICE servers and TURN credentials go to room members only (#61)', async () 
 
 test('fresh TURN credentials, valid 1h: on each join, to members before userJoined, and when asked (#28)', async () => {
   const a = await client('IF1'), b = await client('IF2');
-  const now = Date.now;
-  let t = now();
-  Date.now = () => t;
+  const now = Date.now, t0 = now();
+  let t = t0;
+  Date.now = () => t; // the clients read it too (socket.io-client 4.8 holds back emits once a ping looks overdue):
+  // move it only after an emit, the server handles the packet on a later tick, and back before the next emit
   const expiry = async ev => +(await ev)[1].username.split(':')[0];
   const fresh = () => Math.floor(t / 1000) + 3600;
   try {
     const first = nextEvent(a.c, 'currentIceServers');
     await join(a, 'room-if');
     assert.strictEqual(await expiry(first), fresh());
-    t += 2 * 3600e3; // two hours into the call, b joins
     const seen = [], again = nextEvent(a.c, 'currentIceServers'), joined = nextEvent(a.c, 'userJoined');
     a.c.onAny(ev => seen.push(ev));
     b.c.emit('joinRoom', { roomname: 'room-if' });
+    t = t0 + 2 * 3600e3; // two hours into the call, b joins
     await joined;
     assert.deepStrictEqual(seen, ['currentIceServers', 'userJoined'], 'before the new peer connection is made');
     assert.strictEqual(await expiry(again), fresh());
-    t += 2 * 3600e3; // an ICE restart later on
+    t = t0;
     const asked = nextEvent(a.c, 'currentIceServers');
     a.c.emit('getIceServers');
+    t = t0 + 4 * 3600e3; // an ICE restart later on
     assert.strictEqual(await expiry(asked), fresh());
   } finally { Date.now = now; }
 });
