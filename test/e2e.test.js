@@ -732,6 +732,24 @@ test('late answer does not cancel an ICE restart', { skip: !canDropUdp && 'needs
   await a.context().close(); await b.context().close();
 });
 
+// #56: the test server has no iceservers.json, so public STUN only. No UDP: the call can never connect.
+test('no TURN configured and ICE fails: the tile says so instead of "connecting…" forever', { skip: !canDropUdp && 'needs root + iptables' }, async () => {
+  const room = 'r' + Date.now();
+  try { for (;;) iptables('-D ' + UDP_DROP + ' 2>/dev/null'); } catch { }
+  iptables('-I ' + UDP_DROP);
+  try {
+    const a = await join(room, 'alice');
+    const b = await join(room, 'bob');
+    const hint = "no relay configured: some networks can't connect";
+    await waitFor(async () => (await peerStatus(a)) === hint && (await peerStatus(b)) === hint, 'no relay hint', 30000);
+    await a.evaluate(() => webRTCConfig.iceServers = [{ urls: 'turns:turn.example.com:443?transport=tcp' }]); // as if TURN were configured
+    await waitFor(async () => (await peerStatus(a)) === 'connecting…', 'no hint with TURN configured', 30000);
+    await a.context().close(); await b.context().close();
+  } finally {
+    iptables('-D ' + UDP_DROP);
+  }
+});
+
 test('rename updates the name for peers and chat, survives a reload, stays out of the URL', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');

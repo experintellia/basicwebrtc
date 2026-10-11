@@ -447,7 +447,9 @@ function createRemoteSocket(initiator, UUID) {
     if (pcs[UUID] !== pc) return; // already removed
     // Gone from the server and from ICE. ponytail: a short ICE blip while the peer is off the server also drops it; accepted for fast crash cleanup.
     if (pc.left && !pc.iceUp()) return removePeer(UUID);
-    setStatus(UUID, ["connected", "completed"].includes(state) ? "" : pc.isConnected ? "reconnecting…" : "connecting…");
+    pc.timedOut ||= ["disconnected", "failed"].includes(state); // checks timed out (Chromium: "disconnected" after ~15s); kept through the restart's "checking"
+    const relay = webRTCConfig["iceServers"]?.some(s => [].concat(s.urls).some(u => /^turns?:/.test(u)));
+    setStatus(UUID, ["connected", "completed"].includes(state) ? "" : pc.isConnected ? "reconnecting…" : pc.timedOut && !relay ? "no relay configured: some networks can't connect" : "connecting…");
   });
   pc.on("close", () => pcs[UUID] === pc && removePeer(UUID)); // peer left (or closed its connection)
   pc.on("open", () => pc.send({ username: username, audioLvl: micMuted ? -1 : 0 }));
