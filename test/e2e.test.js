@@ -991,10 +991,11 @@ test('chat, rename and share live in the more menu', async () => {
   await a.context().close();
 });
 
+const noScreenShare = () => { delete MediaDevices.prototype.getDisplayMedia; }; // phone browsers: no getDisplayMedia
+
 test('all call buttons fit on screen from phone to small desktop widths', async () => {
-  const phone = 'Mozilla/5.0 (Linux; Android 14) Mobile'; // phones hide the screen share button
-  for (const [width, height, userAgent] of [[320, 568, phone], [568, 320, phone], [520, 800], [600, 800]]) {
-    const ctx = await browser.newContext({ viewport: { width, height }, userAgent });
+  for (const [width, height] of [[320, 568], [568, 320], [520, 800], [600, 800]]) { // with the screen share button: the widest bar
+    const ctx = await browser.newContext({ viewport: { width, height } });
     const a = await ctx.newPage();
     await a.goto(`${BASE}#roomname=r${Date.now()}`);
     await a.click('#joinBtn');
@@ -1002,6 +1003,18 @@ test('all call buttons fit on screen from phone to small desktop widths', async 
     const overflow = await a.evaluate(() => [...document.querySelectorAll('.callBtn')]
       .filter(b => b.offsetParent && b.getBoundingClientRect().right > innerWidth).map(b => b.id));
     assert.deepStrictEqual(overflow, [], `${width}x${height}`);
+    await ctx.close();
+  }
+});
+
+test('screen share button follows getDisplayMedia, not the user agent', async () => {
+  for (const [init, shown] of [[null, true], [noScreenShare, false]]) {
+    const ctx = await browser.newContext({ userAgent: 'Mozilla/5.0 (Linux; Android 14) Mobile' });
+    const a = await ctx.newPage();
+    if (init) await a.addInitScript(init);
+    await a.goto(`${BASE}#roomname=r${Date.now()}`);
+    await a.click('#joinBtn');
+    assert.strictEqual(await a.locator('#addRemoveScreenBtn').isVisible(), shown, init ? 'no getDisplayMedia' : 'Android with getDisplayMedia');
     await ctx.close();
   }
 });
