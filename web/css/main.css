@@ -2,6 +2,19 @@ audio {
   max-width: 100%;
 }
 
+.icon { /* from the sprite in index.html: as big and colored as the text around it */
+  width: 1.125em;
+  height: 1em;
+  vertical-align: -0.125em;
+  fill: currentColor;
+  font-family: sans-serif; /* as the icon font did: under monospace, em sizes are 13/16 as big */
+}
+
+.pipBtn .icon {
+  width: 30px;
+  height: 30px;
+}
+
 body {
   margin: 0;
   padding: 0em;
@@ -102,7 +115,7 @@ video {
   background: #ffffff1a;
 }
 
-#moreMenu i {
+#moreMenu .icon {
   width: 1.4em;
 }
 
@@ -152,7 +165,7 @@ video {
   color: #710000;
 }
 
-.fa-microphone-alt {
+#muteUnmuteMicBtn [href="#microphone-alt"] {
   color: #044e04;
 }
 
@@ -543,9 +556,8 @@ div#centerDiv{
   display: none;
 }
 
-#lobby label i {
+#lobby label .icon {
   width: 1.4em;
-  text-align: center;
   color: #ddd;
 }
 

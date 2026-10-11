@@ -6,6 +6,7 @@ document.getElementById("unsupported").remove();
 
 const $ = s => document.querySelector(s);
 const byId = id => document.getElementById(id); // ids are peer-supplied UUIDs: never build selectors from them
+const icon = name => `<svg class="icon" aria-hidden="true"><use href="#${name}"/></svg>`; // from the sprite in index.html
 
 const MY_UUID = crypto.randomUUID();
 const MY_UUID_KEY = crypto.randomUUID();
@@ -137,7 +138,7 @@ function setAudioLevel(UUID, level) {
   if (!tile) return;
   tile.querySelector(".audioMuted")?.remove();
   if (level < 0) { //Muted
-    tile.insertAdjacentHTML("beforeend", '<div style="position:absolute; top: 0px; color: white; font-size: 1.7em; padding: 10px;" class="audioMuted"><i class="fas fa-microphone-alt-slash"></i></div>');
+    tile.insertAdjacentHTML("beforeend", '<div style="position:absolute; top: 0px; color: white; font-size: 1.7em; padding: 10px;" class="audioMuted">' + icon("microphone-alt-slash") + '</div>');
   } else {
     tile.querySelector(".userPlaceholder").style.border = "2px solid rgb(255 255 255 / " + level * 50 + "%)";
   }
@@ -254,7 +255,7 @@ $("#micSelect").onchange = async function () { //Swap the mic track in place, so
 
 $("#muteUnmuteMicBtn").onclick = function () {
   micMuted = !micMuted;
-  this.innerHTML = micMuted ? '<i class="fas fa-microphone-alt-slash"></i>' : '<i class="fas fa-microphone-alt"></i>';
+  this.innerHTML = icon(micMuted ? "microphone-alt-slash" : "microphone-alt");
   if (allUserStreams[MY_UUID] && allUserStreams[MY_UUID]["audiostream"]) {
     allUserStreams[MY_UUID]["audiostream"].getAudioTracks()[0].enabled = !micMuted;
     if (micMuted) sendToPeers({ audioLvl: -1 });
@@ -416,9 +417,9 @@ $("#shareBtn").onclick = function () {
 
 $("#copyLinkBtn").onclick = function () {
   if (!navigator.clipboard) return $("#shareLink").select();
-  navigator.clipboard.writeText($("#shareLink").value).then(() => this.innerHTML = '<i class="fas fa-check"></i> Copied!', () => $("#shareLink").select());
+  navigator.clipboard.writeText($("#shareLink").value).then(() => this.innerHTML = icon("check") + " Copied!", () => $("#shareLink").select());
 }
-$("#shareDialog").onclose = () => $("#copyLinkBtn").innerHTML = '<i class="far fa-copy"></i> Copy';
+$("#shareDialog").onclose = () => $("#copyLinkBtn").innerHTML = icon("copy") + " Copy";
 
 $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end screen
   this.onclick = null;
@@ -525,7 +526,7 @@ function updateUserLayout() {
             <div class="userName" style="position: absolute; color: white; top: 7px; left: 7px; font-size: 1.3em; z-index:10; text-shadow: 1px 0 0 #000, 0 -1px 0 #000, 0 1px 0 #000, -1px 0 0 #000;"></div>
             <video style="${mirror ? "transform: scaleX(-1);" : ""}" autoplay muted playsinline></video>
             <button title="Enable Picture in Picture" style="cursor:pointer; position:absolute; top:5px; right:10px; background:transparent; border:0px;" class="pipBtn">
-              <img style="width: 30px;" src="./images/picInPic.png">
+              ${icon("pip")}
             </button>
           </div>
         </div>`));
@@ -648,7 +649,7 @@ socket.on("knockDone", UUID => byId("knock-" + UUID)?.remove());
 var roomLocked = false;
 function showLock(locked) {
   roomLocked = locked;
-  $("#lockBtn").innerHTML = locked ? '<i class="fas fa-lock-open"></i> Unlock room' : '<i class="fas fa-lock"></i> Lock room';
+  $("#lockBtn").innerHTML = locked ? icon("lock-open") + " Unlock room" : icon("lock") + " Lock room";
 }
 socket.on("locked", function ({ locked, by, name }) {
   showLock(locked);
