@@ -748,11 +748,28 @@ test('icons: every one used is in the sprite, with its CC BY credit', async () =
   await a.context().close();
 });
 
-test('hang up leads to the end screen', async () => {
-  const a = await join('r' + Date.now(), 'alice');
+test('end screen: how long, with whom, the chat, stats for nerds and a new call', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(() => a.evaluate(() => Object.keys(pcs).some(id => nameOf(id) == 'bob' && pcs[id].iceUp())), 'in a call with bob');
+  await b.evaluate(() => { $('#chatInputText').value = 'notes: https://example.com/doc'; sendMsg(); });
+  await waitFor(() => a.evaluate(() => $('#chatText').textContent.includes('example.com')), 'chat on alice');
   await a.click('#cancelCallBtn');
-  await a.waitForURL(/endcall\.html/, { timeout: 5000 });
-  await a.context().close();
+  await a.waitForURL(/endcall\.html$/, { timeout: 5000 });
+  assert.match(await a.locator('#duration').innerText(), /^0:\d\d$/);
+  assert.strictEqual(await a.locator('#with').innerText(), 'with bob');
+  assert.strictEqual(await a.locator('#stats').isVisible(), false, 'stats for nerds start folded');
+  await a.click('#nerdStats summary');
+  const stats = await a.locator('#stats').innerText();
+  for (const re of [/Connection\s+Direct/, /Round trip\s+\d+ ms/, /Encryption\s+End to end/]) assert.match(stats, re);
+  assert.match(await a.locator('#endChat').innerText(), /bob: notes: https:\/\/example\.com\/doc/, 'the chat, to save links from');
+  assert.strictEqual(await a.locator('#endChat a').getAttribute('href'), 'https://example.com/doc');
+  assert.match(await a.locator('#chatNote').innerText(), /gone once you close this tab/, 'told to save what they need');
+  await a.click('#newCallBtn');
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby of a new call');
+  assert.ok(/#roomname=r\d+$/.test(a.url()) && !a.url().includes(room), `a new room: ${a.url()}`);
+  await a.context().close(); await b.context().close();
 });
 
 test('browsers without WebRTC get an upgrade notice', async () => {
