@@ -648,7 +648,7 @@ video.mirror {
   font-weight: bold;
 }
 
-#nameInput, #joinBtn, #newCallBtn {
+#nameInput, #joinBtn, #newCallBtn, #copyChatBtn {
   padding: 10px 14px;
   border-radius: 8px;
   font-family: sans-serif;
@@ -685,8 +685,6 @@ video.mirror {
 }
 
 #copyChatBtn {
-  padding: 10px 14px;
-  border-radius: 8px;
   background: #555;
   color: #fff;
 }

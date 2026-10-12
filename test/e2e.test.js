@@ -755,6 +755,7 @@ test('end screen: how long, with whom, the chat, stats for nerds and a new call'
   await waitFor(() => a.evaluate(() => Object.keys(pcs).some(id => nameOf(id) == 'bob' && pcs[id].iceUp())), 'in a call with bob');
   await b.evaluate(() => { $('#chatInputText').value = 'notes: https://example.com/doc'; sendMsg(); });
   await waitFor(() => a.evaluate(() => $('#chatText').textContent.includes('example.com')), 'chat on alice');
+  await a.evaluate(() => { $('#chatInputText').value = 'thanks'; sendMsg(); });
   await a.click('#cancelCallBtn');
   await a.waitForURL(/endcall\.html$/, { timeout: 5000 });
   assert.match(await a.locator('#duration').innerText(), /^0:\d\d$/);
@@ -768,7 +769,7 @@ test('end screen: how long, with whom, the chat, stats for nerds and a new call'
   assert.match(await a.locator('#chatNote').innerText(), /gone once you close this tab/, 'told to save what they need');
   await a.click('#copyChatBtn');
   await waitFor(async () => (await a.locator('#copyChatBtn').innerText()) == 'Copied!', 'copied');
-  assert.match(await a.evaluate(() => window.__copied), /^bob: notes: https:\/\/example\.com\/doc$/m, 'the whole chat as text');
+  assert.strictEqual(await a.evaluate(() => window.__copied), 'bob: notes: https://example.com/doc\nalice: thanks', 'the whole chat, one line per message');
   await a.click('#newCallBtn');
   await waitFor(() => a.locator('#lobby').isVisible(), 'lobby of a new call');
   assert.ok(/#roomname=r\d+$/.test(a.url()) && !a.url().includes(room), `a new room: ${a.url()}`);
