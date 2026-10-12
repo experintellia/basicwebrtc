@@ -4,7 +4,7 @@
   "description": "Simple 1on1 P2P Talking example!",
   "main": "server.js",
   "scripts": {
-    "test": "node --test --test-concurrency=1 --test-force-exit test/*.test.js"
+    "test": "node --test --test-concurrency=1 --test-force-exit"
   },
   "repository": {
     "type": "git",

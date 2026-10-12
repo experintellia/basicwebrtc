@@ -524,20 +524,13 @@ test('a peer whose network dies while its socket looks open is removed once the 
 });
 
 // Both ends switch networks at once: on reconnect each drops its dead call, and the two rejoins make one new one.
+// The server sends userJoined only one way (joins are handled one at a time); if it ever sends it both ways, the offers glare: needs a UUID tie-break.
 test('both sockets drop at once with ICE gone: one new call', async t => {
   const [a, b] = await call(t, trackPcs, trackPcs);
   for (const p of [a, b]) await p.evaluate(() => Object.values(pcs)[0].mappedEvents.close = []); // a lost network sends no goodbye
   await Promise.all([a, b].map(p => p.evaluate(() => { __raw[0].close(); socket.io.engine.close(); })));
   for (const p of [a, b]) await waitFor(() => callUp(p), 'call up again', 30000);
   for (const p of [a, b]) assert.strictEqual(await p.evaluate(() => __raw.length), 2, 'one new connection each');
-});
-
-// Glare: each side takes the other's userJoined and offers. The server handles joins one at a time, so today it sends only one of the two.
-test('glare: both sides take the other\'s rejoin at once and offer: one call', { todo: 'each side\'s reset removes the other\'s new connection, none is left: needs a tie-break' }, async t => {
-  const [a, b] = await call(t);
-  const ids = await Promise.all([b, a].map(p => p.evaluate(() => MY_UUID)));
-  await Promise.all([a, b].map((p, i) => p.evaluate(id => socket.listeners('userJoined')[0]({ UUID: id, keep: [] }), ids[i])));
-  for (const p of [a, b]) await waitFor(() => callUp(p), 'one call', 8000);
 });
 
 test('three peers: chat, mute and a screen share started mid-call reach both others; one crashes, the other two keep talking', async t => {
@@ -657,7 +650,7 @@ const canDropUdp = (() => { try { require('child_process').execSync('iptables -L
 const iptables = args => require('child_process').execSync('iptables ' + args);
 const DROP = '-m comment --comment basicwebrtc-test -j DROP';
 async function withoutUdp(fn, rule = 'OUTPUT -p udp ! --dport 53') {
-  try { for (;;) iptables(`-D ${rule} ${DROP} 2>/dev/null`); } catch { } // leftovers from a killed run
+  for (const r of String(iptables('-S OUTPUT')).split('\n')) if (r.includes('basicwebrtc-test')) iptables(r.replace('-A', '-D')); // leftovers from a killed run
   iptables(`-I ${rule} ${DROP}`);
   try { await fn(); } finally { iptables(`-D ${rule} ${DROP}`); }
 }
@@ -765,7 +758,7 @@ test('the same room link again, or with old params, does not reload the call', a
   const a = await join(t, 'alice');
   assert.strictEqual(await a.evaluate(r => new Promise(done => {
     let reload = false;
-    navigation.addEventListener('navigate', e => reload ||= e.navigationType == 'reload');
+    navigation.addEventListener('navigate', e => reload ||= !e.hashChange);
     addEventListener('hashchange', () => done(reload)); // after the page's own handler
     location.hash = 'roomname=' + r + '&username=bob';
   }), room(t)), false, 'no reload');
