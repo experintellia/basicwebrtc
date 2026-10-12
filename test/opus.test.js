@@ -1,7 +1,7 @@
 // Unit test for opusParams() in web/js/ezWebRTC.js (loaded with vm, no browser).
 const { test } = require('node:test');
 const assert = require('node:assert');
-const ctx = { window: {} };
+const ctx = {};
 require('vm').runInNewContext(require('fs').readFileSync(__dirname + '/../web/js/ezWebRTC.js', 'utf8'), ctx);
 
 test('opusParams adds usedtx and useinbandfec on the opus fmtp line, whatever its PT', () => {

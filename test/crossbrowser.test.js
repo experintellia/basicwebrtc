@@ -35,7 +35,7 @@ const AUDIO_BOTH_WAYS = async () => { let rx = 0, tx = 0; for (const p of __raw)
 }); return rx > 0 && tx > 0; };
 // Every video tile is actually playing frames (own camera and the peer's), seen from inside the browser.
 const VIDEOS_PLAYING = `(() => { const v = [...document.querySelectorAll('#mediaDiv video')]; return v.length == 2 && v.every(v => !v.paused && v.videoWidth > 0); })()`;
-const REMOTE_VIDEO = () => [...document.querySelectorAll('#mediaDiv video')].some(v => v.srcObject && v.videoWidth > 0 && !v.style.transform.includes('scaleX'));
+const REMOTE_VIDEO = () => [...document.querySelectorAll('#mediaDiv video')].some(v => v.srcObject && v.videoWidth > 0 && !v.classList.contains('mirror'));
 // Init script (as in e2e.test.js): keeps the raw RTCPeerConnections in window.__raw.
 const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
 // Printed on failure: ICE state and candidates (the other side's only in Playwright browsers, Safari has no __raw).
@@ -82,7 +82,7 @@ after(async () => {
 });
 
 // A call between Chromium and the other browser. Who joins first decides who sends the offer, so both orders run.
-// The other browser then turns its camera on: renegotiation from its side (Safari's null-mid transceiver path).
+// The other browser then turns its camera on: it sends on the video slot it answered (#57), no renegotiation.
 async function call(other, otherFirst) {
   const room = 'x' + Date.now(), log = [];
   const page = await (await chrome.newContext()).newPage();
