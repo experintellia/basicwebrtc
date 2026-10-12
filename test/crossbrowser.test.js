@@ -41,7 +41,7 @@ const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.
 // Printed on failure: ICE and DTLS state, candidates and video RTP stats (packets in/out, frames and keyframes decoded).
 const STATE = `Promise.all((window.__raw || []).map(async p => ({ sig: p.signalingState, ice: p.iceConnectionState, conn: p.connectionState, gather: p.iceGatheringState,
   local: p.localDescription?.sdp.match(/a=candidate.*/g), remote: p.remoteDescription?.sdp.match(/a=candidate.*/g),
-  video: [...(await p.getStats().catch(() => [])).values()].filter(s => s.kind == 'video' && /^(in|out)bound-rtp$/.test(s.type)) }))).then(JSON.stringify)`;
+  stats: [...(await p.getStats().catch(() => [])).values()].filter(s => /^((in|out)bound-rtp|candidate-pair|transport|data-channel|(local|remote)-candidate)$/.test(s.type)) }))).then(JSON.stringify)`;
 // The peer's ICE username once ICE is up and nothing is being negotiated: an ICE restart changes it.
 const ICE_UP = `(p => p.signalingState == 'stable' && ['connected', 'completed'].includes(p.iceConnectionState) && p.remoteDescription.sdp.match(/a=ice-ufrag:(\\S+)/)[1])(__raw.at(-1))`;
 
