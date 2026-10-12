@@ -21,6 +21,7 @@
             <h2>Chat</h2>
             <p id="chatNote">Copy the links you need now: this chat is gone once you close this tab.</p>
             <div id="chatText"></div>
+            <button id="copyChatBtn">Copy chat</button>
         </section>
         <script src="js/chatline.js"></script>
         <script>
@@ -41,6 +42,11 @@
                 for (const [name, msg] of s.chat || []) $("chatText").append(chatLine(name, msg));
                 $("endChat").hidden = !s.chat?.length;
             }
+            $("copyChatBtn").onclick = function () { // the chat as text; without the clipboard API it is selected, for Ctrl+C
+                const select = () => getSelection().selectAllChildren($("chatText"));
+                if (!navigator.clipboard) return select();
+                navigator.clipboard.writeText($("chatText").innerText).then(() => this.textContent = "Copied!", select);
+            };
         </script>
     </body>
 </html>

@@ -195,7 +195,7 @@ video {
   box-shadow: 0 10px 40px #000a;
 }
 
-#chatDiv button, #shareDialog button, #lobby button, .knock button {
+#chatDiv button, #shareDialog button, #lobby button, .knock button, #endChat button {
   border: 0;
   cursor: pointer;
   font: inherit;
@@ -682,6 +682,17 @@ video.mirror {
 
 #endChat #chatText {
   padding: 0; /* the card has its own */
+}
+
+#copyChatBtn {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #555;
+  color: #fff;
+}
+
+#copyChatBtn:hover {
+  background: #666;
 }
 
 #endChat #chatNote { /* the chat lives only in this tab */

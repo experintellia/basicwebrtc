@@ -750,7 +750,7 @@ test('icons: every one used is in the sprite, with its CC BY credit', async () =
 
 test('end screen: how long, with whom, the chat, stats for nerds and a new call', async () => {
   const room = 'r' + Date.now();
-  const a = await join(room, 'alice');
+  const a = await join(room, 'alice', () => { navigator.clipboard.writeText = t => { window.__copied = t; return Promise.resolve(); }; });
   const b = await join(room, 'bob');
   await waitFor(() => a.evaluate(() => Object.keys(pcs).some(id => nameOf(id) == 'bob' && pcs[id].iceUp())), 'in a call with bob');
   await b.evaluate(() => { $('#chatInputText').value = 'notes: https://example.com/doc'; sendMsg(); });
@@ -766,6 +766,9 @@ test('end screen: how long, with whom, the chat, stats for nerds and a new call'
   assert.match(await a.locator('#endChat').innerText(), /bob: notes: https:\/\/example\.com\/doc/, 'the chat, to save links from');
   assert.strictEqual(await a.locator('#endChat a').getAttribute('href'), 'https://example.com/doc');
   assert.match(await a.locator('#chatNote').innerText(), /gone once you close this tab/, 'told to save what they need');
+  await a.click('#copyChatBtn');
+  await waitFor(async () => (await a.locator('#copyChatBtn').innerText()) == 'Copied!', 'copied');
+  assert.match(await a.evaluate(() => window.__copied), /^bob: notes: https:\/\/example\.com\/doc$/m, 'the whole chat as text');
   await a.click('#newCallBtn');
   await waitFor(() => a.locator('#lobby').isVisible(), 'lobby of a new call');
   assert.ok(/#roomname=r\d+$/.test(a.url()) && !a.url().includes(room), `a new room: ${a.url()}`);
