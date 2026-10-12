@@ -67,10 +67,16 @@ before(async () => {
     driver = spawn('safaridriver', ['-p', String(PORT + 1000)], { stdio: 'inherit' });
     await waitFor(() => fetch(WD + '/status').then(r => r.ok, () => false), 'safaridriver');
     // Safari under automation uses mock capture devices; these drop the insecure-origin and host-candidate filters.
-    ({ sessionId: session } = await wd('POST', '/session', { capabilities: { alwaysMatch: {
+    const caps = { capabilities: { alwaysMatch: {
       browserName: 'safari',
       'webkit:WebRTC': { DisableInsecureMediaCapture: true, DisableICECandidateFiltering: true },
-    } } }));
+    } } };
+    // ponytail: one retry of the session only (never of a test): on CI, launching Safari sometimes times out (#82)
+    ({ sessionId: session } = await wd('POST', '/session', caps).catch(async e => {
+      console.log('webdriver session failed, retrying once:', e.message);
+      await new Promise(r => setTimeout(r, 2000));
+      return wd('POST', '/session', caps);
+    }));
   }
 });
 
