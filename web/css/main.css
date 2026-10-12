@@ -683,6 +683,14 @@ video.mirror {
   padding: 0; /* the card has its own */
 }
 
+#endChat #chatNote { /* the chat lives only in this tab */
+  padding: 8px 10px;
+  border-left: 3px solid #f0c36a;
+  border-radius: 4px;
+  background: #ffffff0d;
+  color: #ddd;
+}
+
 #duration {
   font-size: 3em;
   font-weight: bold;

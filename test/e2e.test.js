@@ -726,6 +726,7 @@ test('end screen: how long, with whom, the chat, stats for nerds and a new call'
   for (const re of [/Connection\s+Direct/, /Round trip\s+\d+ ms/, /Encryption\s+End to end/]) assert.match(stats, re);
   assert.match(await a.locator('#endChat').innerText(), /bob: notes: https:\/\/example\.com\/doc/, 'the chat, to save links from');
   assert.strictEqual(await a.locator('#endChat a').getAttribute('href'), 'https://example.com/doc');
+  assert.match(await a.locator('#chatNote').innerText(), /gone once you close this tab/, 'told to save what they need');
   await a.click('#newCallBtn');
   await waitFor(() => a.locator('#lobby').isVisible(), 'lobby of a new call');
   assert.ok(/#roomname=r\d+$/.test(a.url()) && !a.url().includes(room), `a new room: ${a.url()}`);
