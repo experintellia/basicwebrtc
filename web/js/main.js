@@ -5,11 +5,10 @@ if (!window.RTCPeerConnection || !navigator.mediaDevices || !navigator.mediaDevi
 document.getElementById("unsupported").remove();
 
 const $ = s => document.querySelector(s);
-const byId = id => document.getElementById(id); // ids are peer-supplied UUIDs: never build selectors from them
 const icon = name => `<svg class="icon" aria-hidden="true"><use href="#${name}"/></svg>`; // from the sprite in index.html
 
-const MY_UUID = crypto.randomUUID();
-const MY_UUID_KEY = crypto.randomUUID();
+let MY_UUID = crypto.randomUUID(); // a new one if the server refuses it, see "connect"
+let MY_UUID_KEY = crypto.randomUUID();
 
 const subdir = location.pathname.replace(/[^/]*$/, ""); // folder of the page: "/basicwebrtc/index.html" -> "/basicwebrtc/"
 
@@ -36,7 +35,8 @@ const socket = io({ path: subdir + "socket.io" }); // works on subpaths too
 
 var webRTCConfig = {};
 
-// Keyed by peer-chosen UUIDs: no prototype, so "__proto__" etc. are plain keys
+// Keyed by peer-chosen UUIDs: no prototype, so "__proto__" etc. are plain keys.
+// A UUID is never an element id ("Streams" would be #audioStreams): each entry holds its .tile and .audio.
 var allUserStreams = Object.create(null);
 var pcs = Object.create(null); //Peer connections to all remotes
 var micMuted = false;
@@ -116,8 +116,8 @@ socket.on("signaling", function (data) {
   pcs[fromUUID].signaling(data.signalingData).catch(e => console.log("signaling error", e));
 })
 
-// MY_UUID is new per page load: a known UUID means that page's socket reconnected. It already dropped
-// peers whose ICE is down and lists the rest in keep; keep the call only if both sides still have it.
+// MY_UUID is new per page load and after a refused registration: a known UUID means that page's socket
+// reconnected. It already dropped peers whose ICE is down and lists the rest in keep; keep the call only if both sides still have it.
 socket.on("userJoined", function (content) {
   const UUID = content["UUID"] || null;
   if (pcs[UUID]?.iceUp() && content.keep?.includes(MY_UUID)) return pcs[UUID].left = false;
@@ -131,7 +131,7 @@ const nameOf = UUID => realName(allUserStreams[UUID]?.username);
 
 function setAudioLevel(UUID, level) {
   if (allUserStreams[UUID]) allUserStreams[UUID].muted = level < 0; // re-shown by updateUserLayout
-  const tile = byId(UUID);
+  const tile = allUserStreams[UUID]?.tile;
   if (!tile) return;
   tile.querySelector(".audioMuted")?.remove();
   if (level < 0) { //Muted
@@ -149,9 +149,15 @@ socket.on("userDiscconected", function (UUID) {
 })
 
 // Every (re)connect registers and joins again; peers with live ICE are kept, the rest rebuilt by the rejoin.
-socket.on("connect", function () {
+socket.on("connect", function register() {
   socket.emit("registerUUID", { "UUID": MY_UUID, "UUID_KEY": MY_UUID_KEY }, async function (err) {
-    if (err) return console.log(err);
+    if (err) { // UUID taken, e.g. offline longer than the server keeps it: join as a new user, peers handle that
+      const me = allUserStreams[MY_UUID];
+      delete allUserStreams[MY_UUID];
+      allUserStreams[MY_UUID = crypto.randomUUID()] = me;
+      MY_UUID_KEY = crypto.randomUUID();
+      return register(); // ponytail: no backoff, a server refusing every UUID gets asked again right away
+    }
     await mediaReady;
     for (const id in pcs) if (!pcs[id].iceUp()) removePeer(id);
     joinRoom(members => { // userJoined/userDiscconected missed while offline: resync who left the server
@@ -164,7 +170,7 @@ socket.on("disconnect", () => setStatus(MY_UUID, "reconnecting…"));
 
 function setStatus(UUID, text) { // status line on a tile, e.g. "connecting…"; "" hides it
   allUserStreams[UUID]["status"] = text;
-  const el = byId(UUID)?.querySelector(".peerStatus");
+  const el = allUserStreams[UUID].tile?.querySelector(".peerStatus");
   if (el) el.textContent = text;
 }
 
@@ -446,7 +452,9 @@ function createRemoteSocket(initiator, UUID) {
     if (pcs[UUID] !== pc) return; // already removed
     // Gone from the server and from ICE. ponytail: a short ICE blip while the peer is off the server also drops it; accepted for fast crash cleanup.
     if (pc.left && !pc.iceUp()) return removePeer(UUID);
-    setStatus(UUID, ["connected", "completed"].includes(state) ? "" : pc.isConnected ? "reconnecting…" : "connecting…");
+    pc.timedOut ||= ["disconnected", "failed"].includes(state); // checks timed out (Chromium: "disconnected" after ~15s); kept through the restart's "checking"
+    const relay = webRTCConfig["iceServers"]?.some(s => [].concat(s.urls).some(u => /^turns?:/.test(u)));
+    setStatus(UUID, ["connected", "completed"].includes(state) ? "" : pc.isConnected ? "reconnecting…" : pc.timedOut && !relay ? "no relay configured: some networks can't connect" : "connecting…");
   });
   pc.on("close", () => pcs[UUID] === pc && removePeer(UUID)); // peer left (or closed its connection)
   pc.on("open", () => pc.send({ username: username, audioLvl: micMuted ? -1 : 0, video: !!allUserStreams[MY_UUID]["videostream"] }));
@@ -475,17 +483,16 @@ function createRemoteSocket(initiator, UUID) {
 function removePeer(UUID) {
   if (pcs[UUID]) pcs[UUID].destroy();
   delete pcs[UUID];
+  allUserStreams[UUID]?.audio?.remove();
   delete allUserStreams[UUID];
-  byId('audio' + UUID)?.remove();
   updateUserLayout();
 }
 
 function gotRemoteStream(stream, UUID) {
   allUserStreams[UUID] = allUserStreams[UUID] || {};
   allUserStreams[UUID]["audiostream"] = stream;
-  if (!byId('audio' + UUID)) { // not in updateUserLayout: that skips while fullscreen
-    const audio = fromHTML('<audio autoplay hidden></audio>');
-    audio.id = 'audio' + UUID;
+  if (!allUserStreams[UUID].audio) { // not in updateUserLayout: that skips while fullscreen
+    const audio = allUserStreams[UUID].audio = fromHTML('<audio autoplay hidden></audio>');
     audio.srcObject = stream;
     $("#audioStreams").append(audio);
   }
@@ -512,7 +519,7 @@ function updateUserLayout() {
         <div class="userPlaceholder"></div>
       </div>
     </div>`);
-    userDiv.id = i;
+    userStream.tile = userDiv;
     if (count == 2 && i == MY_UUID) userDiv.classList.add("selfPreview"); // 1:1 call: the other one fills the screen
     userDiv.querySelector(".userPlaceholder").textContent = [...(name || i)].slice(0, 2).join("").toUpperCase();
     userDiv.append(Object.assign(document.createElement("div"), { className: "peerStatus", textContent: userStream["status"] || "" }));
@@ -597,15 +604,15 @@ function atTheDoor(wait) { // locked room: back to the lobby until a member lets
 }
 socket.on("knockAnswer", res => res.accept ? retryJoin?.() : atTheDoor(res.wait));
 
+const knockRows = Object.create(null); // by knocker UUID, not element ids
 socket.on("knock", function ({ UUID, name }) { // someone at the door: any member decides
-  byId("knock-" + UUID)?.remove();
-  const row = fromHTML('<div class="knock"><span></span><button>Let in</button><button>Deny</button></div>');
-  row.id = "knock-" + UUID;
+  knockRows[UUID]?.remove();
+  const row = knockRows[UUID] = fromHTML('<div class="knock"><span></span><button>Let in</button><button>Deny</button></div>');
   row.firstChild.textContent = (name && name != "NA" ? name : "Someone") + " wants to join";
   row.querySelectorAll("button").forEach((btn, i) => btn.onclick = () => socket.emit("answerKnock", { UUID, accept: !i }));
   $("#knocks").append(row);
 });
-socket.on("knockDone", UUID => byId("knock-" + UUID)?.remove());
+socket.on("knockDone", UUID => { knockRows[UUID]?.remove(); delete knockRows[UUID]; });
 
 var roomLocked = false;
 function showLock(locked) {
