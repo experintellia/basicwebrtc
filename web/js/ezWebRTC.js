@@ -31,7 +31,7 @@ function initEzWebRTC(initiator, config) {
     this.iceUp = () => pc.iceConnectionState == "connected" || pc.iceConnectionState == "completed";
     this.route = async function () { // the path in use: through a TURN relay or direct, and its round-trip time
         const r = await pc.getStats(), all = [...r.values()];
-        const p = r.get(all.find(s => s.type == "transport")?.selectedCandidatePairId) || all.find(s => s.type == "candidate-pair" && (s.selected || s.nominated && s.state == "succeeded")); // Firefox has no transport stats
+        const p = r.get(all.find(s => s.type == "transport")?.selectedCandidatePairId) || all.find(s => s.type == "candidate-pair" && (s.selected || s.nominated && s.state == "succeeded")); // Firefox < 153 has no transport stats
         return p && { relay: [p.localCandidateId, p.remoteCandidateId].some(id => r.get(id)?.candidateType == "relay"), rtt: p.currentRoundTripTime };
     }
 

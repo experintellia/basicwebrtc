@@ -8,27 +8,38 @@
         <title>Call ended</title>
         <link rel="stylesheet" href="./css/main.css">
     </head>
-    <body>
+    <body id="endPage">
         <main id="endCard">
             <h2>Call ended</h2>
             <div id="duration"></div>
-            <dl id="stats"></dl>
+            <div id="with"></div>
+            <details id="nerdStats" hidden><summary>Stats for nerds</summary><dl id="stats"></dl></details>
             <a id="newCallBtn" href="./">Start a new call</a>
             <p>You can close this tab now.</p>
         </main>
+        <section id="endChat" hidden>
+            <h2>Chat</h2>
+            <div id="chatText"></div>
+            <p>Kept until you close this tab.</p>
+        </section>
+        <script src="js/chatline.js"></script>
         <script>
-            // Written by the call page at hang-up, per tab only (see callSummary in main.js). Names come from peers: text only.
+            // Written by the call page at hang-up, per tab only (see callSummary in main.js). Names and chat come from peers: text only.
+            const $ = id => document.getElementById(id);
             let s; try { s = JSON.parse(sessionStorage.lastCall) } catch { }
             if (s) {
                 const t = Math.round(s.ms / 1000), two = n => String(n).padStart(2, "0");
-                document.getElementById("duration").textContent = (t >= 3600 ? `${Math.floor(t / 3600)}:${two(Math.floor(t / 60) % 60)}` : Math.floor(t / 60)) + `:${two(t % 60)}`;
+                $("duration").textContent = (t >= 3600 ? `${Math.floor(t / 3600)}:${two(Math.floor(t / 60) % 60)}` : Math.floor(t / 60)) + `:${two(t % 60)}`;
+                $("with").textContent = s.names.length ? "with " + s.names.map(n => n || "someone").join(", ") : "Nobody connected";
                 const rows = [
-                    ["With", s.names.map(n => n || "someone").join(", ") || "Nobody joined"],
                     s.relay != null && ["Connection", s.relay ? "Through a relay server" : "Direct, device to device"],
                     s.rtt != null && ["Round trip", Math.round(s.rtt * 1000) + " ms"],
-                    ["Encryption", "End to end"],
+                    s.names.length > 0 && ["Encryption", "End to end"],
                 ].filter(Boolean);
-                for (const [k, v] of rows) document.getElementById("stats").append(Object.assign(document.createElement("dt"), { textContent: k }), Object.assign(document.createElement("dd"), { textContent: v }));
+                for (const [k, v] of rows) $("stats").append(Object.assign(document.createElement("dt"), { textContent: k }), Object.assign(document.createElement("dd"), { textContent: v }));
+                $("nerdStats").hidden = !rows.length;
+                for (const [name, msg] of s.chat || []) $("chatText").append(chatLine(name, msg));
+                $("endChat").hidden = !s.chat?.length;
             }
         </script>
     </body>

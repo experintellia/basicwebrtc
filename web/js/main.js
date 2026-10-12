@@ -76,26 +76,10 @@ async function checkMic() {
 }
 navigator.mediaDevices.addEventListener("devicechange", checkMic);
 
+const chatLog = []; // [name, message], for the end page
 function showMsg(name, msg) {
-  const line = document.createElement("div");
-  if (name) {
-    const b = document.createElement("b");
-    b.className = "chatName";
-    b.textContent = name;
-    line.append(b, ": ");
-  }
-  msg.split(/(https?:\/\/\S+)/).forEach((part, i) => { // odd parts are links
-    if (i % 2) {
-      const a = document.createElement("a");
-      a.href = a.textContent = part;
-      a.target = "_blank";
-      a.rel = "noopener";
-      line.append(a);
-    } else {
-      line.append(part);
-    }
-  });
-  $("#chatText").append(line);
+  chatLog.push([name, msg]);
+  $("#chatText").append(chatLine(name, msg));
   $("#chatText").scrollTop = $("#chatText").scrollHeight;
   if ($("#chatDiv").hidden) {
     for (const b of [$("#moreBtn"), $("#addRemoveChatBtn")]) b.dataset.unread = (+b.dataset.unread || 0) + 1;
@@ -127,7 +111,7 @@ socket.on("userJoined", function (content) {
 const sendToPeers = obj => { for (var i in pcs) pcs[i].send(obj) };
 window.addEventListener("pagehide", () => sendToPeers({ bye: true })); // hang up, tab closed or reload
 const realName = n => n && n != "NA" ? n : ""; // "NA": no name set
-var callStart = 0; // first join, for the end screen
+var callStart = 0; // first join, for the end screen. ponytail: an own reload starts it, and the names, over
 const met = new Map(); // everyone the call reached: UUID -> name, for the end screen
 const nameOf = UUID => realName(allUserStreams[UUID]?.username);
 
@@ -422,8 +406,7 @@ $("#shareDialog").onclose = () => $("#copyLinkBtn").innerHTML = icon("copy") + "
 
 $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end screen
   this.onclick = null;
-  let summary = null;
-  callSummary().then(s => summary = s, () => { }); // while the peer connections are still up; takes milliseconds
+  const summary = callSummary(); // while the peer connections are still up
   for (const s of [webRTCConfig["stream"], allUserStreams[MY_UUID]["videostream"]]) s?.getTracks().forEach(t => t.stop());
   socket.disconnect();
   document.body.insertAdjacentHTML("beforeend", '<div id="topDiv"></div><div id="bottomDiv"></div>');
@@ -434,15 +417,14 @@ $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end sc
   }, 1400);
 }
 
-async function callSummary() { // for endcall.html: how long, with whom, how it was connected
-  const routes = (await Promise.all(Object.values(pcs).map(pc => pc.route().catch(() => null)))).filter(Boolean);
-  const rtts = routes.map(r => r.rtt).filter(t => t >= 0); // ponytail: only peers still in the call at hang-up
-  return {
-    ms: callStart && Date.now() - callStart,
-    names: [...met.values()],
-    relay: routes.length ? routes.some(r => r.relay) : null,
-    rtt: rtts.length ? Math.max(...rtts) : null,
-  };
+function callSummary() { // for endcall.html: how long, with whom, the chat; how it was connected follows from getStats in milliseconds
+  const s = { ms: callStart && performance.now() - callStart, names: [...new Set(met.values())], chat: chatLog, relay: null, rtt: null }; // a reloaded peer comes back with a new UUID
+  Promise.all(Object.values(pcs).map(pc => pc.route().catch(() => null))).then(rs => { // ponytail: only peers still in the call at hang-up
+    const routes = rs.filter(Boolean), rtts = routes.map(r => r.rtt).filter(t => t >= 0);
+    if (routes.length) s.relay = routes.some(r => r.relay);
+    if (rtts.length) s.rtt = Math.max(...rtts);
+  });
+  return s;
 }
 
 //This is where the WEBRTC Magic happens!!!
@@ -584,7 +566,7 @@ function joinRoom(onJoined) {
   const lock = !$("#closedLabel").hidden && $("#closedInput").checked; // only a pick on screen: Firefox restores a hidden tick on reload
   socket.emit("joinRoom", { roomname, keep: Object.keys(pcs), name: username, knockId, lock }, function (res) {
     if (!Array.isArray(res)) return retryJoin = () => joinRoom(onJoined), atTheDoor(res.wait);
-    callStart ||= Date.now();
+    callStart ||= performance.now(); // not Date.now(): a clock set back mid-call would give a negative duration
     showLobby(false);
     if (lock && res.length) showMsg("", "Someone was in first: the room is open. Use Lock room to close it.");
     $("#closedInput").checked = false; // picked once: a later rejoin keeps what the members set since

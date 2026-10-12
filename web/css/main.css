@@ -187,7 +187,7 @@ video {
   display: none;
 }
 
-#chatDiv, #shareDialog, #moreMenu, #lobby, .knock, #endCard {
+#chatDiv, #shareDialog, #moreMenu, #lobby, .knock, #endCard, #endChat {
   border: 1px solid #80808087;
   border-radius: 12px;
   background: rgb(43, 42, 42);
@@ -559,7 +559,7 @@ video.mirror {
   display: none;
 }
 
-#lobby, #endCard {
+#lobby, #endCard, #endChat {
   position: fixed;
   inset: 0;
   margin: auto;
@@ -575,11 +575,11 @@ video.mirror {
   font: 16px sans-serif;
 }
 
-#lobby[hidden] {
+#lobby[hidden], #endChat[hidden] {
   display: none;
 }
 
-#lobby h2, #endCard h2 {
+#lobby h2, #endCard h2, #endChat h2 {
   margin: 0;
   font-size: 1.3em;
   color: #fff;
@@ -637,7 +637,7 @@ video.mirror {
   height: 8px;
 }
 
-#lobbyMsg, #endCard p {
+#lobbyMsg, #endCard p, #endChat p {
   margin: 0;
   color: #aaa;
 }
@@ -655,23 +655,61 @@ video.mirror {
   font-size: 16px; /* below 16px iOS zooms in on focus */
 }
 
-/* end screen (endcall.html): the call in a few lines, and a way to start the next one */
+/* end screen (endcall.html): the call in a few lines, the chat to save links from, and a way to start the next one */
+#endPage { /* the card and the chat side by side, or one above the other; the page scrolls */
+  overflow: auto;
+  min-height: 100dvh;
+  box-sizing: border-box;
+  padding: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+#endCard, #endChat {
+  position: static; /* in the page's flow, not fixed like the lobby */
+  margin: 0;
+  width: min(420px, 100%);
+}
+
+#endChat {
+  max-height: min(600px, 100dvh - 32px);
+}
+
+#endChat #chatText {
+  padding: 0; /* the card has its own */
+}
+
 #duration {
   font-size: 3em;
   font-weight: bold;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
   color: #fff;
 }
 
-#duration:empty, #stats:empty {
+#with {
+  font-size: 1.1em;
+  color: #ddd;
+}
+
+#duration:empty, #with:empty {
   display: none;
+}
+
+#nerdStats summary {
+  color: #aaa;
+  cursor: pointer;
 }
 
 #stats {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 8px 16px;
-  margin: 4px 0;
+  margin: 10px 0 0;
 }
 
 #stats dt {
