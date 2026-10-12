@@ -671,6 +671,7 @@ video.mirror {
 
 #endCard, #endChat {
   position: static; /* in the page's flow, not fixed like the lobby */
+  max-height: none; /* the page scrolls, not the card */
   margin: 0;
   width: min(420px, 100%);
 }

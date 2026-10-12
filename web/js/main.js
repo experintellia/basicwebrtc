@@ -412,13 +412,14 @@ $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end sc
   document.body.insertAdjacentHTML("beforeend", '<div id="topDiv"></div><div id="bottomDiv"></div>');
   setTimeout(() => document.body.insertAdjacentHTML("beforeend", '<div id="centerDiv"></div>'), 500);
   setTimeout(() => {
+    store("lastCall", ""); // a write over the quota fails silently: never show the previous call instead
     store("lastCall", JSON.stringify(summary)); // for endcall.html, this tab only
     location = "./endcall.html";
   }, 1400);
 }
 
 function callSummary() { // for endcall.html: how long, with whom, the chat; how it was connected follows from getStats in milliseconds
-  const s = { ms: callStart && performance.now() - callStart, names: [...new Set(met.values())], chat: chatLog, relay: null, rtt: null }; // a reloaded peer comes back with a new UUID
+  const s = { ms: callStart && performance.now() - callStart, names: [...new Set(met.values())], chat: chatLog, relay: null, rtt: null }; // a reloaded peer comes back with a new UUID. ponytail: two peers with the same name count once
   Promise.all(Object.values(pcs).map(pc => pc.route().catch(() => null))).then(rs => { // ponytail: only peers still in the call at hang-up
     const routes = rs.filter(Boolean), rtts = routes.map(r => r.rtt).filter(t => t >= 0);
     if (routes.length) s.relay = routes.some(r => r.relay);
