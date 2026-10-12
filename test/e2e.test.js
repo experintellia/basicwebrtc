@@ -612,6 +612,27 @@ test('peer that crashed while we were off the server is removed after we rejoin'
   await a.context().close(); await b.context().close();
 });
 
+// #62: offline past the grace time and someone else registered our UUID: join as a new user, not "reconnecting…" forever.
+test('a page whose UUID was taken while it was offline joins again under a new one', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  const old = await a.evaluate(() => { // the server refuses the next registration, as for a UUID someone else took
+    socket.disconnect();
+    const emit = socket.emit;
+    socket.emit = (e, d, ack) => e == 'registerUUID' ? (delete socket.emit, emit.call(socket, e, { ...d, UUID_KEY: 'stale' }, ack)) : emit.call(socket, e, d, ack);
+    return MY_UUID;
+  });
+  await a.evaluate(() => socket.connect());
+  await waitFor(async () => (await selfStatus(a)) === '', 'alice joined again');
+  for (const p of [a, b]) await waitFor(() => callUp(p), 'call up again'); // bob: alice is a new user, her old pc is gone
+  const now = await a.evaluate(() => MY_UUID);
+  assert.notStrictEqual(now, old);
+  assert.deepStrictEqual(await b.evaluate(() => Object.keys(pcs)), [now]); // no ghost of the old UUID
+  await a.context().close(); await b.context().close();
+});
+
 test('crashed peer (no goodbye) is removed once the server notices', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');
