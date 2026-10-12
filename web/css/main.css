@@ -2,6 +2,19 @@ audio {
   max-width: 100%;
 }
 
+.icon { /* from the sprite in index.html: as big and colored as the text around it */
+  width: 1.125em;
+  height: 1em;
+  vertical-align: -0.125em;
+  fill: currentColor;
+  font-family: sans-serif; /* as the icon font did: under monospace, em sizes are 13/16 as big */
+}
+
+.pipBtn .icon {
+  width: 30px;
+  height: 30px;
+}
+
 body {
   margin: 0;
   padding: 0em;
@@ -102,7 +115,7 @@ video {
   background: #ffffff1a;
 }
 
-#moreMenu i {
+#moreMenu .icon {
   width: 1.4em;
 }
 
@@ -152,7 +165,7 @@ video {
   color: #710000;
 }
 
-.fa-microphone-alt {
+#muteUnmuteMicBtn [href="#microphone-alt"] {
   color: #044e04;
 }
 
@@ -415,9 +428,69 @@ div#centerDiv{
   border-radius: 5px;
 }
 
+#mediaDiv { /* tiles in rows: updateUserLayout sets --rows and --cols */
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center; /* an incomplete last row in the middle */
+}
+
 .videoplaceholder {
-  position:relative;
+  position: relative;
+  width: calc(100% / var(--cols));
+  height: calc(100% / var(--rows));
+}
+
+.videoplaceholder.selfPreview { /* own tile in a 1:1 call, over the other one */
+  position: absolute;
+  left: 20px;
+  bottom: var(--selfPreviewBottomOffset);
+  z-index: 1;
+  width: 20%;
   min-width: 126px;
+  height: 30%;
+}
+
+.userCont {
+  position: absolute;
+  inset: 0;
+}
+
+.userCont video { /* frame-sized, at the tile's top, as big as the tile allows */
+  display: block;
+  max-height: 100%;
+}
+
+video.mirror {
+  transform: scaleX(-1);
+}
+
+.userName {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  z-index: 10;
+  color: white;
+  font-size: 1.3em;
+  text-shadow: 1px 0 0 #000, 0 -1px 0 #000, 0 1px 0 #000, -1px 0 0 #000;
+}
+
+.pipBtn {
+  position: absolute;
+  top: 5px;
+  right: 10px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.audioMuted {
+  position: absolute;
+  top: 0;
+  padding: 10px;
+  color: white;
+  font-size: 1.7em;
 }
 
 .videoplaceholder > .userPlaceholderContainer {
@@ -543,9 +616,8 @@ div#centerDiv{
   display: none;
 }
 
-#lobby label i {
+#lobby label .icon {
   width: 1.4em;
-  text-align: center;
   color: #ddd;
 }
 

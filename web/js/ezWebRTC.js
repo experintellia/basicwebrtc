@@ -1,4 +1,3 @@
-var wrtc = window;
 //@ts-check
 function initEzWebRTC(initiator, config) {
     var _this = this;
@@ -21,7 +20,7 @@ function initEzWebRTC(initiator, config) {
     }
 
     //Make new peer
-    var pc = new wrtc.RTCPeerConnection({ iceServers: rtcConfig.iceServers });
+    var pc = new RTCPeerConnection({ iceServers: rtcConfig.iceServers });
 
     // Peer-to-peer data (DTLS encrypted end to end). Negotiated: both sides create it, no extra offer.
     var dc = pc.createDataChannel("data", { negotiated: true, id: 0 });
@@ -30,10 +29,6 @@ function initEzWebRTC(initiator, config) {
     dc.onmessage = e => { try { var msg = JSON.parse(e.data) } catch (err) { return } if (msg && typeof msg == "object") _this.emitEvent("message", msg) };
     this.send = obj => dc.readyState == "open" && (dc.send(JSON.stringify(obj)), true); // false: not open (yet)
     this.iceUp = () => pc.iceConnectionState == "connected" || pc.iceConnectionState == "completed";
-
-    pc.onsignalingstatechange = function (event) {
-        _this.emitEvent("onsignalingstatechange", event);
-    }
 
     pc.onicecandidate = function (e) {
         if (!pc || !e || !e.candidate) return;
@@ -70,10 +65,7 @@ function initEzWebRTC(initiator, config) {
     pc.oniceconnectionstatechange = function () {
         _this.emitEvent("icestate", pc.iceConnectionState);
         if (pc.iceConnectionState == "connected" || pc.iceConnectionState == "completed") {
-            if (!_this.isConnected) {
-                _this.isConnected = true;
-                _this.emitEvent("connect", true)
-            }
+            _this.isConnected = true;
         } else if (["disconnected", "failed"].includes(pc.iceConnectionState) && !retrying) {
             retrying = true;
             setTimeout(function retry() { //give it a few seconds to come back on its own, then keep restarting until it does
@@ -110,7 +102,7 @@ function initEzWebRTC(initiator, config) {
             negotiate();
         } else if (signalData && signalData.type == "offer") { //Got an offer -> Create Answer)
             _this.gotOffer = true;
-            await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData)) //only the answerer gets offers; have-remote-offer -> have-remote-offer is valid
+            await pc.setRemoteDescription(signalData) //only the answerer gets offers; have-remote-offer -> have-remote-offer is valid
             if (!video && (video = pc.getTransceivers().find(t => t.receiver.track.kind == "video"))) { // the initiator's video slot: send on it too
                 video.direction = "sendrecv"; // before the answer, so it is negotiated
                 _this.remoteVideo = new MediaStream([video.receiver.track]);
@@ -122,14 +114,14 @@ function initEzWebRTC(initiator, config) {
         } else if (signalData && signalData.type == "answer" && initiator) { //Initiator: Setting answer and starting connection
             if (signalData.gen !== undefined && signalData.gen != gen) return; //answer to an older offer (no gen: older client, accept)
             try {
-                await pc.setRemoteDescription(new wrtc.RTCSessionDescription(signalData))
+                await pc.setRemoteDescription(signalData)
             } catch (e) {
                 return console.log("answer error", e); //the offer timeout re-offers; no tight loop on an always-bad answer
             }
             _this.makingOffer = false;
             if (offerPending) { offerPending = false; negotiate(); } //e.g. a "renegotiate" that came in meanwhile
         } else if (signalData && signalData.candidate) { //is a icecandidate thing
-            await pc.addIceCandidate(new wrtc.RTCIceCandidate(signalData));
+            await pc.addIceCandidate(signalData);
         } else {
             console.log("Some unused signaling data???", signalData)
         }
@@ -153,8 +145,6 @@ function initEzWebRTC(initiator, config) {
     this.destroy = function () {
         pc.close();
         pc.oniceconnectionstatechange = null
-        pc.onicegatheringstatechange = null
-        pc.onsignalingstatechange = null
         pc.onicecandidate = null
         pc.ontrack = null
         _this.isConnected = false;
@@ -191,20 +181,9 @@ function initEzWebRTC(initiator, config) {
         }
     }
 
-    this.mappedEvents = {};
-    this.on = function (eventname, callback) {
-        if (_this.mappedEvents[eventname]) {
-            _this.mappedEvents[eventname].push(callback)
-        } else {
-            _this.mappedEvents[eventname] = [callback];
-        }
-    };
-
-    this.emitEvent = function (eventname) {
-        for (var i in this.mappedEvents[eventname]) {
-            _this.mappedEvents[eventname][i](arguments[1], arguments[2], arguments[3])
-        }
-    };
+    var events = this.mappedEvents = {};
+    this.on = (eventname, callback) => (events[eventname] ||= []).push(callback);
+    this.emitEvent = (eventname, ...args) => events[eventname]?.forEach(callback => callback(...args));
     return this;
 }
 
@@ -220,12 +199,9 @@ function opusParams(sdp) {
 
 function calcCurrentVolumeLevel(stream, callback) { //Returns audio levels for audio stream from 0 - silent; to 2 loud
     //Calc the current volume!
-    var audioAontext = window.AudioContext || window.webkitAudioContext;
-    var context = new audioAontext();
+    var context = new AudioContext();
     var microphone = context.createMediaStreamSource(stream);
     var dest = context.createMediaStreamDestination();
-
-    gainNode = context.createGain();
 
     var analyser = context.createAnalyser();
     analyser.fftSize = 2048;
@@ -258,8 +234,7 @@ function calcCurrentVolumeLevel(stream, callback) { //Returns audio levels for a
         }
     }
     calcVolume();
-    microphone.connect(gainNode);
-    gainNode.connect(analyser); //get sound  
+    microphone.connect(analyser); //get sound
     analyser.connect(dest);
     return () => context.close(); //stops the meter
 }
