@@ -11,6 +11,7 @@ let browser;
 before(async () => {
   process.env.listen_port = String(PORT);
   process.env.listen_ip = '127.0.0.1';
+  process.env.ICESERVERS_FILE = require('path').join(__dirname, '../iceservers.example.json'); // public STUN only, whatever the local iceservers.json says
   require('../server.js'); // ponytail: in-process, runner exits via --test-force-exit
   browser = await chromium.launch({
     executablePath: process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium',
@@ -85,8 +86,8 @@ test('two peers connect and exchange audio', async () => {
 
 // Status text on a remote peer's tile ("" when connected).
 const peerStatus = page => page.evaluate(() =>
-  [...document.querySelectorAll('#mediaDiv .peerStatus')].filter(e => e.parentElement.id != MY_UUID).map(e => e.textContent).join('|'));
-const selfStatus = page => page.evaluate(() => byId(MY_UUID)?.querySelector('.peerStatus')?.textContent);
+  [...document.querySelectorAll('#mediaDiv .peerStatus')].filter(e => e.parentElement != allUserStreams[MY_UUID].tile).map(e => e.textContent).join('|'));
+const selfStatus = page => page.evaluate(() => allUserStreams[MY_UUID]?.tile?.querySelector('.peerStatus')?.textContent);
 
 test('own tile shows "connecting…" until joined and "reconnecting…" while the server is gone', async () => {
   const ctx = await browser.newContext();
@@ -612,6 +613,27 @@ test('peer that crashed while we were off the server is removed after we rejoin'
   await a.context().close(); await b.context().close();
 });
 
+// #62: offline past the grace time and someone else registered our UUID: join as a new user, not "reconnecting…" forever.
+test('a page whose UUID was taken while it was offline joins again under a new one', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  const old = await a.evaluate(() => { // the server refuses the next registration, as for a UUID someone else took
+    socket.disconnect();
+    const emit = socket.emit;
+    socket.emit = (e, d, ack) => e == 'registerUUID' ? (delete socket.emit, emit.call(socket, e, { ...d, UUID_KEY: 'stale' }, ack)) : emit.call(socket, e, d, ack);
+    return MY_UUID;
+  });
+  await a.evaluate(() => socket.connect());
+  await waitFor(async () => (await selfStatus(a)) === '', 'alice joined again');
+  for (const p of [a, b]) await waitFor(() => callUp(p), 'call up again'); // bob: alice is a new user, her old pc is gone
+  const now = await a.evaluate(() => MY_UUID);
+  assert.notStrictEqual(now, old);
+  assert.deepStrictEqual(await b.evaluate(() => Object.keys(pcs)), [now]); // no ghost of the old UUID
+  await a.context().close(); await b.context().close();
+});
+
 test('crashed peer (no goodbye) is removed once the server notices', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');
@@ -693,8 +715,25 @@ test('a peer named like an Object.prototype key is an ordinary peer', async () =
   const a = await join('r' + Date.now(), 'alice');
   await waitFor(async () => (await selfStatus(a)) === '', 'joined'); // the join's resync drops peers the server doesn't list
   await a.evaluate(() => socket.listeners('userJoined')[0]({ UUID: '__proto__', keep: [] }));
-  assert.deepStrictEqual(await a.evaluate(() => [Object.keys(pcs), !!byId('__proto__'), 'status' in {}]), [['__proto__'], true, false]);
+  assert.deepStrictEqual(await a.evaluate(() => [Object.keys(pcs), !!allUserStreams['__proto__'].tile?.isConnected, 'status' in {}]), [['__proto__'], true, false]);
   await a.context().close();
+});
+
+// #60: a peer picks its own UUID. "Streams" made 'audio' + UUID the id of #audioStreams: no audio for it, and its leaving removed everyone's.
+test('a peer whose UUID spells a page element id is an ordinary peer (#60)', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await liveRemoteAudio(a)) === 1, 'bob heard');
+  const m = await join(room, 'mallory', () => { const r = crypto.randomUUID.bind(crypto); let n = 0; crypto.randomUUID = () => n++ ? r() : 'Streams'; }); // first call: MY_UUID
+  assert.strictEqual(await m.evaluate(() => MY_UUID), 'Streams');
+  await waitFor(async () => (await liveRemoteAudio(a)) === 2, 'mallory heard too');
+  assert.strictEqual(await a.locator('#mediaDiv [id], #audioStreams [id]').count(), 0, 'no peer UUID as an element id (e.g. "chatText", "moreGroup")');
+  await m.context().close();
+  await waitFor(() => a.evaluate(() => Object.keys(pcs).length === 1), 'mallory left');
+  assert.strictEqual(await a.locator('#audioStreams').count(), 1, '#audioStreams kept');
+  assert.strictEqual(await liveRemoteAudio(a), 1, 'bob still heard');
+  await a.context().close(); await b.context().close();
 });
 
 test('icons: every one used is in the sprite, with its CC BY credit', async () => {
@@ -709,11 +748,28 @@ test('icons: every one used is in the sprite, with its CC BY credit', async () =
   await a.context().close();
 });
 
-test('hang up leads to the end screen', async () => {
-  const a = await join('r' + Date.now(), 'alice');
+test('end screen: how long, with whom, the chat, stats for nerds and a new call', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(() => a.evaluate(() => Object.keys(pcs).some(id => nameOf(id) == 'bob' && pcs[id].iceUp())), 'in a call with bob');
+  await b.evaluate(() => { $('#chatInputText').value = 'notes: https://example.com/doc'; sendMsg(); });
+  await waitFor(() => a.evaluate(() => $('#chatText').textContent.includes('example.com')), 'chat on alice');
   await a.click('#cancelCallBtn');
-  await a.waitForURL(/endcall\.html/, { timeout: 5000 });
-  await a.context().close();
+  await a.waitForURL(/endcall\.html$/, { timeout: 5000 });
+  assert.match(await a.locator('#duration').innerText(), /^0:\d\d$/);
+  assert.strictEqual(await a.locator('#with').innerText(), 'with bob');
+  assert.strictEqual(await a.locator('#stats').isVisible(), false, 'stats for nerds start folded');
+  await a.click('#nerdStats summary');
+  const stats = await a.locator('#stats').innerText();
+  for (const re of [/Connection\s+Direct/, /Round trip\s+\d+ ms/, /Encryption\s+End to end/]) assert.match(stats, re);
+  assert.match(await a.locator('#endChat').innerText(), /bob: notes: https:\/\/example\.com\/doc/, 'the chat, to save links from');
+  assert.strictEqual(await a.locator('#endChat a').getAttribute('href'), 'https://example.com/doc');
+  assert.match(await a.locator('#chatNote').innerText(), /gone once you close this tab/, 'told to save what they need');
+  await a.click('#newCallBtn');
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby of a new call');
+  assert.ok(/#roomname=r\d+$/.test(a.url()) && !a.url().includes(room), `a new room: ${a.url()}`);
+  await a.context().close(); await b.context().close();
 });
 
 test('browsers without WebRTC get an upgrade notice', async () => {
@@ -784,6 +840,27 @@ test('late answer does not cancel an ICE restart', { skip: !canDropUdp && 'needs
   }
   for (const p of [a, b]) await waitFor(async () => (await iceUp(p)) && (await liveRemoteAudio(p)) === 1, 'ICE and audio back', 45000);
   await a.context().close(); await b.context().close();
+});
+
+// #56: the test server uses iceservers.example.json, so public STUN only. No UDP: the call can never connect.
+test('no TURN configured and ICE fails: the tile says so instead of "connecting…" forever', { skip: !canDropUdp && 'needs root + iptables' }, async () => {
+  const room = 'r' + Date.now();
+  try { for (;;) iptables('-D ' + UDP_DROP + ' 2>/dev/null'); } catch { }
+  iptables('-I ' + UDP_DROP);
+  try {
+    const a = await join(room, 'alice');
+    const b = await join(room, 'bob');
+    const hint = "no relay configured: some networks can't connect";
+    await waitFor(async () => (await peerStatus(a)) === hint && (await peerStatus(b)) === hint, 'no relay hint', 30000);
+    await a.evaluate(() => { // as if TURN were configured; the server's STUN-only list must not overwrite it
+      socket.off('currentIceServers');
+      webRTCConfig.iceServers = [{ urls: ['turn:turn.example.com:443', 'turns:turn.example.com:443?transport=tcp'] }];
+    });
+    await waitFor(async () => (await peerStatus(a)) === 'connecting…', 'no hint with TURN configured', 30000);
+    await a.context().close(); await b.context().close();
+  } finally {
+    iptables('-D ' + UDP_DROP);
+  }
 });
 
 test('rename updates the name for peers and chat, survives a reload, stays out of the URL', async () => {
@@ -1108,10 +1185,10 @@ test('remote mute icon survives re-layout and is shown to late-joining peers', a
   const aId = await a.evaluate(() => MY_UUID);
   for (const p of [b, c]) {
     await waitFor(() => p.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('CA')), 'carol\'s tile');
-    await waitFor(() => p.evaluate(id => !!byId(id)?.querySelector('.audioMuted'), aId), 'alice muted');
+    await waitFor(() => p.evaluate(id => !!allUserStreams[id]?.tile?.querySelector('.audioMuted'), aId), 'alice muted');
   }
   await b.evaluate(() => updateUserLayout()); // any later re-layout keeps it
-  assert.ok(await b.evaluate(id => !!byId(id)?.querySelector('.audioMuted'), aId), 'still muted after re-layout');
+  assert.ok(await b.evaluate(id => !!allUserStreams[id]?.tile?.querySelector('.audioMuted'), aId), 'still muted after re-layout');
   for (const p of [a, b, c]) await p.context().close();
 });
 
@@ -1120,12 +1197,11 @@ test('layout skipped in fullscreen is redone on exit', async () => {
   const a = await join(room, 'alice', () => { window.__fs = null; Object.defineProperty(document, 'fullscreenElement', { get: () => window.__fs }); });
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(a)) === 1, 'connected');
-  const bId = await b.evaluate(() => MY_UUID);
   await a.evaluate(() => window.__fs = document.body);
   await b.context().close();
   await waitFor(() => a.evaluate(() => !Object.keys(pcs).length), 'bob removed');
   await a.evaluate(() => { window.__fs = null; document.dispatchEvent(new Event('fullscreenchange')); });
-  assert.ok(await a.evaluate(id => !byId(id), bId), 'bob\'s tile gone');
+  assert.strictEqual(await a.locator('#mediaDiv .videoplaceholder').count(), 1, 'bob\'s tile gone');
   await a.context().close();
 });
 
@@ -1136,14 +1212,14 @@ test('late signaling from a departed peer creates no connection', async () => {
     socket.listeners('userDiscconected')[0]('ghost');
     socket.listeners('signaling')[0]({ fromUUID: 'ghost', signalingData: { candidate: 'candidate:1 1 udp 1 1.2.3.4 9 typ host', sdpMid: '0', sdpMLineIndex: 0 } });
   });
-  assert.deepStrictEqual(await a.evaluate(() => [Object.keys(pcs), !!byId('ghost')]), [[], false]);
+  assert.deepStrictEqual(await a.evaluate(() => [Object.keys(pcs), document.querySelectorAll('#mediaDiv .videoplaceholder').length]), [[], 1]);
   await a.context().close();
 });
 
 test('tile initials do not split an emoji', async () => {
   const a = await join('r' + Date.now(), 'a😀b');
-  await waitFor(() => a.evaluate(() => byId(MY_UUID)?.querySelector('.userPlaceholder').textContent), 'own tile');
-  assert.strictEqual(await a.evaluate(() => byId(MY_UUID).querySelector('.userPlaceholder').textContent), 'A😀');
+  await waitFor(() => a.evaluate(() => allUserStreams[MY_UUID]?.tile?.querySelector('.userPlaceholder').textContent), 'own tile');
+  assert.strictEqual(await a.evaluate(() => allUserStreams[MY_UUID].tile.querySelector('.userPlaceholder').textContent), 'A😀');
   await a.context().close();
 });
 
@@ -1465,6 +1541,7 @@ test('knock banners work for any knocker UUID, also one that spells an element i
   assert.strictEqual(await a.locator('.knock').count(), 2);
   await a.evaluate(() => socket.listeners('knockDone')[0]('s'));
   assert.deepStrictEqual(await a.locator('.knock').allTextContents(), ['x wants to joinLet inDeny']);
+  assert.deepStrictEqual(await a.evaluate(() => Object.keys(knockRows)), ['x'], 'answered knocks are forgotten: knock-and-leave loops do not grow the map');
   await a.context().close();
 });
 
