@@ -38,7 +38,7 @@ const VIDEOS_PLAYING = `(() => { const v = [...document.querySelectorAll('#media
 const REMOTE_VIDEO = () => [...document.querySelectorAll('#mediaDiv video')].some(v => v.srcObject && v.videoWidth > 0 && !v.classList.contains('mirror'));
 // Init script (as in e2e.test.js): keeps the raw RTCPeerConnections in window.__raw.
 const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
-// Printed on failure: ICE and DTLS state, candidates and video RTP stats (packets in/out, frames and keyframes decoded).
+// Printed on failure: ICE and DTLS state, candidates and stats: RTP in/out (packets, frames and keyframes decoded), candidate pairs, data channel.
 const STATE = `Promise.all((window.__raw || []).map(async p => ({ sig: p.signalingState, ice: p.iceConnectionState, conn: p.connectionState, gather: p.iceGatheringState,
   local: p.localDescription?.sdp.match(/a=candidate.*/g), remote: p.remoteDescription?.sdp.match(/a=candidate.*/g),
   stats: [...(await p.getStats().catch(() => [])).values()].filter(s => /^((in|out)bound-rtp|candidate-pair|transport|data-channel|(local|remote)-candidate)$/.test(s.type)) }))).then(JSON.stringify)`;
