@@ -487,3 +487,17 @@ test('server pings every 10s and drops a silent socket after 10s more', async ()
   const { c } = await client('PG1');
   assert.ok(c.io.engine.pingInterval + c.io.engine.pingTimeout <= 20000);
 });
+
+test('static files: served with their type, nothing outside web/', async () => {
+  const get = p => new Promise((res, rej) => require('node:http').get({ host: '127.0.0.1', port: PORT, path: p }, r => { // raw path: fetch would normalize ".."
+    let body = ''; r.on('data', d => body += d).on('end', () => res([r.statusCode, r.headers['content-type'], body]));
+  }).on('error', rej));
+  const [status, type, body] = await get('/?roomname=x');
+  assert.deepStrictEqual([status, body.includes('<title>')], [200, true]);
+  assert.match(type, /^text\/html; charset=utf-8$/i);
+  assert.match((await get('/css/main.css'))[1], /^text\/css/);
+  for (const p of ['/../server.js', '/%2e%2e/server.js', '/..%2fserver.js', '/js/../../package.json', '/missing.js']) {
+    const [s, , b] = await get(p);
+    assert.deepStrictEqual([s, b.includes('require(')], [404, false], p);
+  }
+});

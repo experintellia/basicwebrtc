@@ -9,8 +9,15 @@ const HTTP_PORT = parseInt(process.env.listen_port) > 0 ? parseInt(process.env.l
 const HTTP_IP = process.env.listen_ip ? process.env.listen_ip : "0.0.0.0";
 
 var fs = require('fs');
-var express = require('express');
-var app = require('http').createServer(express().use(express.static(__dirname + '/web')));
+var path = require('path');
+const WEB = path.join(__dirname, 'web');
+const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8" };
+var app = require('http').createServer(function (req, res) { // static files from web/; socket.io takes its own path first
+    const file = path.join(WEB, req.url.split("?")[0].replace(/\/$/, "/index.html")); // not decoded: "%2e%2e" stays a name
+    const type = file.startsWith(WEB + path.sep) && TYPES[path.extname(file)]; // nothing outside web/, no unknown file types
+    if (!type) return res.writeHead(404).end();
+    fs.readFile(file, (err, data) => err ? res.writeHead(404).end() : res.writeHead(200, { "Content-Type": type }).end(data)); // ponytail: whole file in memory, all are < 100 KB
+});
 var ioServer = require('socket.io')(app, { // no CORS headers: the page is served from here
     pingInterval: 10000, pingTimeout: 10000, // a dead socket (e.g. after wifi -> cellular) is noticed in 20s, not 45s
 });

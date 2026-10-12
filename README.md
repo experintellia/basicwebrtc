@@ -12,8 +12,9 @@ Setup your own Videoconference Server for 1on1 and group calls! All Calls are en
 
 1. Install node and clone this repo
 2. run: npm i
-3. run: node server.js
-4. surf to: http://localhost:3001 (other devices need https, e.g. via the nginx proxy below: browsers only allow mic/camera on https or localhost)
+3. set up a TURN server and `iceservers.json`, see [STUN and TURN](#stun-and-turn-configuration)
+4. run: node server.js
+5. surf to: http://localhost:3001 (other devices need https, e.g. via the nginx proxy below: browsers only allow mic/camera on https or localhost)
 
 ### Room link ###
 The only URL parameter is the room: https://IP:3001/#roomname=yourSecretRoom
@@ -44,14 +45,14 @@ cp iceservers.json ~/ && git checkout iceservers.json && git pull && cp ~/iceser
 
 Without it the server still runs, but with public STUN only (no TURN fallback). While you're at it:
 * Change the TURN `authSecret` (coturn) and `turnServerCredential`; older versions of this repo committed it.
-* Add the TCP TURN url, see below.
+* Add the TCP and TLS TURN urls, see below.
 
 Updating is recommended: it includes connection-stability and security fixes.
 
 ## STUN and TURN Configuration ##
-If your clients are behind firewalls you might need to setup a TURN Server so the connection can fallback to that (Connection is e2e encrypted in any case).
+Run a TURN server. Calls go peer to peer when they can, but two phones on mobile data (carrier-grade NAT), a symmetric NAT or a network that blocks UDP can only connect through a TURN relay. The relay only sees encrypted media. Without TURN such calls never connect, and the tile says "no relay configured: some networks can't connect".
 
-Copy `iceservers.example.json` to `iceservers.json` (not tracked by git, it holds your TURN secret) and add your STUN/TURN urls there. Without it, only public STUN is used.
+Copy `iceservers.example.json` (public STUN only) to `iceservers.json` (not tracked by git, it holds your TURN secret) and add your TURN server as shown below.
 
 ### Setup your own TURN Server with docker ###
 This setup is using COTURN inside docker.
@@ -59,27 +60,27 @@ The server is listening on Ports 443 and 4433 because on many firewalls only web
 
 If your server ip is 10.10.10.10 and your want to name it "myturnserver" run it like this:
 
-Run `docker run -d --net=host --restart=always rofl256/turnserver usernameAdmin passwordAdmin realm "10.10.10.10" "10.10.10.10" "10.10.10.10" authSecret`
+Run `docker run -d --net=host --restart=always -v /etc/letsencrypt/live/turn.example.com/fullchain.pem:/etc/ssl/turn_server_cert.pem:ro -v /etc/letsencrypt/live/turn.example.com/privkey.pem:/etc/ssl/turn_server_pkey.pem:ro rofl256/turnserver usernameAdmin passwordAdmin realm "10.10.10.10" "10.10.10.10" "10.10.10.10" authSecret`
 
 Don't forget to change the admin username, password and authSecret. 
 
 For more configurations of this  take a look at repo of the container (https://github.com/cracker0dks/turn-server-docker-image) and the COTURN repo itself: https://github.com/coturn/coturn
 
-If you have the turn server running, put it into /iceservers.json
+If you have the turn server running as turn.example.com, put it into /iceservers.json
 ```
 [
     {
-        "urls": "stun:10.10.10.10:443"
+        "urls": "stun:turn.example.com:443"
     },
     {
-        "urls": ["turn:10.10.10.10:443", "turn:10.10.10.10:443?transport=tcp"],
+        "urls": ["turn:turn.example.com:443", "turn:turn.example.com:443?transport=tcp", "turns:turn.example.com:443?transport=tcp"],
         "turnServerCredential": "authSecret",
         "username": "webrtcuser"
     }
 ]
 ```
-The `?transport=tcp` url lets clients on UDP-blocked networks still connect (media stays e2e encrypted, the relay only sees ciphertext).
-Change the ips and authSecret as defined on docker run. The username can be set to anything you want or leave it like this then restart the basicwebrtc server.
+The `?transport=tcp` url lets clients on UDP-blocked networks still connect. Firewalls that inspect traffic also drop plain TURN over TCP on 443; the `turns:` url (TURN over TLS) gets through them. It needs a certificate for that name (e.g. from Let's Encrypt), mounted by the two `-v` options above: the image rewrites its coturn config on every start, so `cert=`/`pkey=` edits don't stick. Restart the container after a renewal. coturn accepts TLS and plain TURN on the same port.
+Change the names and authSecret as defined on docker run. The username can be set to anything you want or leave it like this then restart the basicwebrtc server.
 
 ## Credits ##
-Icons: [Font Awesome Free](https://fontawesome.com) 5.13.1 (icons CC BY 4.0, fonts SIL OFL 1.1, code MIT), see `web/webfonts/LICENSE.txt` (with the full OFL 1.1 and MIT texts).
+Icons: [Font Awesome Free](https://fontawesome.com) 5.13.1 (CC BY 4.0), as an SVG sprite in `web/index.html`, see `web/icons-LICENSE.txt`.
