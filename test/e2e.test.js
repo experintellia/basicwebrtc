@@ -564,7 +564,7 @@ test('three peers: chat, mute and a screen share started mid-call reach both oth
   (await b.context().newCDPSession(b)).send('Page.crash').catch(() => { }); // never resolves: the renderer is gone
   for (const p of [a, c]) await waitFor(() => p.evaluate(id => !allUserStreams[id]?.tile?.isConnected, bId), 'bob removed', 30000);
   for (const p of [a, c]) assert.ok(await callUp(p), 'alice and carol still talking');
-  assert.ok(await remoteVideoShown(a), 'carol\'s screen still on alice');
+  await waitFor(() => remoteVideoShown(a), 'carol\'s screen still on alice', 5000); // the re-layout sets srcObject again: videoWidth is 0 until the next frame
 });
 
 // #14: each side asks for Opus DTX + FEC, so a muted mic sends almost nothing.
