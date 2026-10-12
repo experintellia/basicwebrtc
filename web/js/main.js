@@ -319,7 +319,7 @@ $("#cameraSelect").onchange = async function () {
   oldTrack.stop(); //Stop first, many phones can't open two cameras at once
   try {
     var newTrack = (await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: selectedCameraId } } })).getVideoTracks()[0];
-    if (!camActive) return newTrack.stop(); //camera was turned off meanwhile
+    if (allUserStreams[MY_UUID].videostream !== stream) return newTrack.stop(); //camera turned off (and on again) or replaced by a screen share meanwhile
     newTrack.onended = oldTrack.onended;
     store("camera", selectedCameraId);
     for (var i in pcs) pcs[i].setVideo(newTrack);
@@ -330,7 +330,7 @@ $("#cameraSelect").onchange = async function () {
     alert("Could not switch camera!")
     console.log('getUserMedia error! Got this error: ', error);
     selectedCameraId = null;
-    if (camActive) stopVideo(); //Turn the dead camera off (not via toggleCamera: its busy guard could skip it; skip if turned off or replaced by a screen share meanwhile)
+    if (allUserStreams[MY_UUID].videostream === stream) stopVideo(); //Turn the dead camera off (not via toggleCamera: its busy guard could skip it; skip if turned off, on again or replaced by a screen share meanwhile)
     updateDeviceLists();
   } finally {
     this.disabled = false;
