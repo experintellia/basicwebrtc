@@ -85,8 +85,8 @@ test('two peers connect and exchange audio', async () => {
 
 // Status text on a remote peer's tile ("" when connected).
 const peerStatus = page => page.evaluate(() =>
-  [...document.querySelectorAll('#mediaDiv .peerStatus')].filter(e => e.parentElement.id != MY_UUID).map(e => e.textContent).join('|'));
-const selfStatus = page => page.evaluate(() => byId(MY_UUID)?.querySelector('.peerStatus')?.textContent);
+  [...document.querySelectorAll('#mediaDiv .peerStatus')].filter(e => e.parentElement != allUserStreams[MY_UUID].tile).map(e => e.textContent).join('|'));
+const selfStatus = page => page.evaluate(() => allUserStreams[MY_UUID]?.tile?.querySelector('.peerStatus')?.textContent);
 
 test('own tile shows "connecting…" until joined and "reconnecting…" while the server is gone', async () => {
   const ctx = await browser.newContext();
@@ -693,8 +693,25 @@ test('a peer named like an Object.prototype key is an ordinary peer', async () =
   const a = await join('r' + Date.now(), 'alice');
   await waitFor(async () => (await selfStatus(a)) === '', 'joined'); // the join's resync drops peers the server doesn't list
   await a.evaluate(() => socket.listeners('userJoined')[0]({ UUID: '__proto__', keep: [] }));
-  assert.deepStrictEqual(await a.evaluate(() => [Object.keys(pcs), !!byId('__proto__'), 'status' in {}]), [['__proto__'], true, false]);
+  assert.deepStrictEqual(await a.evaluate(() => [Object.keys(pcs), !!allUserStreams['__proto__'].tile?.isConnected, 'status' in {}]), [['__proto__'], true, false]);
   await a.context().close();
+});
+
+// #60: a peer picks its own UUID. "Streams" made 'audio' + UUID the id of #audioStreams: no audio for it, and its leaving removed everyone's.
+test('a peer whose UUID spells a page element id is an ordinary peer (#60)', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await liveRemoteAudio(a)) === 1, 'bob heard');
+  const m = await join(room, 'mallory', () => { const r = crypto.randomUUID.bind(crypto); let n = 0; crypto.randomUUID = () => n++ ? r() : 'Streams'; }); // first call: MY_UUID
+  assert.strictEqual(await m.evaluate(() => MY_UUID), 'Streams');
+  await waitFor(async () => (await liveRemoteAudio(a)) === 2, 'mallory heard too');
+  assert.strictEqual(await a.locator('#mediaDiv [id], #audioStreams [id]').count(), 0, 'no peer UUID as an element id (e.g. "chatText", "moreGroup")');
+  await m.context().close();
+  await waitFor(() => a.evaluate(() => Object.keys(pcs).length === 1), 'mallory left');
+  assert.strictEqual(await a.locator('#audioStreams').count(), 1, '#audioStreams kept');
+  assert.strictEqual(await liveRemoteAudio(a), 1, 'bob still heard');
+  await a.context().close(); await b.context().close();
 });
 
 test('icons: every one used is in the sprite, with its CC BY credit', async () => {
@@ -1108,10 +1125,10 @@ test('remote mute icon survives re-layout and is shown to late-joining peers', a
   const aId = await a.evaluate(() => MY_UUID);
   for (const p of [b, c]) {
     await waitFor(() => p.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('CA')), 'carol\'s tile');
-    await waitFor(() => p.evaluate(id => !!byId(id)?.querySelector('.audioMuted'), aId), 'alice muted');
+    await waitFor(() => p.evaluate(id => !!allUserStreams[id]?.tile?.querySelector('.audioMuted'), aId), 'alice muted');
   }
   await b.evaluate(() => updateUserLayout()); // any later re-layout keeps it
-  assert.ok(await b.evaluate(id => !!byId(id)?.querySelector('.audioMuted'), aId), 'still muted after re-layout');
+  assert.ok(await b.evaluate(id => !!allUserStreams[id]?.tile?.querySelector('.audioMuted'), aId), 'still muted after re-layout');
   for (const p of [a, b, c]) await p.context().close();
 });
 
@@ -1120,12 +1137,11 @@ test('layout skipped in fullscreen is redone on exit', async () => {
   const a = await join(room, 'alice', () => { window.__fs = null; Object.defineProperty(document, 'fullscreenElement', { get: () => window.__fs }); });
   const b = await join(room, 'bob');
   await waitFor(async () => (await connectedPeers(a)) === 1, 'connected');
-  const bId = await b.evaluate(() => MY_UUID);
   await a.evaluate(() => window.__fs = document.body);
   await b.context().close();
   await waitFor(() => a.evaluate(() => !Object.keys(pcs).length), 'bob removed');
   await a.evaluate(() => { window.__fs = null; document.dispatchEvent(new Event('fullscreenchange')); });
-  assert.ok(await a.evaluate(id => !byId(id), bId), 'bob\'s tile gone');
+  assert.strictEqual(await a.locator('#mediaDiv .videoplaceholder').count(), 1, 'bob\'s tile gone');
   await a.context().close();
 });
 
@@ -1136,14 +1152,14 @@ test('late signaling from a departed peer creates no connection', async () => {
     socket.listeners('userDiscconected')[0]('ghost');
     socket.listeners('signaling')[0]({ fromUUID: 'ghost', signalingData: { candidate: 'candidate:1 1 udp 1 1.2.3.4 9 typ host', sdpMid: '0', sdpMLineIndex: 0 } });
   });
-  assert.deepStrictEqual(await a.evaluate(() => [Object.keys(pcs), !!byId('ghost')]), [[], false]);
+  assert.deepStrictEqual(await a.evaluate(() => [Object.keys(pcs), document.querySelectorAll('#mediaDiv .videoplaceholder').length]), [[], 1]);
   await a.context().close();
 });
 
 test('tile initials do not split an emoji', async () => {
   const a = await join('r' + Date.now(), 'a😀b');
-  await waitFor(() => a.evaluate(() => byId(MY_UUID)?.querySelector('.userPlaceholder').textContent), 'own tile');
-  assert.strictEqual(await a.evaluate(() => byId(MY_UUID).querySelector('.userPlaceholder').textContent), 'A😀');
+  await waitFor(() => a.evaluate(() => allUserStreams[MY_UUID]?.tile?.querySelector('.userPlaceholder').textContent), 'own tile');
+  assert.strictEqual(await a.evaluate(() => allUserStreams[MY_UUID].tile.querySelector('.userPlaceholder').textContent), 'A😀');
   await a.context().close();
 });
 
@@ -1465,5 +1481,6 @@ test('knock banners work for any knocker UUID, also one that spells an element i
   assert.strictEqual(await a.locator('.knock').count(), 2);
   await a.evaluate(() => socket.listeners('knockDone')[0]('s'));
   assert.deepStrictEqual(await a.locator('.knock').allTextContents(), ['x wants to joinLet inDeny']);
+  assert.deepStrictEqual(await a.evaluate(() => Object.keys(knockRows)), ['x'], 'answered knocks are forgotten: knock-and-leave loops do not grow the map');
   await a.context().close();
 });

@@ -5,7 +5,6 @@ if (!window.RTCPeerConnection || !navigator.mediaDevices || !navigator.mediaDevi
 document.getElementById("unsupported").remove();
 
 const $ = s => document.querySelector(s);
-const byId = id => document.getElementById(id); // ids are peer-supplied UUIDs: never build selectors from them
 const icon = name => `<svg class="icon" aria-hidden="true"><use href="#${name}"/></svg>`; // from the sprite in index.html
 
 const MY_UUID = crypto.randomUUID();
@@ -36,7 +35,8 @@ const socket = io({ path: subdir + "socket.io" }); // works on subpaths too
 
 var webRTCConfig = {};
 
-// Keyed by peer-chosen UUIDs: no prototype, so "__proto__" etc. are plain keys
+// Keyed by peer-chosen UUIDs: no prototype, so "__proto__" etc. are plain keys.
+// A UUID is never an element id ("Streams" would be #audioStreams): each entry holds its .tile and .audio.
 var allUserStreams = Object.create(null);
 var pcs = Object.create(null); //Peer connections to all remotes
 var micMuted = false;
@@ -131,7 +131,7 @@ const nameOf = UUID => realName(allUserStreams[UUID]?.username);
 
 function setAudioLevel(UUID, level) {
   if (allUserStreams[UUID]) allUserStreams[UUID].muted = level < 0; // re-shown by updateUserLayout
-  const tile = byId(UUID);
+  const tile = allUserStreams[UUID]?.tile;
   if (!tile) return;
   tile.querySelector(".audioMuted")?.remove();
   if (level < 0) { //Muted
@@ -164,7 +164,7 @@ socket.on("disconnect", () => setStatus(MY_UUID, "reconnecting…"));
 
 function setStatus(UUID, text) { // status line on a tile, e.g. "connecting…"; "" hides it
   allUserStreams[UUID]["status"] = text;
-  const el = byId(UUID)?.querySelector(".peerStatus");
+  const el = allUserStreams[UUID].tile?.querySelector(".peerStatus");
   if (el) el.textContent = text;
 }
 
@@ -475,17 +475,16 @@ function createRemoteSocket(initiator, UUID) {
 function removePeer(UUID) {
   if (pcs[UUID]) pcs[UUID].destroy();
   delete pcs[UUID];
+  allUserStreams[UUID]?.audio?.remove();
   delete allUserStreams[UUID];
-  byId('audio' + UUID)?.remove();
   updateUserLayout();
 }
 
 function gotRemoteStream(stream, UUID) {
   allUserStreams[UUID] = allUserStreams[UUID] || {};
   allUserStreams[UUID]["audiostream"] = stream;
-  if (!byId('audio' + UUID)) { // not in updateUserLayout: that skips while fullscreen
-    const audio = fromHTML('<audio autoplay hidden></audio>');
-    audio.id = 'audio' + UUID;
+  if (!allUserStreams[UUID].audio) { // not in updateUserLayout: that skips while fullscreen
+    const audio = allUserStreams[UUID].audio = fromHTML('<audio autoplay hidden></audio>');
     audio.srcObject = stream;
     $("#audioStreams").append(audio);
   }
@@ -512,7 +511,7 @@ function updateUserLayout() {
         <div class="userPlaceholder"></div>
       </div>
     </div>`);
-    userDiv.id = i;
+    userStream.tile = userDiv;
     if (count == 2 && i == MY_UUID) userDiv.classList.add("selfPreview"); // 1:1 call: the other one fills the screen
     userDiv.querySelector(".userPlaceholder").textContent = [...(name || i)].slice(0, 2).join("").toUpperCase();
     userDiv.append(Object.assign(document.createElement("div"), { className: "peerStatus", textContent: userStream["status"] || "" }));
@@ -597,15 +596,15 @@ function atTheDoor(wait) { // locked room: back to the lobby until a member lets
 }
 socket.on("knockAnswer", res => res.accept ? retryJoin?.() : atTheDoor(res.wait));
 
+const knockRows = Object.create(null); // by knocker UUID, not element ids
 socket.on("knock", function ({ UUID, name }) { // someone at the door: any member decides
-  byId("knock-" + UUID)?.remove();
-  const row = fromHTML('<div class="knock"><span></span><button>Let in</button><button>Deny</button></div>');
-  row.id = "knock-" + UUID;
+  knockRows[UUID]?.remove();
+  const row = knockRows[UUID] = fromHTML('<div class="knock"><span></span><button>Let in</button><button>Deny</button></div>');
   row.firstChild.textContent = (name && name != "NA" ? name : "Someone") + " wants to join";
   row.querySelectorAll("button").forEach((btn, i) => btn.onclick = () => socket.emit("answerKnock", { UUID, accept: !i }));
   $("#knocks").append(row);
 });
-socket.on("knockDone", UUID => byId("knock-" + UUID)?.remove());
+socket.on("knockDone", UUID => { knockRows[UUID]?.remove(); delete knockRows[UUID]; });
 
 var roomLocked = false;
 function showLock(locked) {
