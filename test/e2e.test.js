@@ -1120,6 +1120,40 @@ test('lobby mic check: a bar you can see that moves with your voice', async t =>
   await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown');
   assert.ok((await a.locator('#micMeter').boundingBox()).height >= 8, 'tall enough to see while silent');
   await waitFor(() => a.evaluate(() => $('#micMeter').value > 0), 'the fake mic\'s beep moves it');
+  const land = await open(t, 'bob', null, '', { viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true }); // short: the card scrolls, nothing is squashed
+  await waitFor(() => land.locator('#lobby').isVisible(), 'lobby shown, landscape phone');
+  const [meter, preview] = await Promise.all(['#micMeter', '#lobbyPreview'].map(s => land.locator(s).boundingBox()));
+  assert.ok(meter.height >= 8 && preview.height >= 100, `landscape: meter ${meter.height}px, preview ${preview.height}px`);
+});
+
+test('status chips stay clear of circles, mute badges, the bar and its tabs; the own video sits at the bottom of its card', async t => {
+  for (const [width, height, n, phone] of [[1280, 720, 3, false], [680, 720, 4, false], [844, 390, 4, true]]) {
+    state(t).room = `r${Date.now()}x${width}`;
+    const opts = { viewport: { width, height }, isMobile: phone, hasTouch: phone };
+    const a = await join(t, 'alice', null, '', opts), rest = [];
+    for (const name of ['Christina-Alexandra Montgomery-Smith', 'carol', 'dave'].slice(0, n - 1)) rest.push(await join(t, name));
+    await waitFor(async () => (await connectedPeers(a)) === n - 1, `${n} in the call`);
+    await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'camera tab shown (2 fake cams)');
+    await rest[0].click('#muteUnmuteMicBtn'); await rest.at(-1).click('#muteUnmuteMicBtn');
+    await waitFor(() => a.evaluate(n => document.querySelectorAll('.audioMuted').length == n, Math.min(2, n - 1)), 'mute badges');
+    const bad = await a.evaluate(() => {
+      for (const s of document.querySelectorAll('.peerStatus')) s.textContent = 'reconnecting…';
+      const box = e => e.getBoundingClientRect(), hit = (p, q) => p.left < q.right && q.left < p.right && p.top < q.bottom && q.top < p.bottom;
+      const bar = [$('#mediaControll'), ...document.querySelectorAll('.selectDeviceBtn')].filter(e => e.getClientRects().length && getComputedStyle(e).display != 'none');
+      const others = [...document.querySelectorAll('.userPlaceholderContainer:not([hidden]) .userPlaceholder, .audioMuted'), ...bar];
+      return [...document.querySelectorAll('.peerStatus')].flatMap(chip => others.filter(o => hit(box(chip), box(o))).map(o => `${chip.parentElement.querySelector('.userPlaceholder').textContent} chip / ${o.className || o.id}`));
+    });
+    assert.deepStrictEqual(bad, [], `${width}x${height}, ${n} people`);
+    await Promise.all([a, ...rest].map(p => p.context().close()));
+  }
+  state(t).room = `r${Date.now()}self`;
+  const p = await join(t, 'alice', null, '', { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }), q = await join(t, 'bob');
+  await waitFor(async () => (await connectedPeers(p)) === 1, '1:1 call');
+  await p.click('#addRemoveCameraBtn');
+  await waitFor(() => p.evaluate(() => document.querySelector('.selfPreview video')?.videoHeight > 0), 'own video');
+  const [video, card] = await Promise.all(['.selfPreview video', '.selfPreview'].map(s => p.locator(s).boundingBox()));
+  assert.ok(Math.abs(video.y + video.height - (card.y + card.height)) <= 1, `own video at the card's bottom, next to the bar (${video.y + video.height} vs ${card.y + card.height})`);
+  await q.context().close();
 });
 
 test('person colours: four people, four colours, none of them the "on" blue', async t => {
@@ -1394,10 +1428,11 @@ test('tiles: rows fill the window, a video fits its tile, also right after a res
   const boxes = () => a.evaluate(() => [...document.querySelectorAll('#mediaDiv .videoplaceholder, #mediaDiv video')]
     .map(e => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round).join(); }));
   // 1280x720: two tiles on top, the third centered below; bob's video (listed after his tile) is as big as his tile allows
-  assert.deepStrictEqual(await boxes(), ['0,0,640,360', '640,0,640,360', '640,0,640,360', '320,360,640,360']);
+  // the tiles end above the bar and its device tabs: 16 + 92 = 108px up, (720 - 108) / 2 = 306
+  assert.deepStrictEqual(await boxes(), ['0,0,640,306', '640,0,640,306', '640,0,640,306', '320,306,640,306']);
   await a.setViewportSize({ width: 1280, height: 400 });
-  // a short window gets the phone layout: the tiles end 80px up, above the bar ((400 - 80) / 2 = 160)
-  assert.deepStrictEqual(await boxes(), ['0,0,640,160', '640,0,640,160', '640,0,640,160', '320,160,640,160'], 'no re-layout needed');
+  // a short window gets the phone layout, the bar 10px up: (400 - 102) / 2 = 149
+  assert.deepStrictEqual(await boxes(), ['0,0,640,149', '640,0,640,149', '640,0,640,149', '320,149,640,149'], 'no re-layout needed');
 });
 
 test('picture-in-picture survives a re-layout (#27)', async t => {

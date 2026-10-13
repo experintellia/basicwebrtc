@@ -14,6 +14,7 @@
   --radius: 6px;
   --shadow: 0 8px 24px #1b1d211a;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --barBottom: max(16px, env(safe-area-inset-bottom)); /* the bar's distance from the bottom edge */
   --selfPreviewBottomOffset: 116px; /* above the bar and its device tabs */
   color-scheme: light;
 }
@@ -55,7 +56,7 @@ video {
 }
 
 #joinBtn, #newCallBtn, #chatSendBtn, #copyLinkBtn, .knock button {
-  border: 0;
+  border: 1px solid transparent; /* as tall as the secondary buttons */
   background: var(--ink);
   color: var(--bg);
   font-weight: 600;
@@ -117,7 +118,7 @@ video {
   position: fixed;
   inset: 0;
   box-sizing: border-box;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); /* video may run under the home indicator, names may not reach the notch */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) calc(var(--barBottom) + 92px) env(safe-area-inset-left); /* names clear of the notch; tiles end above the bar and its device tabs */
   display: flex;
   flex-wrap: wrap;
   justify-content: center; /* an incomplete last row in the middle */
@@ -134,7 +135,7 @@ video {
 
 @supports (width: 1cqmin) {
   .videoplaceholder {
-    --disc: min(150px, 65cqmin); /* smaller in short tiles */
+    --disc: min(150px, 65cqmin, 100cqh - 76px); /* smaller in short tiles, with room for the status chip under it */
   }
 }
 
@@ -147,6 +148,15 @@ video {
   width: 20%;
   min-width: 126px;
   height: 30%;
+}
+
+.videoplaceholder.selfPreview:has(> .userCont) { /* own video: the card is as tall as the video, so it sits right above the bar */
+  height: auto;
+  container-type: normal;
+}
+
+.selfPreview > .userCont {
+  position: relative;
 }
 
 .selfPreview video, .selfPreview > .userPlaceholderContainer {
@@ -230,7 +240,7 @@ video.mirror {
 }
 
 .peerStatus { /* under the circle, away from the name tag */
-  top: min(calc(50% + var(--disc) / 2 + 12px), calc(100% - 30px));
+  top: calc(50% + var(--disc) / 2 + 12px);
   left: 50%;
   transform: translateX(-50%);
   padding: 3px 10px;
@@ -256,6 +266,7 @@ video.mirror {
 }
 
 .audioMuted { /* a badge on the circle's lower right edge */
+  background: var(--surface);
   left: calc(50% + var(--disc) * .35 - 14px);
   top: calc(50% + var(--disc) * .35 - 14px);
   width: 28px;
@@ -263,7 +274,7 @@ video.mirror {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  box-shadow: 0 0 0 3px var(--stage);
+  box-shadow: 0 0 0 3px var(--gap, var(--stage));
   color: var(--leave);
 }
 
@@ -279,7 +290,7 @@ video.mirror {
   position: fixed;
   left: max(12px, env(safe-area-inset-left));
   right: max(12px, env(safe-area-inset-right));
-  bottom: max(16px, env(safe-area-inset-bottom));
+  bottom: var(--barBottom);
 }
 
 #mediaControll {
@@ -616,12 +627,8 @@ div#centerDiv {
     --selfPreviewBottomOffset: 108px;
   }
 
-  #mediaControllContainer {
-    bottom: max(10px, env(safe-area-inset-bottom));
-  }
-
-  #mediaDiv { /* tiles end above the bar: on a small screen it would cover the bottom row */
-    padding-bottom: calc(max(10px, env(safe-area-inset-bottom)) + 70px);
+  :root {
+    --barBottom: max(10px, env(safe-area-inset-bottom));
   }
 
   #chatDiv {
@@ -655,6 +662,10 @@ div#centerDiv {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+#lobby > * {
+  flex-shrink: 0; /* a short window scrolls the card instead of squashing the preview and the mic check */
 }
 
 #lobby[hidden], #endChat[hidden] {
