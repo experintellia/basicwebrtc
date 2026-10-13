@@ -5,9 +5,11 @@
   --surface: #fff; /* cards, panels, the bar */
   --soft: #f0f0ed; /* hover, chat bubbles, secondary buttons */
   --hair: #dcddd8; /* borders */
+  --edge: #8e918a; /* input borders: 3:1 on white */
   --ink: #1b1d21;
-  --dim: #6e7178;
+  --dim: #5f6269;
   --live: #2f3fce; /* on: mic, camera, screen share, focus */
+  --live-tint: #eceefb;
   --leave: #b42318;
   --radius: 6px;
   --shadow: 0 8px 24px #1b1d211a;
@@ -74,7 +76,7 @@ video {
 #nameInput, #chatInputText, #shareLink, #lobby select {
   flex: 1;
   min-width: 0;
-  border: 1px solid var(--hair);
+  border: 1px solid var(--edge);
   background: var(--surface);
   color: var(--ink);
   outline: none;
@@ -82,6 +84,7 @@ video {
 
 #nameInput:focus, #chatInputText:focus, #shareLink:focus, #lobby select:focus {
   border-color: var(--live);
+  box-shadow: 0 0 0 1px var(--live); /* 2px in all */
 }
 
 /* cards and panels */
@@ -122,7 +125,8 @@ video {
 }
 
 .videoplaceholder {
-  --disc: 150px; /* the circle; the mute badge sits on its edge */
+  --disc: min(150px, 65cqmin); /* the circle, smaller in short tiles; the mute badge and status sit around it */
+  container-type: size;
   position: relative;
   width: calc(100% / var(--cols));
   height: calc(100% / var(--rows));
@@ -143,10 +147,6 @@ video {
   box-shadow: var(--shadow);
 }
 
-.selfPreview > .userPlaceholderContainer {
-  background: var(--surface);
-}
-
 .userCont {
   position: absolute;
   inset: 0;
@@ -162,11 +162,20 @@ video.mirror {
 }
 
 .videoplaceholder > .userPlaceholderContainer {
-  width: 100%;
-  height: 100%;
   position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
   overflow: hidden;
   background: var(--stage);
+}
+
+.videoplaceholder.selfPreview > .userPlaceholderContainer {
+  background: var(--surface);
+}
+
+.videoplaceholder > .userPlaceholderContainer[hidden] {
+  display: none;
 }
 
 .userPlaceholder { /* a person: their color, their initials, a ring while they speak (--level from setAudioLevel) */
@@ -174,16 +183,14 @@ video.mirror {
   height: var(--disc);
   line-height: var(--disc);
   border-radius: 50%;
-  margin: 0 auto;
   background: var(--person, var(--dim));
   color: #fff;
-  font-size: 56px;
+  font-size: calc(var(--disc) * .37);
   font-weight: 600;
   text-align: center;
-  position: relative;
-  top: 25%;
-  box-shadow: 0 0 0 4px var(--stage), 0 0 0 calc(4px + var(--level, 0) * 3px) var(--ink);
-  transition: box-shadow .1s;
+  outline: calc(var(--level, 0) * 3px) solid var(--ink);
+  outline-offset: 4px;
+  transition: outline-width .1s;
 }
 
 .userName, .peerStatus, .pipBtn, .audioMuted { /* small chips over a tile */
@@ -196,25 +203,28 @@ video.mirror {
   font-weight: 600;
 }
 
-.userName {
+.userName { /* top left, one line, clear of the PiP button */
   top: 8px;
   left: 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  max-width: calc(100% - 64px);
   padding: 2px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .userName::before {
   content: "";
+  display: inline-block;
   width: 8px;
   height: 8px;
+  margin-right: 6px;
   border-radius: 50%;
   background: var(--person, var(--dim));
 }
 
-.peerStatus {
-  top: 10px;
+.peerStatus { /* under the circle, away from the name tag */
+  top: min(calc(50% + var(--disc) / 2 + 12px), calc(100% - 30px));
   left: 50%;
   transform: translateX(-50%);
   padding: 3px 10px;
@@ -239,9 +249,9 @@ video.mirror {
   height: 22px;
 }
 
-.audioMuted { /* a badge on the circle's lower right edge (.userPlaceholder sits 25% down, centered) */
+.audioMuted { /* a badge on the circle's lower right edge */
   left: calc(50% + var(--disc) * .35 - 14px);
-  top: calc(25% + var(--disc) * .85 - 14px);
+  top: calc(50% + var(--disc) * .35 - 14px);
   width: 28px;
   height: 28px;
   display: grid;
@@ -318,7 +328,8 @@ video.mirror {
   color: var(--leave);
 }
 
-.callBtn.on { /* mic live, camera or screen shared: blue icon and a short line under the label */
+.callBtn.on { /* mic live, camera or screen shared: a blue tint, blue icon and a short line under the label */
+  background-color: var(--live-tint);
   background-image: linear-gradient(var(--live), var(--live));
   background-position: center bottom 3px;
   background-size: 24px 2px;
@@ -381,6 +392,7 @@ video.mirror {
   border: 0;
   border-radius: var(--radius);
   background: none;
+  gap: 6px;
   white-space: nowrap;
   text-align: left;
   cursor: pointer;
@@ -602,6 +614,10 @@ div#centerDiv {
     bottom: max(10px, env(safe-area-inset-bottom));
   }
 
+  #mediaDiv { /* tiles end above the bar: on a small screen it would cover the bottom row */
+    padding-bottom: calc(max(10px, env(safe-area-inset-bottom)) + 70px);
+  }
+
   #chatDiv {
     position: fixed;
     inset: 0;
@@ -613,13 +629,6 @@ div#centerDiv {
     border-radius: 0;
   }
 
-  .videoplaceholder.selfPreview {
-    --disc: 120px;
-  }
-
-  .selfPreview .userPlaceholder {
-    font-size: 44px;
-  }
 }
 
 /* pre-join screen: own preview, name, mic and camera; the call UI stays hidden until Join */

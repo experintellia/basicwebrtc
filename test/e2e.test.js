@@ -1122,6 +1122,68 @@ test('lobby mic check: a bar you can see that moves with your voice', async t =>
   await waitFor(() => a.evaluate(() => $('#micMeter').value > 0), 'the fake mic\'s beep moves it');
 });
 
+test('person colours: four people, four colours, none of them the "on" blue', async t => {
+  const a = await join(t, 'alice'), others = [await join(t, 'bob'), await join(t, 'carol'), await join(t, 'dave')];
+  await waitFor(async () => (await connectedPeers(a)) === 3 && (await a.evaluate(() => [...document.querySelectorAll('.userPlaceholder')].every(e => e.textContent.length == 2 && !/\d/.test(e.textContent)))), 'all named');
+  const colors = await a.evaluate(() => [...document.querySelectorAll('.userPlaceholder')].map(e => getComputedStyle(e).backgroundColor));
+  assert.strictEqual(new Set(colors).size, 4, colors.join(' '));
+  const live = await a.evaluate(() => { const e = document.createElement('i'); e.style.color = 'var(--live)'; document.body.append(e); return getComputedStyle(e).color; });
+  assert.ok(!colors.includes(live), 'no one wears the "on" blue');
+  void others;
+});
+
+test('tile labels: name, status, PiP and mute never overlap; a long name stays on one line', async t => {
+  const long = 'Christina-Alexandra Montgomery-Smith';
+  for (const [width, height] of [[1280, 720], [390, 844]]) {
+    state(t).room = `r${Date.now()}x${width}`;
+    const a = await join(t, 'alice', null, '', { viewport: { width, height } }), b = await join(t, long), c = await join(t, 'carol');
+    await waitFor(async () => (await connectedPeers(a)) === 2, 'call up');
+    await b.click('#addRemoveCameraBtn'); await b.click('#muteUnmuteMicBtn');
+    await waitFor(() => a.evaluate(() => !!document.querySelector('.userName') && !!document.querySelector('.audioMuted')), 'bob\'s video and mute icon');
+    const bad = await a.evaluate(() => {
+      for (const s of document.querySelectorAll('.peerStatus')) s.textContent = 'reconnecting…';
+      const out = [], hit = (p, q) => p.left < q.right && q.left < p.right && p.top < q.bottom && q.top < p.bottom;
+      for (const tile of document.querySelectorAll('.videoplaceholder')) {
+        const els = [...tile.querySelectorAll('.userName, .peerStatus, .pipBtn:not([hidden]), .audioMuted')].filter(e => e.getClientRects().length);
+        for (const [i, e] of els.entries()) for (const f of els.slice(i + 1)) if (hit(e.getBoundingClientRect(), f.getBoundingClientRect())) out.push(`${e.className} / ${f.className}`);
+        const n = tile.querySelector('.userName');
+        if (n && n.getBoundingClientRect().height > 30) out.push('name wraps');
+        if (n && n.getBoundingClientRect().right > tile.getBoundingClientRect().right) out.push('name leaves its tile');
+      }
+      return out;
+    });
+    assert.deepStrictEqual(bad, [], `${width}x${height}`);
+    await Promise.all([a, b, c].map(p => p.context().close()));
+  }
+});
+
+test('circles fit their tiles, also short ones; the own preview is a white card', async t => {
+  const fits = page => page.evaluate(() => [...document.querySelectorAll('.videoplaceholder')].filter(tile => {
+    const c = tile.querySelector('.userPlaceholder').getBoundingClientRect(), r = tile.getBoundingClientRect(), ring = 4;
+    return !tile.querySelector('.userPlaceholderContainer').hidden && (c.left - ring < r.left || c.right + ring > r.right || c.top - ring < r.top || c.bottom + ring > r.bottom);
+  }).map(tile => tile.querySelector('.userPlaceholder').textContent));
+  state(t).room = `r${Date.now()}land`;
+  const a = await join(t, 'alice', null, '', { viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true });
+  const others = [await join(t, 'bob'), await join(t, 'carol'), await join(t, 'dave')];
+  await waitFor(async () => (await connectedPeers(a)) === 3, 'four in the call');
+  assert.deepStrictEqual(await fits(a), [], 'landscape phone, four people');
+  await others[1].click('#muteUnmuteMicBtn');
+  await waitFor(() => a.evaluate(() => !!document.querySelector('.audioMuted')), 'carol muted on alice');
+  const underBar = await a.evaluate(() => {
+    const bar = [$('#mediaControll'), ...document.querySelectorAll('.selectDeviceBtn')].filter(e => e.getClientRects().length && getComputedStyle(e).display != 'none').map(e => e.getBoundingClientRect());
+    const hit = (p, q) => p.left < q.right && q.left < p.right && p.top < q.bottom && q.top < p.bottom;
+    return [...document.querySelectorAll('.userPlaceholder, .audioMuted')].filter(e => bar.some(r => hit(e.getBoundingClientRect(), r))).map(e => e.textContent || 'mute icon');
+  });
+  assert.deepStrictEqual(underBar, [], 'landscape phone: no circle or mute icon under the bar');
+  await Promise.all([a, ...others].map(p => p.context().close()));
+  state(t).room = `r${Date.now()}port`;
+  const p = await join(t, 'alice', null, '', { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }), q = await join(t, 'bob');
+  await waitFor(async () => (await connectedPeers(p)) === 1 && (await p.evaluate(() => !!document.querySelector('.selfPreview'))), '1:1 call');
+  assert.deepStrictEqual(await fits(p), [], 'phone 1:1, own preview included');
+  assert.strictEqual(await p.evaluate(() => getComputedStyle(document.querySelector('.selfPreview > .userPlaceholderContainer')).backgroundColor), 'rgb(255, 255, 255)');
+  await q.context().close();
+});
+
 test('without video, a peer\'s mute icon sits on their circle', async t => {
   for (const [width, height] of [[390, 844], [1280, 800]]) {
     state(t).room = `r${Date.now()}x${width}`;
@@ -1334,7 +1396,8 @@ test('tiles: rows fill the window, a video fits its tile, also right after a res
   // 1280x720: two tiles on top, the third centered below; bob's video (listed after his tile) is as big as his tile allows
   assert.deepStrictEqual(await boxes(), ['0,0,640,360', '640,0,640,360', '640,0,640,360', '320,360,640,360']);
   await a.setViewportSize({ width: 1280, height: 400 });
-  assert.deepStrictEqual(await boxes(), ['0,0,640,200', '640,0,640,200', '640,0,640,200', '320,200,640,200'], 'no re-layout needed');
+  // a short window gets the phone layout: the tiles end 80px up, above the bar ((400 - 80) / 2 = 160)
+  assert.deepStrictEqual(await boxes(), ['0,0,640,160', '640,0,640,160', '640,0,640,160', '320,160,640,160'], 'no re-layout needed');
 });
 
 test('picture-in-picture survives a re-layout (#27)', async t => {

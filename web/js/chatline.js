@@ -1,6 +1,6 @@
 // One deep color per person: their circle, name tag and chat name match. Picked from the name, the next free one if taken, kept for the page's life.
 // ponytail: a 5th name (a rename, someone who left) can share a color
-const PERSON_COLORS = ["#2f3fce", "#12704f", "#7a2e5c", "#a8530f"]; // all readable as text on white and under white initials
+const PERSON_COLORS = ["#0b6b80", "#12704f", "#7a2e5c", "#a8530f"]; // teal, green, plum, rust: readable as text on white and under white initials, none the "on" blue
 const personColors = new Map();
 function personColor(name) {
   if (!personColors.has(name)) {
