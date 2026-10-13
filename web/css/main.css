@@ -172,7 +172,7 @@ video {
 #chatDiv {
   width: 320px;
   height: 420px;
-  max-height: calc(100vh - 150px); /* short desktop windows above the phone breakpoint */
+  max-height: calc(100dvh - 150px); /* short desktop windows above the phone breakpoint */
   position: absolute;
   right: 20px;
   bottom: 130px;
@@ -409,11 +409,14 @@ div#centerDiv{
 
 /* UI */
 
+/* safe areas: kept clear of the notch and home indicator (viewport-fit=cover in the pages) */
 #mediaControllContainer {
   position: fixed;
-  bottom: 0px;
+  bottom: env(safe-area-inset-bottom);
   height: 100px;
   width: 100%;
+  box-sizing: border-box;
+  padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
   text-align: center;
   font-size: 2.5em;
 }
@@ -431,6 +434,8 @@ div#centerDiv{
 #mediaDiv { /* tiles in rows: updateUserLayout sets --rows and --cols */
   position: fixed;
   inset: 0;
+  box-sizing: border-box;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); /* video may run under the home indicator, names may not reach the notch */
   display: flex;
   flex-wrap: wrap;
   justify-content: center; /* an incomplete last row in the middle */
@@ -444,8 +449,8 @@ div#centerDiv{
 
 .videoplaceholder.selfPreview { /* own tile in a 1:1 call, over the other one */
   position: absolute;
-  left: 20px;
-  bottom: var(--selfPreviewBottomOffset);
+  left: calc(20px + env(safe-area-inset-left));
+  bottom: calc(var(--selfPreviewBottomOffset) + env(safe-area-inset-bottom));
   z-index: 1;
   width: 20%;
   min-width: 126px;
@@ -511,7 +516,7 @@ video.mirror {
   }
   #mediaControllContainer {
     height: unset;
-    bottom: 10px;
+    bottom: max(10px, env(safe-area-inset-bottom));
     font-size: 1.7em;
   }
 
@@ -527,6 +532,7 @@ video.mirror {
     width: auto;
     height: auto;
     max-height: none;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     border: 0;
     border-radius: 0;
   }
@@ -561,11 +567,11 @@ video.mirror {
 
 #lobby, #endCard, #endChat {
   position: fixed;
-  inset: 0;
+  inset: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   margin: auto;
-  width: min(420px, 100vw - 32px);
+  width: min(420px, 100vw - 32px - env(safe-area-inset-left) - env(safe-area-inset-right));
   height: fit-content;
-  max-height: 100dvh;
+  max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   overflow-y: auto;
   box-sizing: border-box;
   padding: 20px;
@@ -680,7 +686,7 @@ video.mirror {
   overflow: auto;
   min-height: 100dvh;
   box-sizing: border-box;
-  padding: 16px;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   display: flex;
   flex-wrap: wrap;
   align-content: center;
@@ -772,7 +778,7 @@ video.mirror {
 /* join requests of a locked room, on top for every member */
 #knocks {
   position: fixed;
-  top: 10px;
+  top: calc(10px + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   z-index: 40;
