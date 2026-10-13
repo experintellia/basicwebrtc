@@ -123,11 +123,8 @@ function setAudioLevel(UUID, level) {
   const tile = allUserStreams[UUID]?.tile;
   if (!tile) return;
   tile.querySelector(".audioMuted")?.remove();
-  if (level < 0) { //Muted
-    tile.insertAdjacentHTML("beforeend", '<div class="audioMuted">' + icon("microphone-alt-slash") + '</div>');
-  } else {
-    tile.querySelector(".userPlaceholder").style.border = "2px solid rgb(255 255 255 / " + level * 50 + "%)";
-  }
+  tile.querySelector(".userPlaceholder").style.border = "2px solid rgb(255 255 255 / " + Math.max(level, 0) * 50 + "%)"; // muted: not speaking
+  if (level < 0) tile.insertAdjacentHTML("beforeend", '<div class="audioMuted">' + icon("microphone-alt-slash") + '</div>');
 }
 
 // Peer left the server: keep the call while ICE is up, drop it once ICE goes down (crash, lost network).
@@ -250,8 +247,9 @@ $("#muteUnmuteMicBtn").onclick = function () {
   this.innerHTML = icon(micMuted ? "microphone-alt-slash" : "microphone-alt");
   if (allUserStreams[MY_UUID] && allUserStreams[MY_UUID]["audiostream"]) {
     allUserStreams[MY_UUID]["audiostream"].getAudioTracks()[0].enabled = !micMuted;
-    if (micMuted) sendToPeers({ audioLvl: -1 });
   }
+  const l = micMuted ? -1 : 0; // the meter sends only changes: unmuted in silence it would send nothing
+  sendToPeers({ audioLvl: l }); setAudioLevel(MY_UUID, l);
 }
 
 $("#addRemoveChatBtn").onclick = function () {
