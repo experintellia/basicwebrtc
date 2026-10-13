@@ -86,8 +86,9 @@ function showMsg(name, msg) {
   }
 }
 
-socket.on("currentIceServers", function (newIceServers) {
+socket.on("currentIceServers", function (newIceServers) { // on every join in our room and when asked: TURN credentials last 1h (#28)
   webRTCConfig["iceServers"] = newIceServers;
+  for (const id in pcs) pcs[id].setIceServers(newIceServers); // for their next ICE restart
 })
 
 socket.on("signaling", function (data) {
@@ -449,6 +450,7 @@ function createRemoteSocket(initiator, UUID) {
   updateUserLayout();
   pc.on("icestate", function (state) {
     if (pcs[UUID] !== pc) return; // already removed
+    if (["disconnected", "failed"].includes(state)) socket.emit("getIceServers"); // fresh TURN credentials before the ICE restart (#28)
     // Gone from the server and from ICE. ponytail: a short ICE blip while the peer is off the server also drops it; accepted for fast crash cleanup.
     if (pc.left && !pc.iceUp()) return removePeer(UUID);
     pc.timedOut ||= ["disconnected", "failed"].includes(state); // checks timed out (Chromium: "disconnected" after ~15s); kept through the restart's "checking"
