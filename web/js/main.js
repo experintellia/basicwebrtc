@@ -525,12 +525,14 @@ function updateUserLayout() {
     var userDiv = fromHTML(`<div class="videoplaceholder">
       <div class="userPlaceholderContainer">
         <div class="userPlaceholder"></div>
+        <div class="discName"></div>
       </div>
     </div>`);
     userStream.tile = userDiv;
     if (name) userDiv.style.setProperty("--person", personColor(name)); // circle and name tag, like the chat name. Not before the name is known: a UUID would take a color
     if (count == 2 && i == MY_UUID) userDiv.classList.add("selfPreview"); // 1:1 call: the other one fills the screen
     userDiv.querySelector(".userPlaceholder").textContent = [...(name || i)].slice(0, 2).join("").toUpperCase();
+    userDiv.querySelector(".discName").textContent = name; // unnamed: empty
     userDiv.append(Object.assign(document.createElement("div"), { className: "peerStatus", textContent: userStream["status"] || "" }));
 
     if (userStream["videostream"]) {
