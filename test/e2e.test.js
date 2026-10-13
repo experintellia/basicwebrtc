@@ -1010,6 +1010,17 @@ test('Enter in the share link keeps the dialog open', async t => {
   assert.strictEqual(await a.locator('#shareDialog').isVisible(), true);
 });
 
+// #101: "the room is the part after #" must be readable, not scrolled out of a one-line field.
+test('share dialog shows the whole link, room part included, on phones and desktop', async t => {
+  for (const opts of [PHONE, { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }, { viewport: { width: 1280, height: 800 } }]) {
+    const a = await join(t, 'alice', () => { delete Navigator.prototype.share; }, '', opts);
+    await a.click('#moreBtn'); await a.click('#shareBtn');
+    const [sw, cw, sh, ch] = await a.$eval('#shareLink', e => [e.scrollWidth, e.clientWidth, e.scrollHeight, e.clientHeight]);
+    assert.ok(sw <= cw && sh <= ch, `${opts.viewport.width}px: link fits its field (${sw}x${sh} in ${cw}x${ch})`);
+    assert.ok(await a.$eval('#shareLink', e => e.selectionStart == 0 && e.selectionEnd == e.value.length), 'still selected for manual copy');
+  }
+});
+
 test('chat, rename and share live in the more menu', async t => {
   const a = await join(t, 'alice');
   const items = ['#addRemoveChatBtn', '#changeNameBtn', '#shareBtn'];
