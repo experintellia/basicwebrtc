@@ -1,5 +1,5 @@
 // Signaling server protocol tests (no browser).
-const { test, before, after } = require('node:test');
+const { test, after } = require('node:test');
 const assert = require('node:assert');
 const { io } = require('socket.io-client');
 const crypto = require('node:crypto');
@@ -7,24 +7,15 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const PORT = 3600 + Math.floor(Math.random() * 300);
-const URL = `http://127.0.0.1:${PORT}`;
+// Own ice file so the result does not depend on a local iceservers.json.
+const ice = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ice-')), 'ice.json');
+fs.writeFileSync(ice, JSON.stringify([
+  { url: 'stun:legacy.example:3478' },
+  { urls: 'turn:turn.example:3478', username: 'bob', turnServerCredential: 's3cret' },
+]));
+const URL = require('./boot')({ ROOM_GRACE_MS: '300', ICESERVERS_FILE: ice }); // grace: how long an emptied room keeps its lock
+fs.rmSync(path.dirname(ice), { recursive: true }); // read synchronously at startup
 const clients = [];
-
-before(async () => {
-  process.env.listen_port = String(PORT);
-  process.env.listen_ip = '127.0.0.1';
-  process.env.ROOM_GRACE_MS = '300'; // how long an emptied room keeps its lock
-  // Own ice file so the result does not depend on a local iceservers.json.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ice-'));
-  process.env.ICESERVERS_FILE = path.join(dir, 'ice.json');
-  fs.writeFileSync(process.env.ICESERVERS_FILE, JSON.stringify([
-    { url: 'stun:legacy.example:3478' },
-    { urls: 'turn:turn.example:3478', username: 'bob', turnServerCredential: 's3cret' },
-  ]));
-  require('../server.js'); // ponytail: in-process, runner exits via --test-force-exit
-  fs.rmSync(dir, { recursive: true }); // read synchronously at startup
-});
 after(() => clients.forEach(c => c.close()));
 
 async function client(uuid, key = uuid + '-key') {
@@ -533,7 +524,7 @@ test('a full locked room takes no knocks, and one let in meanwhile is still turn
 });
 
 test('static files: served with their type, nothing outside web/', async () => {
-  const get = p => new Promise((res, rej) => require('node:http').get({ host: '127.0.0.1', port: PORT, path: p }, r => { // raw path: fetch would normalize ".."
+  const get = p => new Promise((res, rej) => require('node:http').get({ host: '127.0.0.1', port: URL.split(':')[2], path: p }, r => { // raw path: fetch would normalize ".."
     let body = ''; r.on('data', d => body += d).on('end', () => res([r.statusCode, r.headers['content-type'], body]));
   }).on('error', rej));
   const [status, type, body] = await get('/?roomname=x');

@@ -22,8 +22,8 @@ jobs:
         env:
           FIREFOX: 1
           CHROMIUM_PATH: /usr/bin/google-chrome
-      # root so the P2P-outage test can drop UDP with iptables
-      - run: sudo -E env "PATH=$PATH" CHROMIUM_PATH=/usr/bin/google-chrome npm test
+      # root so the P2P-outage tests can drop UDP with iptables; SLOW=1 adds the 45s outage
+      - run: sudo -E env "PATH=$PATH" CHROMIUM_PATH=/usr/bin/google-chrome SLOW=1 npm test
   safari:
     # ponytail: macOS minutes cost 10x; push only (not again for the PR) and capped
     if: github.event_name == 'push'
