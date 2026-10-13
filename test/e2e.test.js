@@ -620,6 +620,39 @@ test('rejoining peer that still has the call gets a reset when the other side re
   await a.context().close(); await b.context().close();
 });
 
+// Bob's rebuild closes the old connection; that close reaches alice over P2P before his reset comes via the server.
+test('a rebuild by the other side does not make the rejoining peer rebuild too', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  for (const p of [a, b]) await p.evaluate(() => window.__pc = Object.values(pcs)[0]);
+  await a.evaluate(() => socket.disconnect());
+  await waitFor(() => b.evaluate(() => __pc.left), 'bob saw alice leave');
+  await b.evaluate(() => __pc.iceUp = () => false); // bob's side of the call is dead, alice's looks fine
+  await b.evaluate(() => { const e = socket.emit.bind(socket); socket.emit = (n, ...a) => n == 'signaling' ? setTimeout(() => e(n, ...a), 150) : e(n, ...a); }); // server 150ms farther than alice
+  await a.evaluate(() => socket.connect()); // alice rejoins, keeping bob
+  for (const p of [a, b]) await waitFor(async () => (await p.evaluate(() => Object.values(pcs)[0] !== __pc)) && (await callUp(p)), 'new call on both sides', 20000);
+  await a.context().close(); await b.context().close();
+});
+
+// #58: a long outage makes SCTP give up and close the data channel while both sockets stay up.
+test('data channel closed while both peers stay on the server: the call is rebuilt', async () => {
+  const room = 'r' + Date.now();
+  const trackDcs = () => { const c = RTCPeerConnection.prototype.createDataChannel; window.__dcs = []; RTCPeerConnection.prototype.createDataChannel = function (...a) { const d = c.apply(this, a); __dcs.push(d); return d; }; };
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob', trackDcs);
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
+  for (const p of [a, b]) await p.evaluate(() => { window.__pc = Object.values(pcs)[0]; __pc.iceUp = () => false; }); // the outage has ICE down too
+  await b.evaluate(() => __dcs[0].close()); // "close" on both sides
+  for (const p of [a, b]) {
+    await waitFor(async () => (await p.evaluate(() => { const pc = Object.values(pcs)[0]; return pc !== __pc && pc?.send({}); })) && (await callUp(p)), 'new call with an open data channel', 30000);
+    assert.strictEqual(await p.locator('#mediaDiv .videoplaceholder').count(), 2, 'peer tile back');
+  }
+  await a.context().close(); await b.context().close();
+});
+
 test('signaling uses the socket while it is up, even if the data channel reads open', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');

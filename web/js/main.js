@@ -458,7 +458,9 @@ function createRemoteSocket(initiator, UUID) {
     const relay = webRTCConfig["iceServers"]?.some(s => [].concat(s.urls).some(u => /^turns?:/.test(u)));
     setStatus(UUID, ["connected", "completed"].includes(state) ? "" : pc.isConnected ? "reconnecting…" : pc.timedOut && !relay ? "no relay configured: some networks can't connect" : "connecting…");
   });
-  pc.on("close", () => pcs[UUID] === pc && removePeer(UUID)); // peer left (or closed its connection)
+  // Off the server, or ICE still up (the peer closed it on purpose; its bye/reset/offer follows): gone.
+  // Else SCTP gave up in a long outage (#58), so the initiator rebuilds; its reset replaces the answerer's pc.
+  pc.on("close", () => pcs[UUID] === pc && (pc.left || pc.iceUp() ? removePeer(UUID) : initiator && createRemoteSocket(true, UUID)));
   pc.on("open", () => pc.send({ username: username, audioLvl: micMuted ? -1 : 0, video: !!allUserStreams[MY_UUID]["videostream"] }));
   pc.on("message", function (msg) { // from the peer: untrusted
     if (typeof msg.username == "string") {
