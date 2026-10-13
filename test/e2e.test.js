@@ -1069,7 +1069,7 @@ test('camera off and on while a camera switch is pending: one live camera, the o
   const b = await join(t, 'bob');
   await waitFor(async () => (await connectedPeers(a)) === 1, 'ICE connected');
   await a.click('#addRemoveCameraBtn');
-  for (const fail of [false, true]) { // the switch gets a camera, or fails
+  for (const fail of [true, false]) { // the switch fails (first: it picks the second camera, not the picker's fallback), or gets a camera
     await waitFor(() => a.evaluate(() => camActive && $('#cameraSelect').options.length > 1), 'camera on, picker filled');
     const other = await a.evaluate(() => [...$('#cameraSelect').options].find(o => o.value != selectedCameraId).value);
     await a.evaluate(([o, fail]) => { // only the switch's getUserMedia waits
@@ -1082,7 +1082,7 @@ test('camera off and on while a camera switch is pending: one live camera, the o
     await a.evaluate(() => __go());
     await waitFor(() => a.evaluate(() => !$('#cameraSelect').disabled), 'switch done');
     assert.strictEqual(await liveVideoLeft(a), 1, `one live camera (switch ${fail ? 'failed' : 'got one'})`);
-    assert.ok(await a.evaluate(o => { const t = allUserStreams[MY_UUID].videostream.getVideoTracks()[0]; return t.getSettings().deviceId == o && __raw.at(-1).getSenders().some(s => s.track?.id == t.id); }, other), 'the slot sends the camera turned on');
+    assert.ok(await a.evaluate(o => { const t = allUserStreams[MY_UUID].videostream.getVideoTracks()[0]; return t.getSettings().deviceId == o && __raw.at(-1).getSenders().some(s => s.track?.id == t.id) && selectedCameraId == o; }, other), 'the slot sends the camera turned on, still picked');
   }
 });
 

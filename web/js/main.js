@@ -328,8 +328,8 @@ $("#cameraSelect").onchange = async function () {
   } catch (error) {
     alert("Could not switch camera!")
     console.log('getUserMedia error! Got this error: ', error);
-    selectedCameraId = null;
     if (allUserStreams[MY_UUID].videostream === stream) stopVideo(); //Turn the dead camera off (not via toggleCamera: its busy guard could skip it; skip if turned off, on again or replaced by a screen share meanwhile)
+    if (!camActive) selectedCameraId = null; //A camera turned on again meanwhile keeps its pick
     updateDeviceLists();
   } finally {
     this.disabled = false;
