@@ -29,6 +29,7 @@ function initEzWebRTC(initiator, config) {
     dc.onmessage = e => { try { var msg = JSON.parse(e.data) } catch (err) { return } if (msg && typeof msg == "object") _this.emitEvent("message", msg) };
     this.send = obj => dc.readyState == "open" && (dc.send(JSON.stringify(obj)), true); // false: not open (yet)
     this.iceUp = () => pc.iceConnectionState == "connected" || pc.iceConnectionState == "completed";
+    this.setIceServers = iceServers => { try { pc.setConfiguration({ iceServers }) } catch (e) { console.log("setConfiguration error", e) } }; // used from the next ICE restart on
     this.route = async function () { // the path in use: through a TURN relay or direct, and its round-trip time
         const r = await pc.getStats(), all = [...r.values()];
         const p = r.get(all.find(s => s.type == "transport")?.selectedCandidatePairId) || all.find(s => s.type == "candidate-pair" && (s.selected || s.nominated && s.state == "succeeded")); // Firefox < 153 has no transport stats
