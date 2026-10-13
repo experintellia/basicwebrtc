@@ -41,9 +41,13 @@ var socketID_UUIDMatch = Object.create(null);
 // ponytail: the reject cooldown is keyed by the knocker's per-tab id, so it slows down honest retries, not a determined knocker.
 var rooms = Object.create(null);
 const ROOM_GRACE_MS = parseInt(process.env.ROOM_GRACE_MS) || 15000; // an emptied room keeps its lock, a dropped UUID its owner, this long: a reconnect gets both back
+// Seats per room: the goal is 2-3 people in a full mesh, plus one spare (e.g. a second device). A seat is a tab (knockId),
+// kept for ROOM_GRACE_MS after it drops: a reconnect or reload gets it back. ponytail: tabs sharing a knockId (duplicated tab) share a seat.
+const ROOM_SIZE = 4;
 const str = v => typeof v == "string" ? v : ""; // String() of an object can throw and kill the server
 const uuidHolds = new Map(); // one timer per dropped UUID: a newer drop restarts it
-const roomState = name => rooms[name] ||= { locked: false, approved: new Set(), knocks: new Map(), rejects: new Map() };
+const roomState = name => rooms[name] ||= { locked: false, approved: new Set(), knocks: new Map(), rejects: new Map(), left: new Map() }; // left: seat -> held until
+const inRoom = name => [...(ioServer.sockets.adapter.rooms.get(name) || [])].map(id => ioServer.sockets.sockets.get(id)?.data || {});
 function forgetRoom(name) { // no member for a while: open again, knockers still waiting are sent in
     for (const k of rooms[name]?.knocks.values() || []) ioServer.to(k.socketId).emit("knockAnswer", { accept: true });
     delete rooms[name];
@@ -81,6 +85,7 @@ ioServer.sockets.on('connection', function (socket) {
             ioServer.to(knockRoom).emit("knockDone", MY_UUID);
         }
         const name = roomOfUser;
+        if (name !== null) rooms[name]?.left.set(socket.data.seat, Date.now() + ROOM_GRACE_MS);
         if (name !== null && !ioServer.sockets.adapter.rooms.get(name) && rooms[name]) { // one timer per room: a join cancels it
             clearTimeout(rooms[name].timer);
             rooms[name].timer = setTimeout(() => forgetRoom(name), ROOM_GRACE_MS);
@@ -101,6 +106,10 @@ ioServer.sockets.on('connection', function (socket) {
         const room = roomState(name);
         // knockId: random per browser tab, only the server sees it. Approves a member's reload, keys a knocker's cooldown.
         const knockId = /^[\w-]{1,64}$/.test(str(content["knockId"])) ? content["knockId"] : MY_UUID;
+        for (const [seat, until] of room.left) if (until < Date.now()) room.left.delete(seat);
+        const seats = new Set([...room.left.keys(), ...inRoom(name).map(d => d.seat)]);
+        seats.delete(knockId); // its own seat: a reconnect or reload is not counted twice
+        if (seats.size >= ROOM_SIZE) return ack({ full: true }); // before the door: no knock for a seat there isn't
         if (room.locked && !room.approved.has(MY_UUID) && !room.approved.has(knockId)) { // knock: members decide
             const wait = Math.ceil(((room.rejects.get(knockId)?.until || 0) - Date.now()) / 1000);
             if (wait > 0) return ack({ wait });
@@ -116,10 +125,11 @@ ioServer.sockets.on('connection', function (socket) {
         clearTimeout(room.timer); // not empty any more
         if (content["lock"] === true && !ioServer.sockets.adapter.rooms.get(name)) room.locked = true; // first one in picked "closed"
         roomOfUser = socket.data.room = name;
+        socket.data.seat = knockId;
         ioServer.to([name, socket.id]).emit('currentIceServers', iceServers()); // fresh, to the members before their userJoined: new peer connections get valid TURN credentials (#28)
         const keep = Array.isArray(content["keep"]) ? content["keep"].filter(k => typeof k == "string").slice(0, 8) : []; // peers a rejoining page still has a live call with
         socket.to(roomOfUser).emit('userJoined', { UUID: MY_UUID, keep });
-        const members = [...(ioServer.sockets.adapter.rooms.get(roomOfUser) || [])].map(id => ioServer.sockets.sockets.get(id)?.data.uuid);
+        const members = inRoom(roomOfUser).map(d => d.uuid);
         ack(members); // who is in the room, so a rejoining page can resync
         console.log("joinRoom", roomOfUser, MY_UUID);
         socket.join(roomOfUser);

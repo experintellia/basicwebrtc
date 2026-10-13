@@ -19,6 +19,7 @@ Setup your own Videoconference Server for 1on1 and group calls! All Calls are en
 ### Room link ###
 The only URL parameter is the room: https://IP:3001/#roomname=yourSecretRoom
 Your name, mic and camera are picked in the lobby before joining.
+A room holds up to 4 people (`ROOM_SIZE` in server.js); the next one is told it is full.
 
 ### Config Server Listen IP & Port
 
