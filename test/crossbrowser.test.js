@@ -38,9 +38,12 @@ const VIDEOS_PLAYING = `(() => { const v = [...document.querySelectorAll('#media
 const REMOTE_VIDEO = () => [...document.querySelectorAll('#mediaDiv video')].some(v => v.srcObject && v.videoWidth > 0 && !v.classList.contains('mirror'));
 // Init script (as in e2e.test.js): keeps the raw RTCPeerConnections in window.__raw.
 const trackPcs = () => { const O = RTCPeerConnection; window.__raw = []; window.RTCPeerConnection = function (c) { const p = new O(c); __raw.push(p); return p; }; };
-// Printed on failure: ICE state and candidates (the other side's only in Playwright browsers, Safari has no __raw).
-const STATE = `JSON.stringify((window.__raw || []).map(p => ({ sig: p.signalingState, ice: p.iceConnectionState, gather: p.iceGatheringState,
-  local: p.localDescription?.sdp.match(/a=candidate.*/g), remote: p.remoteDescription?.sdp.match(/a=candidate.*/g) })))`;
+// Printed on failure: ICE and DTLS state, candidates and stats: RTP in/out (packets, frames and keyframes decoded), candidate pairs, data channel.
+const STATE = `Promise.all((window.__raw || []).map(async p => ({ sig: p.signalingState, ice: p.iceConnectionState, conn: p.connectionState, gather: p.iceGatheringState,
+  local: p.localDescription?.sdp.match(/a=candidate.*/g), remote: p.remoteDescription?.sdp.match(/a=candidate.*/g),
+  stats: [...(await p.getStats().catch(() => [])).values()].filter(s => /^((in|out)bound-rtp|candidate-pair|transport|data-channel|(local|remote)-candidate)$/.test(s.type)) }))).then(JSON.stringify)`;
+// The peer's ICE username once ICE is up and nothing is being negotiated: an ICE restart changes it.
+const ICE_UP = `(p => p.signalingState == 'stable' && ['connected', 'completed'].includes(p.iceConnectionState) && p.remoteDescription.sdp.match(/a=ice-ufrag:(\\S+)/)[1])(__raw.at(-1))`;
 
 before(async () => {
   if (!process.env.FIREFOX && !process.env.SAFARI) return;
@@ -67,10 +70,16 @@ before(async () => {
     driver = spawn('safaridriver', ['-p', String(PORT + 1000)], { stdio: 'inherit' });
     await waitFor(() => fetch(WD + '/status').then(r => r.ok, () => false), 'safaridriver');
     // Safari under automation uses mock capture devices; these drop the insecure-origin and host-candidate filters.
-    ({ sessionId: session } = await wd('POST', '/session', { capabilities: { alwaysMatch: {
+    const caps = { capabilities: { alwaysMatch: {
       browserName: 'safari',
       'webkit:WebRTC': { DisableInsecureMediaCapture: true, DisableICECandidateFiltering: true },
-    } } }));
+    } } };
+    // ponytail: one retry of the session only (never of a test): on CI, launching Safari sometimes times out (#82)
+    ({ sessionId: session } = await wd('POST', '/session', caps).catch(async e => {
+      console.log('webdriver session failed, retrying once:', e.message);
+      await new Promise(r => setTimeout(r, 2000));
+      return wd('POST', '/session', caps);
+    }));
   }
 });
 
@@ -102,6 +111,9 @@ async function call(other, otherFirst) {
     await waitFor(() => page.evaluate(AUDIO_BOTH_WAYS), 'audio both ways');
     await other.evaluate("camActive || document.getElementById('addRemoveCameraBtn').click()"); // on, not toggled: the last call's camera state is remembered
     await waitFor(() => page.evaluate(REMOTE_VIDEO), 'video from the other browser');
+    const ufrags = [await page.evaluate(ICE_UP), await other.evaluate(ICE_UP)]; // #88: the initiator restarts ICE, as after an outage
+    await (otherFirst ? other : page).evaluate('__raw.at(-1).restartIce()');
+    await waitFor(async () => [await page.evaluate(ICE_UP), await other.evaluate(ICE_UP)].every((u, i) => u && u != ufrags[i]), 'ICE restarted and up on both sides');
     await page.click('#addRemoveCameraBtn');
     await waitFor(() => other.evaluate(VIDEOS_PLAYING), 'other browser shows both videos');
   } catch (e) {

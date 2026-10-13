@@ -29,9 +29,18 @@ function initEzWebRTC(initiator, config) {
     dc.onmessage = e => { try { var msg = JSON.parse(e.data) } catch (err) { return } if (msg && typeof msg == "object") _this.emitEvent("message", msg) };
     this.send = obj => dc.readyState == "open" && (dc.send(JSON.stringify(obj)), true); // false: not open (yet)
     this.iceUp = () => pc.iceConnectionState == "connected" || pc.iceConnectionState == "completed";
+    this.route = async function () { // the path in use: through a TURN relay or direct, and its round-trip time
+        const r = await pc.getStats(), all = [...r.values()];
+        const p = r.get(all.find(s => s.type == "transport")?.selectedCandidatePairId) || all.find(s => s.type == "candidate-pair" && (s.selected || s.nominated && s.state == "succeeded")); // Firefox < 153 has no transport stats
+        return p && { relay: [p.localCandidateId, p.remoteCandidateId].some(id => r.get(id)?.candidateType == "relay"), rtt: p.currentRoundTripTime };
+    }
 
+    // On renegotiation, own candidates wait while our offer is unanswered: the peer can't check them before we know its new ICE credentials.
+    // Otherwise, after an ICE restart, Chromium keeps a pair to Firefox's old ICE generation, which drops our media (#88).
+    var heldCandidates = [];
     pc.onicecandidate = function (e) {
         if (!pc || !e || !e.candidate) return;
+        if (pc.signalingState == "have-local-offer" && pc.currentRemoteDescription) return heldCandidates.push(e.candidate); // first offer: no older generation, trickle at once so a firewalled peer opens its pinhole before the answer is back
         _this.emitEvent("signaling", e.candidate)
     };
 
@@ -86,6 +95,7 @@ function initEzWebRTC(initiator, config) {
         gen++; //answers to the old offer are stale now
         if (pc.signalingState == "have-local-offer") {
             _this.makingOffer = false;
+            heldCandidates = []; // the rolled back offer's
             await pc.setLocalDescription({ type: "rollback" }).catch(e => console.log("rollback error", e));
         }
         negotiate();
@@ -119,6 +129,7 @@ function initEzWebRTC(initiator, config) {
                 return console.log("answer error", e); //the offer timeout re-offers; no tight loop on an always-bad answer
             }
             _this.makingOffer = false;
+            heldCandidates.splice(0).forEach(c => _this.emitEvent("signaling", c));
             if (offerPending) { offerPending = false; negotiate(); } //e.g. a "renegotiate" that came in meanwhile
         } else if (signalData && signalData.candidate) { //is a icecandidate thing
             await pc.addIceCandidate(signalData);

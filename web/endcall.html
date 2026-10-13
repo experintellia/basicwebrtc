@@ -1,12 +1,52 @@
+<!DOCTYPE html>
 <html>
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, user-scalable=yes, initial-scale=1, maximum-scale=1">
         <meta name="mobile-web-app-capable" content="yes">
 
-        <title>Video Chat!</title>
+        <title>Call ended</title>
+        <link rel="stylesheet" href="./css/main.css">
     </head>
-    <body style="background: black; color: #4bff7a; font-family: monospace;">
-        <div style="text-align: center;">Call ended. You may close this tab/window now.</div>
+    <body id="endPage">
+        <main id="endCard">
+            <h2>Call ended</h2>
+            <div id="duration"></div>
+            <div id="with"></div>
+            <details id="nerdStats" hidden><summary>Stats for nerds</summary><dl id="stats"></dl></details>
+            <a id="newCallBtn" href="./">Start a new call</a>
+            <p>You can close this tab now.</p>
+        </main>
+        <section id="endChat" hidden>
+            <h2>Chat</h2>
+            <p id="chatNote">Copy the links you need now: this chat is gone once you close this tab.</p>
+            <div id="chatText"></div>
+            <button id="copyChatBtn" aria-live="polite">Copy chat</button>
+        </section>
+        <script src="js/chatline.js"></script>
+        <script>
+            // Written by the call page at hang-up, per tab only (see callSummary in main.js). Names and chat come from peers: text only.
+            const $ = id => document.getElementById(id);
+            let s; try { s = JSON.parse(sessionStorage.lastCall) } catch { }
+            if (s) {
+                const t = Math.round(s.ms / 1000), two = n => String(n).padStart(2, "0");
+                $("duration").textContent = (t >= 3600 ? `${Math.floor(t / 3600)}:${two(Math.floor(t / 60) % 60)}` : Math.floor(t / 60)) + `:${two(t % 60)}`;
+                $("with").textContent = s.names.length ? "with " + s.names.map(n => n || "someone").join(", ") : "Nobody connected";
+                const rows = [
+                    s.relay != null && ["Connection", s.relay ? "Through a relay server" : "Direct, device to device"],
+                    s.rtt != null && ["Round trip", Math.round(s.rtt * 1000) + " ms"],
+                    s.names.length > 0 && ["Encryption", "End to end"],
+                ].filter(Boolean);
+                for (const [k, v] of rows) $("stats").append(Object.assign(document.createElement("dt"), { textContent: k }), Object.assign(document.createElement("dd"), { textContent: v }));
+                $("nerdStats").hidden = !rows.length;
+                for (const [name, msg] of s.chat || []) $("chatText").append(chatLine(name, msg));
+                $("endChat").hidden = !s.chat?.length;
+            }
+            $("copyChatBtn").onclick = function () { // the chat as text; without the clipboard API it is selected, for Ctrl+C
+                const select = () => getSelection().selectAllChildren($("chatText"));
+                if (!navigator.clipboard) return select();
+                navigator.clipboard.writeText($("chatText").innerText).then(() => this.textContent = "Copied!", select);
+            };
+        </script>
     </body>
 </html>
