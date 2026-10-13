@@ -12,7 +12,7 @@
   --radius: 6px;
   --shadow: 0 8px 24px #1b1d211a;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --selfPreviewBottomOffset: 96px; /* above the bar */
+  --selfPreviewBottomOffset: 116px; /* above the bar and its device tabs */
   color-scheme: light;
 }
 
@@ -233,14 +233,18 @@ video.mirror {
   cursor: pointer;
 }
 
+.userCont ~ .audioMuted {
+  top: 38px;
+}
+
 .pipBtn .icon {
   width: 22px;
   height: 22px;
 }
 
-.audioMuted {
+.audioMuted { /* top left, under the name tag when there is one: never under the bar or the own preview */
   left: 8px;
-  bottom: 8px;
+  top: 8px;
   padding: 5px 7px;
   color: var(--leave);
 }
@@ -290,8 +294,10 @@ video.mirror {
   height: 20px;
 }
 
-.callBtn:hover {
-  background-color: var(--soft);
+@media (hover: hover) { /* phones: no hover left behind on the last tapped button */
+  .callBtn:hover {
+    background-color: var(--soft);
+  }
 }
 
 #micGroup .callBtn {
@@ -416,7 +422,7 @@ video.mirror {
   max-height: calc(100dvh - 150px); /* short desktop windows above the phone breakpoint */
   position: absolute;
   right: 20px;
-  bottom: 100px;
+  bottom: 120px; /* above the bar's device tabs */
   z-index: 20;
   font-size: 15px;
   display: flex;
@@ -580,7 +586,7 @@ div#centerDiv {
 
 @media only screen and (max-width: 600px), only screen and (max-height: 460px) {
   :root {
-    --selfPreviewBottomOffset: 84px;
+    --selfPreviewBottomOffset: 108px;
   }
 
   #mediaControllContainer {
@@ -706,11 +712,11 @@ div#centerDiv {
 
 #micMeter {
   width: 100%;
-  height: 6px;
+  height: 8px;
 }
 
-#micMeter::-webkit-meter-bar { background: var(--soft); border: 0; border-radius: 3px; }
-#micMeter::-webkit-meter-optimum-value, #micMeter::-webkit-meter-suboptimum-value { background: var(--live); border-radius: 3px; }
+#micMeter::-webkit-meter-bar { background: var(--hair); border: 0; border-radius: 4px; }
+#micMeter::-webkit-meter-optimum-value, #micMeter::-webkit-meter-suboptimum-value { background: var(--live); border-radius: 4px; }
 #micMeter::-moz-meter-bar { background: var(--live); }
 
 #nameInput, #joinBtn, #newCallBtn, #copyChatBtn {

@@ -1115,6 +1115,39 @@ test('person colours: the end page keeps the colours of the call', async t => {
   assert.strictEqual(await a.evaluate(() => getComputedStyle(document.querySelector('#chatText .chatName')).color), inCall);
 });
 
+test('lobby mic check: a bar you can see that moves with your voice', async t => {
+  const a = await open(t, 'alice');
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown');
+  assert.ok((await a.locator('#micMeter').boundingBox()).height >= 8, 'tall enough to see while silent');
+  await waitFor(() => a.evaluate(() => $('#micMeter').value > 0), 'the fake mic\'s beep moves it');
+});
+
+test('nothing covers the call bar, its device tabs, or a peer\'s mute icon', async t => {
+  const overlaps = page => page.evaluate(() => {
+    const box = e => e && e.getClientRects().length && getComputedStyle(e).display != 'none' ? e.getBoundingClientRect() : null;
+    const bar = [['bar', $('#mediaControll')], ...[...document.querySelectorAll('.selectDeviceBtn')].map(e => [e.id, e])];
+    const peerMute = [...document.querySelectorAll('.videoplaceholder:not(.selfPreview) .audioMuted')][0];
+    const pairs = [...bar.map(([n, e]) => [['own preview', $('.selfPreview')], [n, e]]), ...bar.map(([n, e]) => [['peer mute icon', peerMute], [n, e]]),
+      [['peer mute icon', peerMute], ['own preview', $('.selfPreview')]], ...bar.map(([n, e]) => [['chat', $('#chatDiv')], [n, e]])];
+    const hit = (a, b) => a && b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    return pairs.filter(([[, x], [, y]]) => hit(box(x), box(y))).map(([[n], [m]]) => `${n} / ${m}`);
+  });
+  for (const [width, height, phone] of [[390, 844, true], [700, 700, false], [1280, 800, false]]) {
+    state(t).room = `r${Date.now()}x${width}`; // a fresh room per size: no one left over from the last
+    const a = await join(t, 'alice', null, '', { viewport: { width, height }, hasTouch: phone, isMobile: phone });
+    const b = await join(t, 'bob');
+    await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+    await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'camera tab shown (2 fake cams)');
+    await b.click('#muteUnmuteMicBtn');
+    await waitFor(() => a.evaluate(() => !!document.querySelector('.videoplaceholder:not(.selfPreview) .audioMuted')), 'bob muted on alice');
+    if (!phone) { await a.click('#moreBtn'); await a.click('#addRemoveChatBtn'); } // phones: the chat covers the call on purpose
+    assert.deepStrictEqual(await overlaps(a), [], `${width}x${height}`);
+    const mute = await a.locator('.videoplaceholder:not(.selfPreview) .audioMuted').boundingBox();
+    assert.ok(mute.y >= 0 && mute.y + mute.height <= height && mute.x >= 0 && mute.x + mute.width <= width, `peer mute icon on screen ${width}x${height}`);
+    await Promise.all([a.context().close(), b.context().close()]);
+  }
+});
+
 test('screen share button follows getDisplayMedia, not the user agent', async t => {
   for (const [init, shown] of [[null, true], [noScreenShare, false]]) {
     const a = await join(t, null, init, '', { userAgent: 'Mozilla/5.0 (Linux; Android 14) Mobile' });
