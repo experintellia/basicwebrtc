@@ -923,6 +923,31 @@ test('late answer does not cancel an ICE restart', { skip: !canDropUdp && 'needs
   await a.context().close(); await b.context().close();
 });
 
+// #4: only bob's connectivity checks get lost; alice's checks and bob's replies pass, so only bob's ICE fails.
+// The drop matches bob's current port only: an ICE restart gathers new ports and gets through.
+test('call recovers when only the answerer sees ICE fail', { skip: !canDropUdp && 'needs root + iptables' }, async () => {
+  for (const r of String(iptables('-S OUTPUT')).split('\n')) if (r.includes('basicwebrtc-test')) iptables(r.replace('-A', '-D')); // leftovers from a killed run, any port
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', trackPcs);
+  const b = await join(room, 'bob', trackPcs);
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  const port = await b.evaluate(async () => { // bob's end of the candidate pair in use
+    const stats = await __raw[0].getStats(), transport = [...stats.values()].find(x => x.type == 'transport');
+    return stats.get(stats.get(transport.selectedCandidatePairId).localCandidateId).port;
+  });
+  const BOB_CHECKS = `OUTPUT -p udp --sport ${port} -m u32 --u32 "0>>22&0x3C@8>>16=0x1" -m comment --comment basicwebrtc-test -j DROP`; // STUN binding requests
+  iptables('-I ' + BOB_CHECKS);
+  try {
+    await waitFor(() => b.evaluate(() => !Object.values(pcs)[0].iceUp()), 'bob\'s ICE down', 20000);
+    assert.ok(await a.evaluate(() => Object.values(pcs)[0].iceUp()), 'alice\'s ICE still up');
+    for (const p of [a, b]) await waitFor(() => callUp(p), 'call up again', 45000);
+  } finally {
+    iptables('-D ' + BOB_CHECKS);
+  }
+  for (const p of [a, b]) assert.strictEqual(await p.evaluate(() => __raw.length), 1, 'same connection, not rebuilt');
+  await a.context().close(); await b.context().close();
+});
+
 // #56: the test server uses iceservers.example.json, so public STUN only. No UDP: the call can never connect.
 test('no TURN configured and ICE fails: the tile says so instead of "connecting…" forever', { skip: !canDropUdp && 'needs root + iptables' }, async () => {
   const room = 'r' + Date.now();
