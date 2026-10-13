@@ -1720,3 +1720,48 @@ test('a full room tells the next one so in the lobby (#29)', async t => {
   await waitFor(async () => /full/.test(await e.textContent('#lobbyMsg')), 'eve told the room is full');
   assert.ok(await e.isEnabled('#joinBtn'), 'she can try again');
 });
+
+// WCAG contrast of each visible element's text (or, with prop, its border) against the first opaque background under it: the ones below min.
+const lowContrast = (page, sels, min, prop = 'color') => page.evaluate(([sels, min, prop]) => {
+  const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+  const rgba = c => { ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = c; ctx.fillRect(0, 0, 1, 1); return [...ctx.getImageData(0, 0, 1, 1).data]; }; // any CSS color, color-mix too
+  const lum = c => rgba(c).slice(0, 3).map(v => (v /= 255) <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((s, v, i) => s + v * [.2126, .7152, .0722][i], 0);
+  const bg = e => { for (; e; e = e.parentElement) { const c = getComputedStyle(e).backgroundColor; if (rgba(c)[3] > 128) return c; } return 'white'; };
+  return sels.flatMap(s => {
+    const els = [...document.querySelectorAll(s)].filter(e => e.getClientRects().length);
+    if (!els.length) return [`${s}: not shown`];
+    return els.map(e => { const [x, y] = [lum(getComputedStyle(e)[prop]), lum(bg(prop == 'color' ? e : e.parentElement))].sort((p, q) => q - p); return [s, (x + .05) / (y + .05)]; })
+      .filter(([, r]) => r < min).map(([s, r]) => `${s} ${r.toFixed(2)}`);
+  });
+}, [sels, min, prop]);
+
+test('dark mode: the system setting gives a dark lobby, call, chat and end page with readable text (#104)', async t => {
+  const dark = { colorScheme: 'dark' };
+  const c = await open(t, 'carol', null, '', dark);
+  await c.waitForFunction(() => !$('#lobby').hidden);
+  assert.strictEqual(await c.evaluate(() => getComputedStyle(document.documentElement).colorScheme), 'dark', 'form controls and scrollbars follow');
+  const [toolbar, page] = await c.evaluate(() => {
+    const x = document.createElement('canvas').getContext('2d'), hex = c => (x.fillStyle = c, x.fillStyle);
+    return [hex([...document.querySelectorAll('meta[name=theme-color]')].find(m => matchMedia(m.media || 'all').matches).content), hex(getComputedStyle(document.body).backgroundColor)];
+  });
+  assert.strictEqual(toolbar, page, 'the toolbar matches the page');
+  assert.ok(parseInt(page.slice(1, 3), 16) < 64, `a dark page: ${page}`);
+  assert.deepStrictEqual(await lowContrast(c, ['#lobby h2', '#lobbyMsg', '#lobby label', '#joinBtn'], 4.5), [], 'lobby text');
+  assert.deepStrictEqual(await lowContrast(c, ['#nameInput', '#lobby select'], 3, 'borderTopColor'), [], 'input borders');
+  const a = await join(t, 'alice', null, '', dark), b = await join(t, 'bob', null, '', dark), d = await join(t, 'dave', null, '', dark);
+  await waitFor(async () => (await connectedPeers(a)) === 2, 'three in the call');
+  await b.click('#muteUnmuteMicBtn');
+  await d.click('#addRemoveCameraBtn');
+  await waitFor(() => remoteVideoShown(a), 'dave\'s camera on alice');
+  for (const [p, msg] of [[b, 'notes: https://example.com/doc'], [d, 'hi'], [a, 'thanks']]) await chat(p, msg);
+  await waitFor(() => a.evaluate(() => document.querySelectorAll('#chatText .chatName').length == 3 && !!document.querySelector('.audioMuted')), 'three messages and bob muted');
+  await a.click('#moreBtn');
+  assert.deepStrictEqual(await lowContrast(a, ['.userName', '.callBtn', '#cancelCallBtn', '#moreMenu button', '#chatHeader', '#chatText > div', '.chatName', '#chatText a', '#chatSendBtn'], 4.5), [], 'call and chat text');
+  assert.deepStrictEqual(await lowContrast(a, ['.callBtn.on .icon', '.audioMuted'], 3), [], 'icons: on state and mute');
+  await a.evaluate(() => [...document.querySelectorAll('.videoplaceholder')].find(t => !t.querySelector('video')).style.removeProperty('--person')); // a peer whose name is not known yet
+  assert.deepStrictEqual(await lowContrast(a, ['.userPlaceholder'], 4.5), [], 'white initials on every circle');
+  assert.deepStrictEqual(await lowContrast(a, ['#chatInputText'], 3, 'borderTopColor'), [], 'chat input border');
+  await a.click('#cancelCallBtn');
+  await a.waitForURL(/endcall\.html$/, { timeout: 5000 });
+  assert.deepStrictEqual(await lowContrast(a, ['#endCard h2', '#with', '#endCard p', '#newCallBtn', '#chatNote', '.chatName', '#endChat a', '#copyChatBtn'], 4.5), [], 'end page text');
+});

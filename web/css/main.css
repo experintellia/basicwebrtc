@@ -1,4 +1,4 @@
-/* Porcelain: a light, quiet look. Every color is one of these tokens; people get theirs from personColor (chatline.js) as --person. */
+/* Porcelain: a quiet look, light or dark as the system is set. Every color is one of these tokens; people get theirs from personColor (chatline.js) as --person. */
 :root {
   --bg: #f6f6f4; /* pages */
   --stage: #ecece9; /* the call */
@@ -11,12 +11,39 @@
   --live: #2f3fce; /* on: mic, camera, screen share, focus */
   --live-tint: #eceefb;
   --leave: #b42318;
+  --ink-hover: #33363c; /* primary buttons */
+  --chip: #ffffffe6; /* name tags and status over a tile */
+  --note: #fdf3dc;
+  --scrim: #1b1d2155; /* behind a dialog */
+  --nameless: #5f6269; /* a circle before the name is known, both schemes: white initials 6:1 */
   --radius: 6px;
   --shadow: 0 8px 24px #1b1d211a;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --barBottom: max(16px, env(safe-area-inset-bottom)); /* the bar's distance from the bottom edge */
   --selfPreviewBottomOffset: 116px; /* above the bar and its device tabs */
   color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) { /* the same look at night: lighter means closer, contrast as in light (text 4.5:1, input borders 3:1) */
+  :root {
+    --bg: #18191c;
+    --stage: #111214;
+    --surface: #222327;
+    --soft: #2c2e33;
+    --hair: #3a3c42;
+    --edge: #80838b;
+    --ink: #ececea;
+    --dim: #a4a7ae;
+    --live: #8e9bff;
+    --live-tint: #2b3060;
+    --leave: #ff8b7e;
+    --ink-hover: #d4d5d2;
+    --chip: #222327e6;
+    --note: #3b3322;
+    --scrim: #0009;
+    --shadow: 0 8px 24px #0008;
+    color-scheme: dark;
+  }
 }
 
 body {
@@ -64,7 +91,7 @@ video {
 }
 
 #joinBtn:hover, #newCallBtn:hover, #chatSendBtn:hover, #copyLinkBtn:hover, .knock button:hover {
-  background: #33363c;
+  background: var(--ink-hover);
 }
 
 #copyChatBtn, .knock button + button {
@@ -200,7 +227,7 @@ video.mirror {
   height: var(--disc);
   line-height: var(--disc);
   border-radius: 50%;
-  background: var(--person, var(--dim));
+  background: var(--person, var(--nameless));
   color: #fff;
   font-size: calc(var(--disc) * .37);
   font-weight: 600;
@@ -213,7 +240,7 @@ video.mirror {
   position: absolute;
   z-index: 10;
   border-radius: 4px;
-  background: #ffffffe6;
+  background: var(--chip);
   color: var(--ink);
   font-size: 13px;
   font-weight: 600;
@@ -436,7 +463,7 @@ video.mirror {
   box-sizing: border-box;
   border-radius: 10px;
   background: var(--leave);
-  color: #fff;
+  color: var(--surface); /* white in light, dark on the lighter red in dark */
   font: 700 12px/20px var(--font);
   text-align: center;
 }
@@ -515,8 +542,15 @@ video.mirror {
   line-height: 1.35;
 }
 
-.chatName { /* color: personColor, set by chatLine */
+.chatName { /* --person: personColor, set by chatLine */
+  color: var(--person);
   font-weight: 700;
+}
+
+@media (prefers-color-scheme: dark) {
+  .chatName { /* person colors are deep, for white initials: lighter as text on a dark bubble */
+    color: color-mix(in srgb, var(--person), #fff 50%);
+  }
 }
 
 #chatInputRow {
@@ -543,7 +577,7 @@ video.mirror {
 }
 
 #shareDialog::backdrop {
-  background: #1b1d2155;
+  background: var(--scrim);
   backdrop-filter: blur(3px);
 }
 
@@ -800,7 +834,7 @@ div#centerDiv {
 #endChat #chatNote { /* the chat lives only in this tab */
   padding: 8px 10px;
   border-radius: var(--radius);
-  background: #fdf3dc;
+  background: var(--note);
   color: var(--ink);
 }
 
