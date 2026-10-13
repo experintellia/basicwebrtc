@@ -204,6 +204,53 @@ test('answers without gen (older client) are still accepted', async t => {
   await offerAnswered(a, 4000); // applied, not re-offered after 5s
 });
 
+// #59: a delayed offer and the re-offer behind it reach bob in the same tick; he must answer each in turn.
+test('back-to-back offers each get their own answer', async t => {
+  const a = await join(t, 'alice', trackPcs);
+  const b = await join(t, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  const errors = [];
+  b.on('console', m => m.text().includes('signaling error') && errors.push(m.text()));
+  await b.evaluate(() => { // hold alice's offers on bob until her 5s timeout re-offers, then hand both over at once; record bob's answers
+    const h = socket.listeners('signaling')[0];
+    let held = [];
+    socket.off('signaling', h);
+    socket.on('signaling', d => {
+      if (!held || d.signalingData?.type != 'offer') return h(d);
+      if (held.push(d) < 2) return;
+      window.__offerGens = held.map(d => d.signalingData.gen);
+      held.forEach(h); held = null;
+    });
+    const emit = socket.emit;
+    window.__answerGens = [];
+    socket.emit = function (ev, d) { if (d?.signalingData?.type == 'answer') __answerGens.push(d.signalingData.gen); return emit.apply(this, arguments); };
+  });
+  await a.evaluate(() => __raw.at(-1).restartIce()); // since #57 camera changes send no offer: an ICE restart does
+  await waitFor(() => b.evaluate(() => __answerGens.length >= 2), 'two answers', 15000);
+  assert.deepStrictEqual(await b.evaluate(() => __answerGens.slice(0, 2)), await b.evaluate(() => __offerGens), 'one answer per offer, same gen'); // later offers may follow
+  assert.deepStrictEqual(errors, []);
+  await a.click('#addRemoveCameraBtn'); // media still flows after both answers
+  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
+});
+
+// #88 holds the initiator's candidates only on renegotiation: on the first offer the answerer gets them at once,
+// so behind a NAT or firewall it opens its pinhole towards the initiator before its answer is even back.
+test('first connect: the answerer checks the initiator\'s candidates before its answer arrives', async t => {
+  const a = await join(t, 'alice', trackPcs); // already in the room -> initiator
+  await a.evaluate(() => { // alice gets no answer until __release()
+    const h = socket.listeners('signaling')[0];
+    let held = [];
+    socket.off('signaling');
+    socket.on('signaling', d => d.signalingData?.type == 'answer' && held ? held.push(d) : h(d));
+    window.__release = () => { held.splice(0).forEach(h); held = null; };
+  });
+  const b = await join(t, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'bob ICE up');
+  assert.strictEqual(await a.evaluate(() => __raw.at(-1).signalingState), 'have-local-offer', 'alice has no answer yet');
+  await a.evaluate(() => __release());
+  for (const p of [a, b]) await waitFor(async () => (await connectedPeers(p)) === 1 && (await liveRemoteAudio(p)) === 1, 'ICE and audio');
+});
+
 // #6: bob's socket reconnects; alice's old pc still sends an offer to bob before alice rebuilds it.
 test('stale offer from the old connection after a fast reconnect', async t => {
   const [a, b] = await call(t);
@@ -463,6 +510,15 @@ test('network switch: ICE and socket lost together, the call comes back', async 
   for (const p of [a, b]) await waitFor(() => callUp(p), 'call up again', 30000);
 });
 
+test('ICE down: fresh ICE servers are fetched and set on the connection for its restart (#28)', async t => {
+  const spy = () => { const s = RTCPeerConnection.prototype.setConfiguration; window.__configs = []; RTCPeerConnection.prototype.setConfiguration = function (c) { __configs.push(c); return s.call(this, c); }; };
+  const [a] = await call(t, spy);
+  assert.strictEqual(await a.evaluate(() => __configs.length), 0);
+  await a.evaluate(() => { window.__old = webRTCConfig.iceServers; Object.values(pcs)[0].emitEvent('icestate', 'disconnected'); }); // as when the path drops
+  await waitFor(() => a.evaluate(() => __configs.length), 'ICE servers set');
+  assert.ok(await a.evaluate(() => __configs[0].iceServers === webRTCConfig.iceServers && __configs[0].iceServers !== __old), 'the ones just sent by the server, not the cached ones');
+});
+
 test('rejoining peer that still has the call gets a reset when the other side rebuilds', async t => {
   const [a, b] = await call(t);
   for (const p of [a, b]) await p.evaluate(() => window.__pc = Object.values(pcs)[0]);
@@ -470,6 +526,31 @@ test('rejoining peer that still has the call gets a reset when the other side re
   await a.evaluate(() => __pc.mappedEvents.close = []); // no close event reaches alice either
   await a.evaluate(() => socket.io.engine.close()); // alice rejoins, keeping bob
   for (const p of [a, b]) await waitFor(async () => (await p.evaluate(() => Object.values(pcs)[0] !== __pc)) && (await callUp(p)), 'new call on both sides');
+});
+
+// Bob's rebuild closes the old connection; that close reaches alice over P2P before his reset comes via the server.
+test('a rebuild by the other side does not make the rejoining peer rebuild too', async t => {
+  const [a, b] = await call(t);
+  for (const p of [a, b]) await p.evaluate(() => window.__pc = Object.values(pcs)[0]);
+  await a.evaluate(() => socket.disconnect());
+  await waitFor(() => b.evaluate(() => __pc.left), 'bob saw alice leave');
+  await b.evaluate(() => __pc.iceUp = () => false); // bob's side of the call is dead, alice's looks fine
+  await b.evaluate(() => { const e = socket.emit.bind(socket); socket.emit = (n, ...a) => n == 'signaling' ? setTimeout(() => e(n, ...a), 150) : e(n, ...a); }); // server 150ms farther than alice
+  await a.evaluate(() => socket.connect()); // alice rejoins, keeping bob
+  for (const p of [a, b]) await waitFor(async () => (await p.evaluate(() => Object.values(pcs)[0] !== __pc)) && (await callUp(p)), 'new call on both sides', 20000);
+});
+
+// #58: a long outage makes SCTP give up and close the data channel while both sockets stay up.
+test('data channel closed while both peers stay on the server: the call is rebuilt', async t => {
+  const trackDcs = () => { const c = RTCPeerConnection.prototype.createDataChannel; window.__dcs = []; RTCPeerConnection.prototype.createDataChannel = function (...a) { const d = c.apply(this, a); __dcs.push(d); return d; }; };
+  const [a, b] = await call(t, null, trackDcs);
+  await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
+  for (const p of [a, b]) await p.evaluate(() => { window.__pc = Object.values(pcs)[0]; __pc.iceUp = () => false; }); // the outage has ICE down too
+  await b.evaluate(() => __dcs[0].close()); // "close" on both sides
+  for (const p of [a, b]) {
+    await waitFor(async () => (await p.evaluate(() => { const pc = Object.values(pcs)[0]; return pc !== __pc && pc?.send({}); })) && (await callUp(p)), 'new call with an open data channel', 30000);
+    assert.strictEqual(await p.locator('#mediaDiv .videoplaceholder').count(), 2, 'peer tile back');
+  }
 });
 
 test('signaling uses the socket while it is up, even if the data channel reads open', async t => {
@@ -740,6 +821,22 @@ test('late answer does not cancel an ICE restart', { skip: !canDropUdp && 'needs
   for (const p of [a, b]) await waitFor(async () => (await iceUp(p)) && (await liveRemoteAudio(p)) === 1, 'ICE and audio back', 45000);
 });
 
+// #4: only bob's connectivity checks get lost; alice's checks and bob's replies pass, so only bob's ICE fails.
+// The drop matches bob's current port only: an ICE restart gathers new ports and gets through.
+test('call recovers when only the answerer sees ICE fail', { skip: !canDropUdp && 'needs root + iptables' }, async t => {
+  const [a, b] = await call(t, trackPcs, trackPcs);
+  const port = await b.evaluate(async () => { // bob's end of the candidate pair in use
+    const stats = await __raw[0].getStats(), transport = [...stats.values()].find(x => x.type == 'transport');
+    return stats.get(stats.get(transport.selectedCandidatePairId).localCandidateId).port;
+  });
+  await withoutUdp(async () => {
+    await waitFor(() => b.evaluate(() => !Object.values(pcs)[0].iceUp()), 'bob\'s ICE down', 20000);
+    assert.ok(await a.evaluate(() => Object.values(pcs)[0].iceUp()), 'alice\'s ICE still up');
+    for (const p of [a, b]) await waitFor(() => callUp(p), 'call up again', 45000);
+  }, `OUTPUT -p udp --sport ${port} -m u32 --u32 "0>>22&0x3C@8>>16=0x1"`); // bob's STUN binding requests only
+  for (const p of [a, b]) assert.strictEqual(await p.evaluate(() => __raw.length), 1, 'same connection, not rebuilt');
+});
+
 test('three peers: one pair loses ICE, it comes back, the others are not disturbed', { skip: !canDropUdp && 'needs root + iptables' }, async t => {
   const [a, b] = await call(t, trackPcs, trackPcs);
   const c = await join(t, 'carol', trackPcs);
@@ -806,8 +903,10 @@ test('URL params: missing room gets a fresh one; "+", "=" and a stray % stay as 
   const a = await (await context(t)).newPage();
   await a.goto(`${BASE}#username=bob`); // no roomname: a fresh room, old params dropped
   assert.match(await a.evaluate(() => location.hash), /^#roomname=r\d+$/);
+  assert.strictEqual(await a.locator('#intro').isVisible(), true, 'a fresh visit says what this is');
   await a.goto(`${BASE}#roomname=a+b=100%`); // hash-only: the page reloads itself
   await waitFor(() => a.evaluate(() => roomname == 'a+b=100%').catch(() => false), 'room a+b=100%');
+  assert.strictEqual(await a.locator('#intro').isVisible(), false, 'invited: straight to the join form');
 });
 
 test('a room link pasted into an open tab goes to that room', async t => {
@@ -981,6 +1080,32 @@ test('rapid camera/screen clicks leave no live stream behind', async t => {
   assert.strictEqual(await liveVideoLeft(a), 0, 'camera during screen picker');
 });
 
+test('camera off and on while a camera switch is pending: one live camera, the one sent (#84)', async t => {
+  const a = await join(t, 'alice', `(${trackPcs})(); (${() => { // records every track handed out; a getUserMedia called while __hold is set waits for __go()
+    const md = navigator.mediaDevices, gum = md.getUserMedia.bind(md);
+    window.__streams = [];
+    md.getUserMedia = async c => { await window.__hold; const s = await gum(c); __streams.push(new MediaStream(s.getTracks())); return s; }; // a copy: the page adds tracks to its streams
+  }})();`);
+  const b = await join(t, 'bob');
+  await waitFor(async () => (await connectedPeers(a)) === 1, 'ICE connected');
+  await a.click('#addRemoveCameraBtn');
+  for (const fail of [true, false]) { // the switch fails (first: it picks the second camera, not the picker's fallback), or gets a camera
+    await waitFor(() => a.evaluate(() => camActive && $('#cameraSelect').options.length > 1), 'camera on, picker filled');
+    const other = await a.evaluate(() => [...$('#cameraSelect').options].find(o => o.value != selectedCameraId).value);
+    await a.evaluate(([o, fail]) => { // only the switch's getUserMedia waits
+      window.__hold = new Promise((ok, no) => window.__go = () => fail ? no(new DOMException('busy', 'NotReadableError')) : ok());
+      pick('#cameraSelect', o);
+      __hold = null;
+    }, [other, fail]);
+    await a.click('#addRemoveCameraBtn'); await a.click('#addRemoveCameraBtn'); // off and on again meanwhile
+    await waitFor(() => a.evaluate(() => camActive), 'camera on again');
+    await a.evaluate(() => __go());
+    await waitFor(() => a.evaluate(() => !$('#cameraSelect').disabled), 'switch done');
+    assert.strictEqual(await liveVideoLeft(a), 1, `one live camera (switch ${fail ? 'failed' : 'got one'})`);
+    assert.ok(await a.evaluate(o => { const t = allUserStreams[MY_UUID].videostream.getVideoTracks()[0]; return t.getSettings().deviceId == o && __raw.at(-1).getSenders().some(s => s.track?.id == t.id) && selectedCameraId == o; }, other), 'the slot sends the camera turned on, still picked');
+  }
+});
+
 test('cancelling the screen picker keeps the camera', async t => {
   const a = await join(t, 'alice', () => { navigator.mediaDevices.getDisplayMedia = () => Promise.reject(new DOMException('cancelled', 'NotAllowedError')); });
   await a.click('#addRemoveCameraBtn');
@@ -1034,6 +1159,24 @@ test('remote mute icon survives re-layout and is shown to late-joining peers', a
   }
   await b.evaluate(() => updateUserLayout()); // any later re-layout keeps it
   assert.ok(await b.evaluate(id => !!allUserStreams[id]?.tile?.querySelector('.audioMuted'), aId), 'still muted after re-layout');
+});
+
+test('mute icon on the own tile; unmuting in silence clears it for peers (#83)', async t => {
+  const silentMic = () => { const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); navigator.mediaDevices.getUserMedia = c => c.audio ? Promise.resolve(new AudioContext().createMediaStreamDestination().stream) : gum(c); };
+  const a = await join(t, 'alice', silentMic); // the meter never sees a level change
+  const b = await join(t, 'bob');
+  await waitFor(() => b.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('AL')), 'alice\'s tile on bob');
+  const aId = await a.evaluate(() => MY_UUID);
+  const muted = p => p.evaluate(id => !!allUserStreams[id].tile.querySelector('.audioMuted'), aId);
+  const border = () => a.evaluate(() => allUserStreams[MY_UUID].tile.querySelector('.userPlaceholder').style.border);
+  await a.evaluate(() => setAudioLevel(MY_UUID, 2)); // speaking when the mute is clicked
+  await a.click('#muteUnmuteMicBtn');
+  await waitFor(() => muted(b), 'mute icon on bob');
+  assert.ok(await muted(a), 'own tile shows the mute icon');
+  assert.strictEqual(await border(), '2px solid rgba(255, 255, 255, 0)', 'not lit as speaking while muted');
+  await a.click('#muteUnmuteMicBtn');
+  await waitFor(async () => !(await muted(b)), 'mute icon gone on bob');
+  assert.ok(!(await muted(a)), 'own tile unmuted');
 });
 
 test('layout skipped in fullscreen is redone on exit', async t => {
@@ -1343,4 +1486,18 @@ test('knock banners work for any knocker UUID, also one that spells an element i
   await a.evaluate(() => socket.listeners('knockDone')[0]('s'));
   assert.deepStrictEqual(await a.locator('.knock').allTextContents(), ['x wants to joinLet inDeny']);
   assert.deepStrictEqual(await a.evaluate(() => Object.keys(knockRows)), ['x'], 'answered knocks are forgotten: knock-and-leave loops do not grow the map');
+});
+
+test('a full room tells the next one so in the lobby (#29)', async t => {
+  const e = await open(t, 'eve');
+  await e.evaluate(async () => { // four others take the seats
+    for (let i = 0; i < 4; i++) {
+      const s = io({ forceNew: true });
+      await s.emitWithAck('registerUUID', { UUID: crypto.randomUUID(), UUID_KEY: 'k' });
+      await s.emitWithAck('joinRoom', { roomname });
+    }
+  });
+  await e.click('#joinBtn');
+  await waitFor(async () => /full/.test(await e.textContent('#lobbyMsg')), 'eve told the room is full');
+  assert.ok(await e.isEnabled('#joinBtn'), 'she can try again');
 });

@@ -19,7 +19,10 @@ const roomFromUrl = () => {
   try { return raw && decodeURIComponent(raw) } catch { return raw } // a stray "%" (e.g. "100%") stays raw
 };
 const roomname = roomFromUrl() || "r" + Math.random().toString().replace(".", "");
-if (!roomFromUrl()) history.replaceState(null, "", "#roomname=" + roomname); // no hashchange: no reload
+if (!roomFromUrl()) { // a fresh visit, not an invite: say what this is
+  history.replaceState(null, "", "#roomname=" + roomname); // no hashchange: no reload
+  $("#intro").hidden = false;
+}
 addEventListener("hashchange", () => roomFromUrl() && roomFromUrl() != roomname && location.reload()); // a pasted link to another room changes only the hash
 // Per tab only: survives reloads and other rooms, never shared with other tabs or later visits.
 const stored = k => { try { return sessionStorage[k] } catch { } }; // throws when storage is blocked
@@ -86,8 +89,9 @@ function showMsg(name, msg) {
   }
 }
 
-socket.on("currentIceServers", function (newIceServers) {
+socket.on("currentIceServers", function (newIceServers) { // on every join in our room and when asked: TURN credentials last 1h (#28)
   webRTCConfig["iceServers"] = newIceServers;
+  for (const id in pcs) pcs[id].setIceServers(newIceServers); // for their next ICE restart
 })
 
 socket.on("signaling", function (data) {
@@ -120,11 +124,8 @@ function setAudioLevel(UUID, level) {
   const tile = allUserStreams[UUID]?.tile;
   if (!tile) return;
   tile.querySelector(".audioMuted")?.remove();
-  if (level < 0) { //Muted
-    tile.insertAdjacentHTML("beforeend", '<div class="audioMuted">' + icon("microphone-alt-slash") + '</div>');
-  } else {
-    tile.querySelector(".userPlaceholder").style.border = "2px solid rgb(255 255 255 / " + level * 50 + "%)";
-  }
+  tile.querySelector(".userPlaceholder").style.border = "2px solid rgb(255 255 255 / " + Math.max(level, 0) * 50 + "%)"; // muted: not speaking
+  if (level < 0) tile.insertAdjacentHTML("beforeend", '<div class="audioMuted">' + icon("microphone-alt-slash") + '</div>');
 }
 
 // Peer left the server: keep the call while ICE is up, drop it once ICE goes down (crash, lost network).
@@ -247,8 +248,9 @@ $("#muteUnmuteMicBtn").onclick = function () {
   this.innerHTML = icon(micMuted ? "microphone-alt-slash" : "microphone-alt");
   if (allUserStreams[MY_UUID] && allUserStreams[MY_UUID]["audiostream"]) {
     allUserStreams[MY_UUID]["audiostream"].getAudioTracks()[0].enabled = !micMuted;
-    if (micMuted) sendToPeers({ audioLvl: -1 });
   }
+  const l = micMuted ? -1 : 0; // the meter sends only changes: unmuted in silence it would send nothing
+  sendToPeers({ audioLvl: l }); setAudioLevel(MY_UUID, l);
 }
 
 $("#addRemoveChatBtn").onclick = function () {
@@ -319,7 +321,7 @@ $("#cameraSelect").onchange = async function () {
   oldTrack.stop(); //Stop first, many phones can't open two cameras at once
   try {
     var newTrack = (await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: selectedCameraId } } })).getVideoTracks()[0];
-    if (!camActive) return newTrack.stop(); //camera was turned off meanwhile
+    if (allUserStreams[MY_UUID].videostream !== stream) return newTrack.stop(); //camera turned off (and on again) or replaced by a screen share meanwhile
     newTrack.onended = oldTrack.onended;
     store("camera", selectedCameraId);
     for (var i in pcs) pcs[i].setVideo(newTrack);
@@ -329,8 +331,8 @@ $("#cameraSelect").onchange = async function () {
   } catch (error) {
     alert("Could not switch camera!")
     console.log('getUserMedia error! Got this error: ', error);
-    selectedCameraId = null;
-    if (camActive) stopVideo(); //Turn the dead camera off (not via toggleCamera: its busy guard could skip it; skip if turned off or replaced by a screen share meanwhile)
+    if (allUserStreams[MY_UUID].videostream === stream) stopVideo(); //Turn the dead camera off (not via toggleCamera: its busy guard could skip it; skip if turned off, on again or replaced by a screen share meanwhile)
+    if (!camActive) selectedCameraId = null; //A camera turned on again meanwhile keeps its pick
     updateDeviceLists();
   } finally {
     this.disabled = false;
@@ -451,13 +453,16 @@ function createRemoteSocket(initiator, UUID) {
   updateUserLayout();
   pc.on("icestate", function (state) {
     if (pcs[UUID] !== pc) return; // already removed
+    if (["disconnected", "failed"].includes(state)) socket.emit("getIceServers"); // fresh TURN credentials before the ICE restart (#28)
     // Gone from the server and from ICE. ponytail: a short ICE blip while the peer is off the server also drops it; accepted for fast crash cleanup.
     if (pc.left && !pc.iceUp()) return removePeer(UUID);
     pc.timedOut ||= ["disconnected", "failed"].includes(state); // checks timed out (Chromium: "disconnected" after ~15s); kept through the restart's "checking"
     const relay = webRTCConfig["iceServers"]?.some(s => [].concat(s.urls).some(u => /^turns?:/.test(u)));
     setStatus(UUID, ["connected", "completed"].includes(state) ? "" : pc.isConnected ? "reconnecting…" : pc.timedOut && !relay ? "no relay configured: some networks can't connect" : "connecting…");
   });
-  pc.on("close", () => pcs[UUID] === pc && removePeer(UUID)); // peer left (or closed its connection)
+  // Off the server, or ICE still up (the peer closed it on purpose; its bye/reset/offer follows): gone.
+  // Else SCTP gave up in a long outage (#58), so the initiator rebuilds; its reset replaces the answerer's pc.
+  pc.on("close", () => pcs[UUID] === pc && (pc.left || pc.iceUp() ? removePeer(UUID) : initiator && createRemoteSocket(true, UUID)));
   pc.on("open", () => pc.send({ username: username, audioLvl: micMuted ? -1 : 0, video: !!allUserStreams[MY_UUID]["videostream"] }));
   pc.on("message", function (msg) { // from the peer: untrusted
     if (typeof msg.username == "string") {
@@ -573,7 +578,7 @@ var retryJoin = null; // at a locked room's door: joins again once let in
 function joinRoom(onJoined) {
   const lock = !$("#closedLabel").hidden && $("#closedInput").checked; // only a pick on screen: Firefox restores a hidden tick on reload
   socket.emit("joinRoom", { roomname, keep: Object.keys(pcs), name: username, knockId, lock }, function (res) {
-    if (!Array.isArray(res)) return retryJoin = () => joinRoom(onJoined), atTheDoor(res.wait);
+    if (!Array.isArray(res)) return retryJoin = () => joinRoom(onJoined), atTheDoor(res.wait, res.full);
     callStart ||= performance.now(); // not Date.now(): a clock set back mid-call would give a negative duration
     showLobby(false);
     if (lock && res.length) showMsg("", "Someone was in first: the room is open. Use Lock room to close it.");
@@ -585,7 +590,7 @@ function joinRoom(onJoined) {
 }
 
 var doorTimer;
-function atTheDoor(wait) { // locked room: back to the lobby until a member lets us in
+function atTheDoor(wait, full) { // locked room: back to the lobby until a member lets us in; full room: until a retry finds a seat
   setStatus(MY_UUID, "");
   showLobby(true);
   $("#closedLabel").hidden = true; // a locked room is not ours to open or close
@@ -595,8 +600,8 @@ function atTheDoor(wait) { // locked room: back to the lobby until a member lets
     $("#joinBtn").disabled = wait > 0;
     $("#lobbyMsg").textContent = wait ? `You were not let in. You can ask again in ${wait--}s.` : (clearInterval(doorTimer), "You were not let in. You can ask again.");
   };
-  $("#joinBtn").disabled = true;
-  $("#lobbyMsg").textContent = "The room is locked. Waiting for someone in the call to let you in…";
+  $("#joinBtn").disabled = !full;
+  $("#lobbyMsg").textContent = full ? "The room is full. You can try again later." : "The room is locked. Waiting for someone in the call to let you in…";
   if (wait) tick(), doorTimer = setInterval(tick, 1000);
   $("#lobby").onsubmit = e => {
     e.preventDefault();

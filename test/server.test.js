@@ -67,9 +67,10 @@ test('stale socket disconnect does not unregister the reconnected socket', async
 });
 
 test('ICE servers: legacy "url" becomes "urls", TURN gets HMAC credentials', async () => {
-  const c = io(URL, { transports: ['websocket'], reconnection: false });
-  clients.push(c);
-  const [stun, turn] = await nextEvent(c, 'currentIceServers');
+  const cl = await client('IS1');
+  const got = nextEvent(cl.c, 'currentIceServers');
+  await join(cl, 'room-is');
+  const [stun, turn] = await got;
   assert.deepStrictEqual(stun, { urls: 'stun:legacy.example:3478' });
   assert.strictEqual(turn.urls, 'turn:turn.example:3478');
   assert.ok(!('turnServerCredential' in turn), 'secret must not leak');
@@ -77,6 +78,51 @@ test('ICE servers: legacy "url" becomes "urls", TURN gets HMAC credentials', asy
   assert.strictEqual(name, 'bob');
   assert.ok(+expiry > Date.now() / 1000, 'expiry in the future');
   assert.strictEqual(turn.credential, crypto.createHmac('sha1', 's3cret').update(turn.username).digest('base64'));
+});
+
+test('ICE servers and TURN credentials go to room members only (#61)', async () => {
+  const c = io(URL, { transports: ['websocket'], reconnection: false });
+  clients.push(c);
+  const seen = [];
+  c.onAny(ev => seen.push(ev)); // from before the connect
+  await new Promise(r => c.on('connect', r));
+  const k = { c, uuid: 'IM1', key: 'k' };
+  await sync(k); // registered
+  c.emit('getIceServers');
+  const m = await client('IM2'), got = nextEvent(m.c, 'currentIceServers');
+  await ack(m, 'joinRoom', { roomname: 'room-im', lock: true });
+  await got; // a member gets them
+  assert.deepStrictEqual(await ack(k, 'joinRoom', { roomname: 'room-im' }), { wait: 0 }, 'knocking');
+  c.emit('getIceServers');
+  await sync(k);
+  assert.deepStrictEqual(seen, [], 'nothing on connect, register, knock or asking');
+});
+
+test('fresh TURN credentials, valid 1h: on each join, to members before userJoined, and when asked (#28)', async () => {
+  const a = await client('IF1'), b = await client('IF2');
+  const now = Date.now, t0 = now();
+  let t = t0;
+  Date.now = () => t; // the clients read it too (socket.io-client 4.8 holds back emits once a ping looks overdue):
+  // move it only after an emit, the server handles the packet on a later tick, and back before the next emit
+  const expiry = async ev => +(await ev)[1].username.split(':')[0];
+  const fresh = () => Math.floor(t / 1000) + 3600;
+  try {
+    const first = nextEvent(a.c, 'currentIceServers');
+    await join(a, 'room-if');
+    assert.strictEqual(await expiry(first), fresh());
+    const seen = [], again = nextEvent(a.c, 'currentIceServers'), joined = nextEvent(a.c, 'userJoined');
+    a.c.onAny(ev => seen.push(ev));
+    b.c.emit('joinRoom', { roomname: 'room-if' });
+    t = t0 + 2 * 3600e3; // two hours into the call, b joins
+    await joined;
+    assert.deepStrictEqual(seen, ['currentIceServers', 'userJoined'], 'before the new peer connection is made');
+    assert.strictEqual(await expiry(again), fresh());
+    t = t0;
+    const asked = nextEvent(a.c, 'currentIceServers');
+    a.c.emit('getIceServers');
+    t = t0 + 4 * 3600e3; // an ICE restart later on
+    assert.strictEqual(await expiry(asked), fresh());
+  } finally { Date.now = now; }
 });
 
 test('room members get userJoined / userDiscconected', async () => {
@@ -431,6 +477,50 @@ test('a dropped UUID stays its owner\'s for the grace time, counted from its las
 test('server pings every 10s and drops a silent socket after 10s more', async () => {
   const { c } = await client('PG1');
   assert.ok(c.io.engine.pingInterval + c.io.engine.pingTimeout <= 20000);
+});
+
+// #29: a room holds 4. A seat is a tab (knockId): a reconnect or reload takes its own seat back.
+test('a room holds 4: the 5th is turned away and the members see nothing of it', async () => {
+  const m = [];
+  for (let i = 1; i <= 4; i++) { m.push(await client('CAP' + i)); assert.ok(Array.isArray(await ack(m.at(-1), 'joinRoom', { roomname: 'room-cap' }))); }
+  await sync(m[0]); // its userJoined events are in
+  const noJoin = quiet(m[0].c, 'userJoined');
+  assert.deepStrictEqual(await ack(await client('CAP5'), 'joinRoom', { roomname: 'room-cap' }), { full: true });
+  await noJoin;
+});
+
+test('a member of a full room keeps its seat: back with the same UUID or tab, counted once', async () => {
+  const m = [];
+  for (let i = 1; i <= 4; i++) { m.push(await client('CS' + i)); await ack(m.at(-1), 'joinRoom', { roomname: 'room-cs', knockId: 'tab-cs' + i }); }
+  const d2 = await client('CS4'); // reconnects before the server noticed the old socket died
+  assert.ok(Array.isArray(await ack(d2, 'joinRoom', { roomname: 'room-cs', knockId: 'tab-cs4' })), 'not counted twice');
+  m[3].c.close(); d2.c.close();
+  await sleep(100);
+  const e = await client('CS5');
+  assert.deepStrictEqual(await ack(e, 'joinRoom', { roomname: 'room-cs' }), { full: true }, 'seat kept for the grace time');
+  const reloaded = await client('CS4-reloaded'); // a reload: new UUID, same tab
+  assert.deepStrictEqual(await ack(reloaded, 'joinRoom', { roomname: 'room-cs', knockId: 'tab-cs4' }), ['CS1', 'CS2', 'CS3']);
+  reloaded.c.close();
+  await sleep(400); // past the grace time (300ms here)
+  assert.ok(Array.isArray(await ack(e, 'joinRoom', { roomname: 'room-cs' })), 'a seat left for good is free again');
+});
+
+test('a full locked room takes no knocks, and one let in meanwhile is still turned away', async () => {
+  const m = [];
+  for (let i = 1; i <= 3; i++) { m.push(await client('CL' + i)); await join(m.at(-1), 'room-cl'); }
+  m[0].c.emit('setLocked', true);
+  await sync(m[0]);
+  const k1 = await client('CL4'), k2 = await client('CL5');
+  for (const k of [k1, k2]) assert.deepStrictEqual(await ack(k, 'joinRoom', { roomname: 'room-cl' }), { wait: 0 });
+  m[0].c.emit('answerKnock', { UUID: 'CL4', accept: true });
+  m[0].c.emit('answerKnock', { UUID: 'CL5', accept: true });
+  await sync(m[0]);
+  assert.ok(Array.isArray(await ack(k1, 'joinRoom', { roomname: 'room-cl' })), 'the 4th gets in');
+  await sync(m[0]);
+  const noJoin = quiet(m[0].c, 'userJoined'), noKnock = quiet(m[0].c, 'knock');
+  assert.deepStrictEqual(await ack(k2, 'joinRoom', { roomname: 'room-cl' }), { full: true }, 'let in, but the room filled up');
+  assert.deepStrictEqual(await ack(await client('CL6'), 'joinRoom', { roomname: 'room-cl' }), { full: true }, 'no knock at a full room');
+  await noJoin; await noKnock;
 });
 
 test('static files: served with their type, nothing outside web/', async () => {

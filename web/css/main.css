@@ -263,7 +263,7 @@ video {
   color: #a9a9ff;
 }
 
-#chatText a {
+#chatText a, #intro a {
   color: #9cf;
 }
 
@@ -585,6 +585,26 @@ video.mirror {
   color: #fff;
 }
 
+#intro ul {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+#intro li {
+  display: flex;
+  gap: 10px;
+}
+
+#intro li .icon {
+  flex: none;
+  width: 1.2em;
+  height: 1.2em;
+  color: #4caf50;
+}
+
 #lobbyPreview {
   aspect-ratio: 16 / 9;
   border-radius: 8px;
@@ -637,7 +657,7 @@ video.mirror {
   height: 8px;
 }
 
-#lobbyMsg, #endCard p, #endChat p {
+#lobbyMsg, #intro p, #endCard p, #endChat p {
   margin: 0;
   color: #aaa;
 }
