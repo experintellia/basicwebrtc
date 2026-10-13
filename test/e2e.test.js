@@ -1089,6 +1089,32 @@ test('one look: the call bar has labels, the page and its panels share one font'
   assert.strictEqual(new Set(fonts).size, 1, fonts.join(' | '));
 });
 
+test('keyboard: Tab walks the call bar in order, Enter and Space press, focus shows, on/off is announced', async t => {
+  const a = await join(t, 'alice');
+  await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'camera picker shown (2 fake cams)');
+  const seen = [];
+  for (let i = 0; i < 20; i++) { await a.keyboard.press('Tab'); seen.push(await a.evaluate(() => document.activeElement.id)); }
+  const bar = await a.evaluate(() => [...document.querySelectorAll('#mediaControll .callBtn, #mediaControll select')].filter(e => e.offsetParent).map(e => e.id));
+  assert.deepStrictEqual(seen.filter(id => bar.includes(id)).slice(0, bar.length), bar, 'every cell and device tab, in order');
+  const ring = sel => a.$eval(sel, e => { const s = getComputedStyle(e); return [s.outlineStyle, s.outlineWidth, s.outlineColor].join(' ') == 'solid 2px rgb(47, 63, 206)'; }); // --live
+  await a.focus('#cameraSelect'); await a.keyboard.press('Shift+Tab'); // keyboard focus on the camera button
+  assert.ok(await ring('#addRemoveCameraBtn'), 'focused cell: a 2px --live ring');
+  await a.keyboard.press('Tab');
+  assert.ok(await ring('#selectCameraBtn'), 'focused device tab: the same ring');
+  const pressed = name => a.getByRole('button', { name, exact: true, pressed: true }).count();
+  assert.deepStrictEqual([await pressed('Mic'), await pressed('Camera'), await pressed('Screen')], [1, 0, 0], 'mic on, camera and screen off');
+  await a.focus('#muteUnmuteMicBtn'); await a.keyboard.press('Space');
+  assert.strictEqual(await a.evaluate(() => micMuted), true, 'Space mutes');
+  assert.strictEqual(await pressed('Mic'), 0, 'muted mic is announced as off');
+  await a.focus('#addRemoveCameraBtn'); await a.keyboard.press('Enter');
+  await waitFor(() => a.evaluate(() => camActive), 'Enter turns the camera on');
+  assert.strictEqual(await pressed('Camera'), 1, 'camera announced as on');
+  await a.mouse.click(5, 5); await a.click('#muteUnmuteMicBtn');
+  assert.strictEqual(await ring('#muteUnmuteMicBtn'), false, 'no ring for mouse clicks');
+  await a.click('#cameraSelect'); await a.keyboard.press('Escape'); // Chromium: a select clicked with the mouse matches :focus-visible
+  assert.strictEqual(await ring('#selectCameraBtn'), false, 'nor for a device tab clicked with the mouse');
+});
+
 test('person colours: a peer\'s circle and chat name share one colour', async t => {
   const [a, b] = await call(t);
   await chat(b, 'hi');
@@ -1337,7 +1363,7 @@ test('unplugged camera turns the camera off', async t => {
   await a.click('#addRemoveCameraBtn');
   await waitFor(() => a.evaluate(() => camActive), 'camera on');
   await a.evaluate(() => allUserStreams[MY_UUID].videostream.getVideoTracks()[0].dispatchEvent(new Event('ended')));
-  assert.deepStrictEqual(await a.evaluate(() => [camActive, !!allUserStreams[MY_UUID].videostream, $('#addRemoveCameraBtn').classList.contains('on')]), [false, false, false]); // the button no longer reads as on
+  assert.deepStrictEqual(await a.evaluate(() => [camActive, !!allUserStreams[MY_UUID].videostream, $('#addRemoveCameraBtn').getAttribute('aria-pressed') == 'true']), [false, false, false]); // the button no longer reads as on
 });
 
 test('hang up releases mic, camera and socket right away, once', async t => {
