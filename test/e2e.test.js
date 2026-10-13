@@ -1695,3 +1695,18 @@ test('knock banners work for any knocker UUID, also one that spells an element i
   assert.deepStrictEqual(await a.evaluate(() => Object.keys(knockRows)), ['x'], 'answered knocks are forgotten: knock-and-leave loops do not grow the map');
   await a.context().close();
 });
+
+test('a full room tells the next one so in the lobby (#29)', async () => {
+  const e = await open('r' + Date.now(), 'eve');
+  await e.evaluate(async () => { // four others take the seats
+    for (let i = 0; i < 4; i++) {
+      const s = io({ forceNew: true });
+      await s.emitWithAck('registerUUID', { UUID: crypto.randomUUID(), UUID_KEY: 'k' });
+      await s.emitWithAck('joinRoom', { roomname });
+    }
+  });
+  await e.click('#joinBtn');
+  await waitFor(async () => /full/.test(await e.textContent('#lobbyMsg')), 'eve told the room is full');
+  assert.ok(await e.isEnabled('#joinBtn'), 'she can try again');
+  await e.context().close();
+});

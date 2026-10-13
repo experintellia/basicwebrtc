@@ -578,7 +578,7 @@ var retryJoin = null; // at a locked room's door: joins again once let in
 function joinRoom(onJoined) {
   const lock = !$("#closedLabel").hidden && $("#closedInput").checked; // only a pick on screen: Firefox restores a hidden tick on reload
   socket.emit("joinRoom", { roomname, keep: Object.keys(pcs), name: username, knockId, lock }, function (res) {
-    if (!Array.isArray(res)) return retryJoin = () => joinRoom(onJoined), atTheDoor(res.wait);
+    if (!Array.isArray(res)) return retryJoin = () => joinRoom(onJoined), atTheDoor(res.wait, res.full);
     callStart ||= performance.now(); // not Date.now(): a clock set back mid-call would give a negative duration
     showLobby(false);
     if (lock && res.length) showMsg("", "Someone was in first: the room is open. Use Lock room to close it.");
@@ -590,7 +590,7 @@ function joinRoom(onJoined) {
 }
 
 var doorTimer;
-function atTheDoor(wait) { // locked room: back to the lobby until a member lets us in
+function atTheDoor(wait, full) { // locked room: back to the lobby until a member lets us in; full room: until a retry finds a seat
   setStatus(MY_UUID, "");
   showLobby(true);
   $("#closedLabel").hidden = true; // a locked room is not ours to open or close
@@ -600,8 +600,8 @@ function atTheDoor(wait) { // locked room: back to the lobby until a member lets
     $("#joinBtn").disabled = wait > 0;
     $("#lobbyMsg").textContent = wait ? `You were not let in. You can ask again in ${wait--}s.` : (clearInterval(doorTimer), "You were not let in. You can ask again.");
   };
-  $("#joinBtn").disabled = true;
-  $("#lobbyMsg").textContent = "The room is locked. Waiting for someone in the call to let you in…";
+  $("#joinBtn").disabled = !full;
+  $("#lobbyMsg").textContent = full ? "The room is full. You can try again later." : "The room is locked. Waiting for someone in the call to let you in…";
   if (wait) tick(), doorTimer = setInterval(tick, 1000);
   $("#lobby").onsubmit = e => {
     e.preventDefault();
