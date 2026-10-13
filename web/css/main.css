@@ -125,14 +125,21 @@ video {
 }
 
 .videoplaceholder {
-  --disc: min(150px, 65cqmin); /* the circle, smaller in short tiles; the mute badge and status sit around it */
+  --disc: min(150px, 30vmin); /* the circle; the mute badge and status sit around it. Browsers without container units (Safari < 16) size it by the window */
   container-type: size;
   position: relative;
   width: calc(100% / var(--cols));
   height: calc(100% / var(--rows));
 }
 
+@supports (width: 1cqmin) {
+  .videoplaceholder {
+    --disc: min(150px, 65cqmin); /* smaller in short tiles */
+  }
+}
+
 .videoplaceholder.selfPreview { /* own tile in a 1:1 call, over the other one */
+  --gap: var(--surface);
   position: absolute;
   left: calc(20px + env(safe-area-inset-left));
   bottom: calc(var(--selfPreviewBottomOffset) + env(safe-area-inset-bottom));
@@ -188,9 +195,8 @@ video.mirror {
   font-size: calc(var(--disc) * .37);
   font-weight: 600;
   text-align: center;
-  outline: calc(var(--level, 0) * 3px) solid var(--ink);
-  outline-offset: 4px;
-  transition: outline-width .1s;
+  box-shadow: 0 0 0 4px var(--gap, var(--stage)), 0 0 0 calc(3.5px + var(--level, 0) * 3px) var(--ink); /* quiet: the ink stays under the gap */
+  transition: box-shadow .1s;
 }
 
 .userName, .peerStatus, .pipBtn, .audioMuted { /* small chips over a tile */

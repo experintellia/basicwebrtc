@@ -1124,7 +1124,7 @@ test('lobby mic check: a bar you can see that moves with your voice', async t =>
 
 test('person colours: four people, four colours, none of them the "on" blue', async t => {
   const a = await join(t, 'alice'), others = [await join(t, 'bob'), await join(t, 'carol'), await join(t, 'dave')];
-  await waitFor(async () => (await connectedPeers(a)) === 3 && (await a.evaluate(() => [...document.querySelectorAll('.userPlaceholder')].every(e => e.textContent.length == 2 && !/\d/.test(e.textContent)))), 'all named');
+  await waitFor(async () => (await connectedPeers(a)) === 3 && (await a.evaluate(() => [...document.querySelectorAll('.videoplaceholder')].every(e => e.style.getPropertyValue('--person')))), 'all named: every tile has its colour');
   const colors = await a.evaluate(() => [...document.querySelectorAll('.userPlaceholder')].map(e => getComputedStyle(e).backgroundColor));
   assert.strictEqual(new Set(colors).size, 4, colors.join(' '));
   const live = await a.evaluate(() => { const e = document.createElement('i'); e.style.color = 'var(--live)'; document.body.append(e); return getComputedStyle(e).color; });
@@ -1159,7 +1159,7 @@ test('tile labels: name, status, PiP and mute never overlap; a long name stays o
 
 test('circles fit their tiles, also short ones; the own preview is a white card', async t => {
   const fits = page => page.evaluate(() => [...document.querySelectorAll('.videoplaceholder')].filter(tile => {
-    const c = tile.querySelector('.userPlaceholder').getBoundingClientRect(), r = tile.getBoundingClientRect(), ring = 4;
+    const c = tile.querySelector('.userPlaceholder').getBoundingClientRect(), r = tile.getBoundingClientRect(), ring = 10; // 4px gap + up to 6px while speaking
     return !tile.querySelector('.userPlaceholderContainer').hidden && (c.left - ring < r.left || c.right + ring > r.right || c.top - ring < r.top || c.bottom + ring > r.bottom);
   }).map(tile => tile.querySelector('.userPlaceholder').textContent));
   state(t).room = `r${Date.now()}land`;
