@@ -19,7 +19,10 @@ const roomFromUrl = () => {
   try { return raw && decodeURIComponent(raw) } catch { return raw } // a stray "%" (e.g. "100%") stays raw
 };
 const roomname = roomFromUrl() || "r" + Math.random().toString().replace(".", "");
-if (!roomFromUrl()) history.replaceState(null, "", "#roomname=" + roomname); // no hashchange: no reload
+if (!roomFromUrl()) { // a fresh visit, not an invite: say what this is
+  history.replaceState(null, "", "#roomname=" + roomname); // no hashchange: no reload
+  $("#intro").hidden = false;
+}
 addEventListener("hashchange", () => roomFromUrl() && roomFromUrl() != roomname && location.reload()); // a pasted link to another room changes only the hash
 // Per tab only: survives reloads and other rooms, never shared with other tabs or later visits.
 const stored = k => { try { return sessionStorage[k] } catch { } }; // throws when storage is blocked
