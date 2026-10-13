@@ -201,6 +201,26 @@ test('answers without gen (older client) are still accepted', async () => {
   await a.context().close(); await b.context().close();
 });
 
+// #88 holds the initiator's candidates only on renegotiation: on the first offer the answerer gets them at once,
+// so behind a NAT or firewall it opens its pinhole towards the initiator before its answer is even back.
+test('first connect: the answerer checks the initiator\'s candidates before its answer arrives', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', trackPcs); // already in the room -> initiator
+  await a.evaluate(() => { // alice gets no answer until __release()
+    const h = socket.listeners('signaling')[0];
+    let held = [];
+    socket.off('signaling');
+    socket.on('signaling', d => d.signalingData?.type == 'answer' && held ? held.push(d) : h(d));
+    window.__release = () => { held.splice(0).forEach(h); held = null; };
+  });
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'bob ICE up');
+  assert.strictEqual(await a.evaluate(() => __raw.at(-1).signalingState), 'have-local-offer', 'alice has no answer yet');
+  await a.evaluate(() => __release());
+  for (const p of [a, b]) await waitFor(async () => (await connectedPeers(p)) === 1 && (await liveRemoteAudio(p)) === 1, 'ICE and audio');
+  await a.context().close(); await b.context().close();
+});
+
 // #6: bob's socket reconnects; alice's old pc still sends an offer to bob before alice rebuilds it.
 test('stale offer from the old connection after a fast reconnect', async () => {
   const room = 'r' + Date.now();

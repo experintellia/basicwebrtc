@@ -35,12 +35,12 @@ function initEzWebRTC(initiator, config) {
         return p && { relay: [p.localCandidateId, p.remoteCandidateId].some(id => r.get(id)?.candidateType == "relay"), rtt: p.currentRoundTripTime };
     }
 
-    // Own candidates wait while our offer is unanswered: the peer can't check them before we know its new ICE credentials.
+    // On renegotiation, own candidates wait while our offer is unanswered: the peer can't check them before we know its new ICE credentials.
     // Otherwise, after an ICE restart, Chromium keeps a pair to Firefox's old ICE generation, which drops our media (#88).
     var heldCandidates = [];
     pc.onicecandidate = function (e) {
         if (!pc || !e || !e.candidate) return;
-        if (pc.signalingState == "have-local-offer") return heldCandidates.push(e.candidate);
+        if (pc.signalingState == "have-local-offer" && pc.currentRemoteDescription) return heldCandidates.push(e.candidate); // first offer: no older generation, trickle at once so a firewalled peer opens its pinhole before the answer is back
         _this.emitEvent("signaling", e.candidate)
     };
 
