@@ -263,7 +263,7 @@ video {
   color: #a9a9ff;
 }
 
-#chatText a {
+#chatText a, #intro a {
   color: #9cf;
 }
 
@@ -585,19 +585,8 @@ video.mirror {
   color: #fff;
 }
 
-#intro {
-  padding-bottom: 14px;
-  border-bottom: 1px solid #555;
-}
-
-#intro h1 {
-  margin: 0 0 10px;
-  font-size: 1.5em;
-  color: #fff;
-}
-
 #intro ul {
-  margin: 0;
+  margin: 8px 0;
   padding: 0;
   list-style: none;
   display: grid;
@@ -614,15 +603,6 @@ video.mirror {
   width: 1.2em;
   height: 1.2em;
   color: #4caf50;
-}
-
-#intro p {
-  margin: 10px 0 0;
-  color: #aaa;
-}
-
-#intro a {
-  color: #9cf;
 }
 
 #lobbyPreview {
@@ -677,7 +657,7 @@ video.mirror {
   height: 8px;
 }
 
-#lobbyMsg, #endCard p, #endChat p {
+#lobbyMsg, #intro p, #endCard p, #endChat p {
   margin: 0;
   color: #aaa;
 }

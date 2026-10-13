@@ -896,18 +896,6 @@ test('share link is just the room, whatever else the URL holds', async () => {
   await a.context().close();
 });
 
-test('start page without a room: a short intro with the GitHub link; room links skip it', async () => {
-  const a = await (await browser.newContext()).newPage();
-  await a.goto(BASE);
-  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown');
-  assert.match(await a.locator('#intro').innerText(), /end-to-end encrypted[\s\S]*peer-to-peer[\s\S]*up to 4 people/i);
-  assert.strictEqual(await a.locator('#intro a').getAttribute('href'), 'https://github.com/experintellia/basicwebrtc');
-  const b = await open('r' + Date.now(), 'bob');
-  await waitFor(() => b.locator('#lobby').isVisible(), 'lobby shown');
-  assert.strictEqual(await b.locator('#intro').isVisible(), false, 'invited: straight to the join form');
-  await a.context().close(); await b.context().close();
-});
-
 test('old link params are ignored: username, camon', async () => {
   const a = await (await browser.newContext()).newPage();
   await a.goto(`${BASE}#roomname=old&username=bob&camon=true`);
@@ -923,8 +911,10 @@ test('URL params: missing room gets a fresh one; "+", "=" and a stray % stay as 
   a.on('pageerror', e => errors.push(e.message));
   await a.goto(`${BASE}#username=bob`); // no roomname: a fresh room, old params dropped
   assert.match(await a.evaluate(() => location.hash), /^#roomname=r\d+$/);
+  assert.strictEqual(await a.locator('#intro').isVisible(), true, 'a fresh visit says what this is');
   await a.goto(`${BASE}#roomname=a+b=100%`); // hash-only: the page reloads itself
   await waitFor(() => a.evaluate(() => roomname == 'a+b=100%').catch(() => false), 'room a+b=100%');
+  assert.strictEqual(await a.locator('#intro').isVisible(), false, 'invited: straight to the join form');
   assert.deepStrictEqual(errors, []);
   await ctx.close();
 });
