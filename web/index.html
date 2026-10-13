@@ -4,7 +4,7 @@
 
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, user-scalable=yes, initial-scale=1, maximum-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#2b2a2a">
+  <meta name="theme-color" content="#f6f6f4">
   <meta name="mobile-web-app-capable" content="yes">
 
   <title>Video Chat!</title>
@@ -78,19 +78,19 @@
   <div id="mediaControllContainer">
     <div id="mediaControll">
       <div id="micGroup" class="deviceGroup">
-        <div title="mute / unmute microphon!" id="muteUnmuteMicBtn" class="callBtn"><svg class="icon" aria-hidden="true"><use href="#microphone-alt"/></svg></div>
+        <div title="mute / unmute microphon!" id="muteUnmuteMicBtn" class="callBtn on"><svg class="icon" aria-hidden="true"><use href="#microphone-alt"/></svg>Mic</div>
         <div title="select microphone" id="selectMicBtn" class="selectDeviceBtn" style="display:none;"><svg class="icon" aria-hidden="true"><use href="#caret-up"/></svg><select id="micSelect" aria-label="select microphone"></select></div>
       </div>
       <div id="cameraGroup" class="deviceGroup">
-        <div title="add / remove camera!" id="addRemoveCameraBtn" class="callBtn"><svg class="icon" aria-hidden="true"><use href="#video"/></svg></div>
+        <div title="add / remove camera!" id="addRemoveCameraBtn" class="callBtn"><svg class="icon" aria-hidden="true"><use href="#video"/></svg>Camera</div>
         <div title="select camera" id="selectCameraBtn" class="selectDeviceBtn" style="display:none;"><svg class="icon" aria-hidden="true"><use href="#caret-up"/></svg><select id="cameraSelect" aria-label="select camera"></select></div>
       </div>
       <div id="screenGroup" class="deviceGroup">
-        <div title="add / remove screen!" id="addRemoveScreenBtn" class="callBtn"><svg class="icon" aria-hidden="true"><use href="#desktop"/></svg></div>
+        <div title="add / remove screen!" id="addRemoveScreenBtn" class="callBtn"><svg class="icon" aria-hidden="true"><use href="#desktop"/></svg>Screen</div>
         <div title="screen share quality" id="selectScreenModeBtn" class="selectDeviceBtn" style="display:none;"><svg class="icon" aria-hidden="true"><use href="#caret-up"/></svg><select id="screenModeSelect" aria-label="screen share quality"><option value="detail">Sharp text</option><option value="motion">Smooth motion</option></select></div>
       </div>
       <div id="moreGroup">
-        <div title="more" id="moreBtn" class="callBtn"><svg class="icon" aria-hidden="true"><use href="#ellipsis-h"/></svg></div>
+        <div title="more" id="moreBtn" class="callBtn"><svg class="icon" aria-hidden="true"><use href="#ellipsis-h"/></svg>More</div>
         <div id="moreMenu" hidden>
           <button id="addRemoveChatBtn"><svg class="icon" aria-hidden="true"><use href="#comment-dots"/></svg> Chat</button>
           <button id="changeNameBtn"><svg class="icon" aria-hidden="true"><use href="#user-edit"/></svg> Change name</button>
@@ -98,7 +98,7 @@
           <button id="shareBtn"><svg class="icon" aria-hidden="true"><use href="#share-alt"/></svg> Share link</button>
         </div>
       </div>
-      <div title="cancel call!" id="cancelCallBtn" class="callBtn"><svg class="icon" aria-hidden="true"><use href="#phone-slash"/></svg></div>
+      <div title="cancel call!" id="cancelCallBtn" class="callBtn"><svg class="icon" aria-hidden="true"><use href="#phone-slash"/></svg>Leave</div>
     </div>
   </div>
   <div id="audioStreams"></div>

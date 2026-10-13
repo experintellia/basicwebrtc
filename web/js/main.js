@@ -124,7 +124,7 @@ function setAudioLevel(UUID, level) {
   const tile = allUserStreams[UUID]?.tile;
   if (!tile) return;
   tile.querySelector(".audioMuted")?.remove();
-  tile.querySelector(".userPlaceholder").style.border = "2px solid rgb(255 255 255 / " + Math.max(level, 0) * 50 + "%)"; // muted: not speaking
+  tile.querySelector(".userPlaceholder").style.setProperty("--level", Math.max(level, 0)); // the speaking ring; muted: none
   if (level < 0) tile.insertAdjacentHTML("beforeend", '<div class="audioMuted">' + icon("microphone-alt-slash") + '</div>');
 }
 
@@ -245,7 +245,8 @@ $("#micSelect").onchange = async function () { //Swap the mic track in place, so
 
 $("#muteUnmuteMicBtn").onclick = function () {
   micMuted = !micMuted;
-  this.innerHTML = icon(micMuted ? "microphone-alt-slash" : "microphone-alt");
+  this.querySelector("use").setAttribute("href", micMuted ? "#microphone-alt-slash" : "#microphone-alt"); // the label stays
+  this.classList.toggle("on", !micMuted);
   if (allUserStreams[MY_UUID] && allUserStreams[MY_UUID]["audiostream"]) {
     allUserStreams[MY_UUID]["audiostream"].getAudioTracks()[0].enabled = !micMuted;
   }
@@ -362,7 +363,7 @@ function toggleCamera() {
 }
 
 function startVideo(stream, btn) {
-  btn.style.color = "#030356";
+  btn.classList.add("on");
   stream.getVideoTracks()[0].onended = () => allUserStreams[MY_UUID]["videostream"] == stream && stopVideo(); // unplugged camera, browser's "Stop sharing" bar
   for (var i in pcs) pcs[i].setVideo(stream.getVideoTracks()[0]);
   sendToPeers({ video: true });
@@ -377,7 +378,7 @@ function stopVideo() { // camera and screen share use the same slot
   sendToPeers({ video: false });
   stream.getTracks().forEach(track => track.stop());
   delete allUserStreams[MY_UUID]["videostream"];
-  $("#addRemoveCameraBtn").style.color = $("#addRemoveScreenBtn").style.color = "black";
+  for (const b of [$("#addRemoveCameraBtn"), $("#addRemoveScreenBtn")]) b.classList.remove("on");
   camActive = screenActive = false;
   $("#selectScreenModeBtn").style.display = "none";
   store("camOn", ""); // also when unplugged or replaced by a screen share
@@ -427,7 +428,7 @@ $("#cancelCallBtn").onclick = function () { // TV switch-off effect, then end sc
 }
 
 function callSummary() { // for endcall.html: how long, with whom, the chat; how it was connected follows from getStats in milliseconds
-  const s = { ms: callStart && performance.now() - callStart, names: [...new Set(met.values())], chat: chatLog, relay: null, rtt: null }; // a reloaded peer comes back with a new UUID. ponytail: two peers with the same name count once
+  const s = { ms: callStart && performance.now() - callStart, names: [...new Set(met.values())], chat: chatLog, colors: [...personColors], relay: null, rtt: null }; // a reloaded peer comes back with a new UUID. ponytail: two peers with the same name count once
   Promise.all(Object.values(pcs).map(pc => pc.route().catch(() => null))).then(rs => { // ponytail: only peers still in the call at hang-up
     const routes = rs.filter(Boolean), rtts = routes.map(r => r.rtt).filter(t => t >= 0);
     if (routes.length) s.relay = routes.some(r => r.relay);
@@ -527,6 +528,7 @@ function updateUserLayout() {
       </div>
     </div>`);
     userStream.tile = userDiv;
+    userDiv.style.setProperty("--person", personColor(name || i)); // circle and name tag, like the chat name
     if (count == 2 && i == MY_UUID) userDiv.classList.add("selfPreview"); // 1:1 call: the other one fills the screen
     userDiv.querySelector(".userPlaceholder").textContent = [...(name || i)].slice(0, 2).join("").toUpperCase();
     userDiv.append(Object.assign(document.createElement("div"), { className: "peerStatus", textContent: userStream["status"] || "" }));

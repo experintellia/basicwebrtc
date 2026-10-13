@@ -1079,6 +1079,42 @@ test('safe areas: nothing to tap or read sits under the notch or the home indica
   }
 });
 
+test('one look: the call bar has labels, the page and its panels share one font', async t => {
+  const a = await join(t, 'alice');
+  const labels = await a.evaluate(() => [...document.querySelectorAll('.callBtn')].filter(b => b.offsetParent).map(b => b.innerText.trim()));
+  assert.deepStrictEqual(labels, ['Mic', 'Camera', 'Screen', 'More', 'Leave']);
+  await a.click('#muteUnmuteMicBtn');
+  assert.strictEqual(await a.locator('#muteUnmuteMicBtn').innerText(), 'Mic', 'muting swaps the icon, not the label');
+  const fonts = await a.evaluate(() => ['body', '#lobby', '#chatDiv', '#moreMenu', '#shareDialog', '#mediaControll'].map(s => getComputedStyle(document.querySelector(s)).fontFamily));
+  assert.strictEqual(new Set(fonts).size, 1, fonts.join(' | '));
+});
+
+test('person colours: a peer\'s circle and chat name share one colour', async t => {
+  const [a, b] = await call(t);
+  await chat(b, 'hi');
+  await waitFor(() => a.evaluate(() => document.querySelector('#chatText .chatName')), 'bob\'s message');
+  const [circle, name] = await a.evaluate(() => {
+    const bob = Object.keys(pcs)[0];
+    return [getComputedStyle(allUserStreams[bob].tile.querySelector('.userPlaceholder')).backgroundColor, getComputedStyle(document.querySelector('#chatText .chatName')).color];
+  });
+  assert.strictEqual(circle, name);
+  const fresh = await (await context(t)).newPage(); // no one seen yet
+  await fresh.goto(BASE + 'endcall.html');
+  const colors = await fresh.evaluate(() => ['Mara', 'Jonas', 'Ada', 'Mara'].map(personColor)); // Mara and Jonas share a hash bucket
+  assert.strictEqual(new Set(colors).size, 3, 'everyone in the call gets their own color, and keeps it: ' + colors);
+});
+
+test('person colours: the end page keeps the colours of the call', async t => {
+  const a = await join(t, 'Mara'), b = await join(t, 'Jonas'); // one hash bucket: who comes first matters
+  await waitFor(async () => (await connectedPeers(a)) === 1, 'ICE connected');
+  await chat(b, 'notes are in the pad');
+  await waitFor(() => a.evaluate(() => document.querySelector('#chatText .chatName')), 'message on Mara');
+  const inCall = await a.evaluate(() => getComputedStyle(document.querySelector('#chatText .chatName')).color);
+  await a.click('#cancelCallBtn');
+  await a.waitForURL(/endcall\.html$/, { timeout: 5000 });
+  assert.strictEqual(await a.evaluate(() => getComputedStyle(document.querySelector('#chatText .chatName')).color), inCall);
+});
+
 test('screen share button follows getDisplayMedia, not the user agent', async t => {
   for (const [init, shown] of [[null, true], [noScreenShare, false]]) {
     const a = await join(t, null, init, '', { userAgent: 'Mozilla/5.0 (Linux; Android 14) Mobile' });
@@ -1157,7 +1193,7 @@ test('unplugged camera turns the camera off', async t => {
   await a.click('#addRemoveCameraBtn');
   await waitFor(() => a.evaluate(() => camActive), 'camera on');
   await a.evaluate(() => allUserStreams[MY_UUID].videostream.getVideoTracks()[0].dispatchEvent(new Event('ended')));
-  assert.deepStrictEqual(await a.evaluate(() => [camActive, !!allUserStreams[MY_UUID].videostream, $('#addRemoveCameraBtn').style.color]), [false, false, 'black']);
+  assert.deepStrictEqual(await a.evaluate(() => [camActive, !!allUserStreams[MY_UUID].videostream, $('#addRemoveCameraBtn').classList.contains('on')]), [false, false, false]); // the button no longer reads as on
 });
 
 test('hang up releases mic, camera and socket right away, once', async t => {
@@ -1205,12 +1241,12 @@ test('mute icon on the own tile; unmuting in silence clears it for peers (#83)',
   await waitFor(() => b.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('AL')), 'alice\'s tile on bob');
   const aId = await a.evaluate(() => MY_UUID);
   const muted = p => p.evaluate(id => !!allUserStreams[id].tile.querySelector('.audioMuted'), aId);
-  const border = () => a.evaluate(() => allUserStreams[MY_UUID].tile.querySelector('.userPlaceholder').style.border);
+  const ring = () => a.evaluate(() => allUserStreams[MY_UUID].tile.querySelector('.userPlaceholder').style.getPropertyValue('--level'));
   await a.evaluate(() => setAudioLevel(MY_UUID, 2)); // speaking when the mute is clicked
   await a.click('#muteUnmuteMicBtn');
   await waitFor(() => muted(b), 'mute icon on bob');
   assert.ok(await muted(a), 'own tile shows the mute icon');
-  assert.strictEqual(await border(), '2px solid rgba(255, 255, 255, 0)', 'not lit as speaking while muted');
+  assert.strictEqual(await ring(), '0', 'not lit as speaking while muted');
   await a.click('#muteUnmuteMicBtn');
   await waitFor(async () => !(await muted(b)), 'mute icon gone on bob');
   assert.ok(!(await muted(a)), 'own tile unmuted');
