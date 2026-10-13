@@ -896,6 +896,18 @@ test('share link is just the room, whatever else the URL holds', async () => {
   await a.context().close();
 });
 
+test('start page without a room: a short intro with the GitHub link; room links skip it', async () => {
+  const a = await (await browser.newContext()).newPage();
+  await a.goto(BASE);
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown');
+  assert.match(await a.locator('#intro').innerText(), /end-to-end encrypted[\s\S]*peer-to-peer[\s\S]*up to 4 people/i);
+  assert.strictEqual(await a.locator('#intro a').getAttribute('href'), 'https://github.com/experintellia/basicwebrtc');
+  const b = await open('r' + Date.now(), 'bob');
+  await waitFor(() => b.locator('#lobby').isVisible(), 'lobby shown');
+  assert.strictEqual(await b.locator('#intro').isVisible(), false, 'invited: straight to the join form');
+  await a.context().close(); await b.context().close();
+});
+
 test('old link params are ignored: username, camon', async () => {
   const a = await (await browser.newContext()).newPage();
   await a.goto(`${BASE}#roomname=old&username=bob&camon=true`);

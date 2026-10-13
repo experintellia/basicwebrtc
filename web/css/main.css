@@ -585,6 +585,46 @@ video.mirror {
   color: #fff;
 }
 
+#intro {
+  padding-bottom: 14px;
+  border-bottom: 1px solid #555;
+}
+
+#intro h1 {
+  margin: 0 0 10px;
+  font-size: 1.5em;
+  color: #fff;
+}
+
+#intro ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+#intro li {
+  display: flex;
+  gap: 10px;
+}
+
+#intro li .icon {
+  flex: none;
+  width: 1.2em;
+  height: 1.2em;
+  color: #4caf50;
+}
+
+#intro p {
+  margin: 10px 0 0;
+  color: #aaa;
+}
+
+#intro a {
+  color: #9cf;
+}
+
 #lobbyPreview {
   aspect-ratio: 16 / 9;
   border-radius: 8px;
