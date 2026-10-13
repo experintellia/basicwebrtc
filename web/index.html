@@ -38,6 +38,15 @@
   <div id="mediaDiv"></div>
   <div id="knocks"></div>
   <form id="lobby" hidden>
+    <section id="intro" hidden>
+      <h2>Private calls, browser to browser</h2>
+      <ul role="list">
+        <li><svg class="icon" aria-hidden="true"><use href="#lock"/></svg> End-to-end encrypted</li>
+        <li><svg class="icon" aria-hidden="true"><use href="#share-alt"/></svg> Peer-to-peer: no server can hear or see your call</li>
+        <li><svg class="icon" aria-hidden="true"><use href="#check"/></svg> Up to 4 people, no account, nothing to install</li>
+      </ul>
+      <p>Open source: <a href="https://github.com/experintellia/basicwebrtc">host your own from GitHub</a></p>
+    </section>
     <h2>Ready to join?</h2>
     <div id="lobbyPreview"><video id="lobbyVideo" autoplay muted playsinline hidden></video></div>
     <input id="nameInput" placeholder="Your name" maxlength="64" aria-label="your name" autocomplete="nickname" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">

@@ -201,6 +201,57 @@ test('answers without gen (older client) are still accepted', async () => {
   await a.context().close(); await b.context().close();
 });
 
+// #59: a delayed offer and the re-offer behind it reach bob in the same tick; he must answer each in turn.
+test('back-to-back offers each get their own answer', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', trackPcs);
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'ICE connected');
+  const errors = [];
+  b.on('console', m => m.text().includes('signaling error') && errors.push(m.text()));
+  await b.evaluate(() => { // hold alice's offers on bob until her 5s timeout re-offers, then hand both over at once; record bob's answers
+    const h = socket.listeners('signaling')[0];
+    let held = [];
+    socket.off('signaling', h);
+    socket.on('signaling', d => {
+      if (!held || d.signalingData?.type != 'offer') return h(d);
+      if (held.push(d) < 2) return;
+      window.__offerGens = held.map(d => d.signalingData.gen);
+      held.forEach(h); held = null;
+    });
+    const emit = socket.emit;
+    window.__answerGens = [];
+    socket.emit = function (ev, d) { if (d?.signalingData?.type == 'answer') __answerGens.push(d.signalingData.gen); return emit.apply(this, arguments); };
+  });
+  await a.evaluate(() => __raw.at(-1).restartIce()); // since #57 camera changes send no offer: an ICE restart does
+  await waitFor(() => b.evaluate(() => __answerGens.length >= 2), 'two answers', 15000);
+  assert.deepStrictEqual(await b.evaluate(() => __answerGens.slice(0, 2)), await b.evaluate(() => __offerGens), 'one answer per offer, same gen'); // later offers may follow
+  assert.deepStrictEqual(errors, []);
+  await a.click('#addRemoveCameraBtn'); // media still flows after both answers
+  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
+  await a.context().close(); await b.context().close();
+});
+
+// #88 holds the initiator's candidates only on renegotiation: on the first offer the answerer gets them at once,
+// so behind a NAT or firewall it opens its pinhole towards the initiator before its answer is even back.
+test('first connect: the answerer checks the initiator\'s candidates before its answer arrives', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', trackPcs); // already in the room -> initiator
+  await a.evaluate(() => { // alice gets no answer until __release()
+    const h = socket.listeners('signaling')[0];
+    let held = [];
+    socket.off('signaling');
+    socket.on('signaling', d => d.signalingData?.type == 'answer' && held ? held.push(d) : h(d));
+    window.__release = () => { held.splice(0).forEach(h); held = null; };
+  });
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(b)) === 1, 'bob ICE up');
+  assert.strictEqual(await a.evaluate(() => __raw.at(-1).signalingState), 'have-local-offer', 'alice has no answer yet');
+  await a.evaluate(() => __release());
+  for (const p of [a, b]) await waitFor(async () => (await connectedPeers(p)) === 1 && (await liveRemoteAudio(p)) === 1, 'ICE and audio');
+  await a.context().close(); await b.context().close();
+});
+
 // #6: bob's socket reconnects; alice's old pc still sends an offer to bob before alice rebuilds it.
 test('stale offer from the old connection after a fast reconnect', async () => {
   const room = 'r' + Date.now();
@@ -556,6 +607,19 @@ test('network switch: ICE and socket lost together, the call comes back', async 
   await a.context().close(); await b.context().close();
 });
 
+test('ICE down: fresh ICE servers are fetched and set on the connection for its restart (#28)', async () => {
+  const room = 'r' + Date.now();
+  const spy = () => { const s = RTCPeerConnection.prototype.setConfiguration; window.__configs = []; RTCPeerConnection.prototype.setConfiguration = function (c) { __configs.push(c); return s.call(this, c); }; };
+  const a = await join(room, 'alice', spy);
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  assert.strictEqual(await a.evaluate(() => __configs.length), 0);
+  await a.evaluate(() => { window.__old = webRTCConfig.iceServers; Object.values(pcs)[0].emitEvent('icestate', 'disconnected'); }); // as when the path drops
+  await waitFor(() => a.evaluate(() => __configs.length), 'ICE servers set');
+  assert.ok(await a.evaluate(() => __configs[0].iceServers === webRTCConfig.iceServers && __configs[0].iceServers !== __old), 'the ones just sent by the server, not the cached ones');
+  await a.context().close(); await b.context().close();
+});
+
 test('rejoining peer that still has the call gets a reset when the other side rebuilds', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice');
@@ -566,6 +630,39 @@ test('rejoining peer that still has the call gets a reset when the other side re
   await a.evaluate(() => __pc.mappedEvents.close = []); // no close event reaches alice either
   await a.evaluate(() => socket.io.engine.close()); // alice rejoins, keeping bob
   for (const p of [a, b]) await waitFor(async () => (await p.evaluate(() => Object.values(pcs)[0] !== __pc)) && (await callUp(p)), 'new call on both sides');
+  await a.context().close(); await b.context().close();
+});
+
+// Bob's rebuild closes the old connection; that close reaches alice over P2P before his reset comes via the server.
+test('a rebuild by the other side does not make the rejoining peer rebuild too', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  for (const p of [a, b]) await p.evaluate(() => window.__pc = Object.values(pcs)[0]);
+  await a.evaluate(() => socket.disconnect());
+  await waitFor(() => b.evaluate(() => __pc.left), 'bob saw alice leave');
+  await b.evaluate(() => __pc.iceUp = () => false); // bob's side of the call is dead, alice's looks fine
+  await b.evaluate(() => { const e = socket.emit.bind(socket); socket.emit = (n, ...a) => n == 'signaling' ? setTimeout(() => e(n, ...a), 150) : e(n, ...a); }); // server 150ms farther than alice
+  await a.evaluate(() => socket.connect()); // alice rejoins, keeping bob
+  for (const p of [a, b]) await waitFor(async () => (await p.evaluate(() => Object.values(pcs)[0] !== __pc)) && (await callUp(p)), 'new call on both sides', 20000);
+  await a.context().close(); await b.context().close();
+});
+
+// #58: a long outage makes SCTP give up and close the data channel while both sockets stay up.
+test('data channel closed while both peers stay on the server: the call is rebuilt', async () => {
+  const room = 'r' + Date.now();
+  const trackDcs = () => { const c = RTCPeerConnection.prototype.createDataChannel; window.__dcs = []; RTCPeerConnection.prototype.createDataChannel = function (...a) { const d = c.apply(this, a); __dcs.push(d); return d; }; };
+  const a = await join(room, 'alice');
+  const b = await join(room, 'bob', trackDcs);
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+  await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
+  for (const p of [a, b]) await p.evaluate(() => { window.__pc = Object.values(pcs)[0]; __pc.iceUp = () => false; }); // the outage has ICE down too
+  await b.evaluate(() => __dcs[0].close()); // "close" on both sides
+  for (const p of [a, b]) {
+    await waitFor(async () => (await p.evaluate(() => { const pc = Object.values(pcs)[0]; return pc !== __pc && pc?.send({}); })) && (await callUp(p)), 'new call with an open data channel', 30000);
+    assert.strictEqual(await p.locator('#mediaDiv .videoplaceholder').count(), 2, 'peer tile back');
+  }
   await a.context().close(); await b.context().close();
 });
 
@@ -750,11 +847,12 @@ test('icons: every one used is in the sprite, with its CC BY credit', async () =
 
 test('end screen: how long, with whom, the chat, stats for nerds and a new call', async () => {
   const room = 'r' + Date.now();
-  const a = await join(room, 'alice');
+  const a = await join(room, 'alice', () => { navigator.clipboard.writeText = t => { window.__copied = t; return Promise.resolve(); }; });
   const b = await join(room, 'bob');
   await waitFor(() => a.evaluate(() => Object.keys(pcs).some(id => nameOf(id) == 'bob' && pcs[id].iceUp())), 'in a call with bob');
   await b.evaluate(() => { $('#chatInputText').value = 'notes: https://example.com/doc'; sendMsg(); });
   await waitFor(() => a.evaluate(() => $('#chatText').textContent.includes('example.com')), 'chat on alice');
+  await a.evaluate(() => { $('#chatInputText').value = 'thanks'; sendMsg(); });
   await a.click('#cancelCallBtn');
   await a.waitForURL(/endcall\.html$/, { timeout: 5000 });
   assert.match(await a.locator('#duration').innerText(), /^0:\d\d$/);
@@ -766,6 +864,9 @@ test('end screen: how long, with whom, the chat, stats for nerds and a new call'
   assert.match(await a.locator('#endChat').innerText(), /bob: notes: https:\/\/example\.com\/doc/, 'the chat, to save links from');
   assert.strictEqual(await a.locator('#endChat a').getAttribute('href'), 'https://example.com/doc');
   assert.match(await a.locator('#chatNote').innerText(), /gone once you close this tab/, 'told to save what they need');
+  await a.click('#copyChatBtn');
+  await waitFor(async () => (await a.locator('#copyChatBtn').innerText()) == 'Copied!', 'copied');
+  assert.strictEqual(await a.evaluate(() => window.__copied), 'bob: notes: https://example.com/doc\nalice: thanks', 'the whole chat, one line per message');
   await a.click('#newCallBtn');
   await waitFor(() => a.locator('#lobby').isVisible(), 'lobby of a new call');
   assert.ok(/#roomname=r\d+$/.test(a.url()) && !a.url().includes(room), `a new room: ${a.url()}`);
@@ -907,8 +1008,10 @@ test('URL params: missing room gets a fresh one; "+", "=" and a stray % stay as 
   a.on('pageerror', e => errors.push(e.message));
   await a.goto(`${BASE}#username=bob`); // no roomname: a fresh room, old params dropped
   assert.match(await a.evaluate(() => location.hash), /^#roomname=r\d+$/);
+  assert.strictEqual(await a.locator('#intro').isVisible(), true, 'a fresh visit says what this is');
   await a.goto(`${BASE}#roomname=a+b=100%`); // hash-only: the page reloads itself
   await waitFor(() => a.evaluate(() => roomname == 'a+b=100%').catch(() => false), 'room a+b=100%');
+  assert.strictEqual(await a.locator('#intro').isVisible(), false, 'invited: straight to the join form');
   assert.deepStrictEqual(errors, []);
   await ctx.close();
 });
@@ -1128,6 +1231,34 @@ test('rapid camera/screen clicks leave no live stream behind', async () => {
   await a.context().close();
 });
 
+test('camera off and on while a camera switch is pending: one live camera, the one sent (#84)', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', `(${trackPcs})(); (${() => { // records every track handed out; a getUserMedia called while __hold is set waits for __go()
+    const md = navigator.mediaDevices, gum = md.getUserMedia.bind(md);
+    window.__streams = [];
+    md.getUserMedia = async c => { await window.__hold; const s = await gum(c); __streams.push(new MediaStream(s.getTracks())); return s; }; // a copy: the page adds tracks to its streams
+  }})();`);
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(a)) === 1, 'ICE connected');
+  await a.click('#addRemoveCameraBtn');
+  for (const fail of [true, false]) { // the switch fails (first: it picks the second camera, not the picker's fallback), or gets a camera
+    await waitFor(() => a.evaluate(() => camActive && $('#cameraSelect').options.length > 1), 'camera on, picker filled');
+    const other = await a.evaluate(() => [...$('#cameraSelect').options].find(o => o.value != selectedCameraId).value);
+    await a.evaluate(([o, fail]) => { // only the switch's getUserMedia waits
+      window.__hold = new Promise((ok, no) => window.__go = () => fail ? no(new DOMException('busy', 'NotReadableError')) : ok());
+      pick('#cameraSelect', o);
+      __hold = null;
+    }, [other, fail]);
+    await a.click('#addRemoveCameraBtn'); await a.click('#addRemoveCameraBtn'); // off and on again meanwhile
+    await waitFor(() => a.evaluate(() => camActive), 'camera on again');
+    await a.evaluate(() => __go());
+    await waitFor(() => a.evaluate(() => !$('#cameraSelect').disabled), 'switch done');
+    assert.strictEqual(await liveVideoLeft(a), 1, `one live camera (switch ${fail ? 'failed' : 'got one'})`);
+    assert.ok(await a.evaluate(o => { const t = allUserStreams[MY_UUID].videostream.getVideoTracks()[0]; return t.getSettings().deviceId == o && __raw.at(-1).getSenders().some(s => s.track?.id == t.id) && selectedCameraId == o; }, other), 'the slot sends the camera turned on, still picked');
+  }
+  await a.context().close(); await b.context().close();
+});
+
 test('cancelling the screen picker keeps the camera', async () => {
   const a = await join('r' + Date.now(), 'alice', () => { navigator.mediaDevices.getDisplayMedia = () => Promise.reject(new DOMException('cancelled', 'NotAllowedError')); });
   await a.click('#addRemoveCameraBtn');
@@ -1190,6 +1321,26 @@ test('remote mute icon survives re-layout and is shown to late-joining peers', a
   await b.evaluate(() => updateUserLayout()); // any later re-layout keeps it
   assert.ok(await b.evaluate(id => !!allUserStreams[id]?.tile?.querySelector('.audioMuted'), aId), 'still muted after re-layout');
   for (const p of [a, b, c]) await p.context().close();
+});
+
+test('mute icon on the own tile; unmuting in silence clears it for peers (#83)', async () => {
+  const room = 'r' + Date.now();
+  const silentMic = () => { const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); navigator.mediaDevices.getUserMedia = c => c.audio ? Promise.resolve(new AudioContext().createMediaStreamDestination().stream) : gum(c); };
+  const a = await join(room, 'alice', silentMic); // the meter never sees a level change
+  const b = await join(room, 'bob');
+  await waitFor(() => b.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('AL')), 'alice\'s tile on bob');
+  const aId = await a.evaluate(() => MY_UUID);
+  const muted = p => p.evaluate(id => !!allUserStreams[id].tile.querySelector('.audioMuted'), aId);
+  const border = () => a.evaluate(() => allUserStreams[MY_UUID].tile.querySelector('.userPlaceholder').style.border);
+  await a.evaluate(() => setAudioLevel(MY_UUID, 2)); // speaking when the mute is clicked
+  await a.click('#muteUnmuteMicBtn');
+  await waitFor(() => muted(b), 'mute icon on bob');
+  assert.ok(await muted(a), 'own tile shows the mute icon');
+  assert.strictEqual(await border(), '2px solid rgba(255, 255, 255, 0)', 'not lit as speaking while muted');
+  await a.click('#muteUnmuteMicBtn');
+  await waitFor(async () => !(await muted(b)), 'mute icon gone on bob');
+  assert.ok(!(await muted(a)), 'own tile unmuted');
+  await a.context().close(); await b.context().close();
 });
 
 test('layout skipped in fullscreen is redone on exit', async () => {

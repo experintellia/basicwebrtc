@@ -126,6 +126,7 @@ ioServer.sockets.on('connection', function (socket) {
         if (content["lock"] === true && !ioServer.sockets.adapter.rooms.get(name)) room.locked = true; // first one in picked "closed"
         roomOfUser = socket.data.room = name;
         socket.data.seat = knockId;
+        ioServer.to([name, socket.id]).emit('currentIceServers', iceServers()); // fresh, to the members before their userJoined: new peer connections get valid TURN credentials (#28)
         const keep = Array.isArray(content["keep"]) ? content["keep"].filter(k => typeof k == "string").slice(0, 8) : []; // peers a rejoining page still has a live call with
         socket.to(roomOfUser).emit('userJoined', { UUID: MY_UUID, keep });
         const members = inRoom(roomOfUser).map(d => d.uuid);
@@ -178,24 +179,14 @@ ioServer.sockets.on('connection', function (socket) {
         dest.emit('signaling', { signalingData: content.signalingData, fromUUID: MY_UUID }); // chat, names etc. go peer-to-peer
     });
 
-    //Return the current iceServers
-    var returnIce = [];
-    for (var i in icesevers) {
-        if (icesevers[i].turnServerCredential) { //Generate a temp user and password with this turn server creds if given
-            var turnCredentials = getTURNCredentials(icesevers[i].username, icesevers[i].turnServerCredential);
-            returnIce.push({
-                urls: icesevers[i].urls || icesevers[i].url,
-                credential: turnCredentials.password,
-                username: turnCredentials.username,
-            });
-        } else {
-            returnIce.push({ urls: icesevers[i].urls || icesevers[i].url });
-        }
-    }
-    socket.emit('currentIceServers', returnIce);
+    socket.on("getIceServers", function () { // before an ICE restart; members only: no free TURN relay for any socket (#61)
+        if (roomOfUser !== null) socket.emit('currentIceServers', iceServers());
+    });
 })
 
-function getTURNCredentials(name, secret) { // TURN REST API: valid for the next 12 hours
-    const username = (Math.floor(Date.now() / 1000) + 12 * 3600) + ":" + name;
-    return { username, password: crypto.createHmac('sha1', secret).update(username).digest('base64') };
+// TURN REST API: a temp user and password from the secret, valid for the next hour (#28). The secret never leaves the server.
+const iceServers = () => icesevers.map(s => ({ urls: s.urls || s.url, ...s.turnServerCredential && getTURNCredentials(s.username, s.turnServerCredential) }));
+function getTURNCredentials(name, secret) {
+    const username = (Math.floor(Date.now() / 1000) + 3600) + ":" + name;
+    return { username, credential: crypto.createHmac('sha1', secret).update(username).digest('base64') };
 }
