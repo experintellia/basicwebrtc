@@ -1079,6 +1079,186 @@ test('safe areas: nothing to tap or read sits under the notch or the home indica
   }
 });
 
+test('one look: the call bar has labels, the page and its panels share one font', async t => {
+  const a = await join(t, 'alice');
+  const labels = await a.evaluate(() => [...document.querySelectorAll('.callBtn')].filter(b => b.offsetParent).map(b => b.innerText.trim()));
+  assert.deepStrictEqual(labels, ['Mic', 'Camera', 'Screen', 'More', 'Leave']);
+  await a.click('#muteUnmuteMicBtn');
+  assert.strictEqual(await a.locator('#muteUnmuteMicBtn').innerText(), 'Mic', 'muting swaps the icon, not the label');
+  const fonts = await a.evaluate(() => ['body', '#lobby', '#chatDiv', '#moreMenu', '#shareDialog', '#mediaControll'].map(s => getComputedStyle(document.querySelector(s)).fontFamily));
+  assert.strictEqual(new Set(fonts).size, 1, fonts.join(' | '));
+});
+
+test('person colours: a peer\'s circle and chat name share one colour', async t => {
+  const [a, b] = await call(t);
+  await chat(b, 'hi');
+  await waitFor(() => a.evaluate(() => document.querySelector('#chatText .chatName')), 'bob\'s message');
+  const [circle, name] = await a.evaluate(() => {
+    const bob = Object.keys(pcs)[0];
+    return [getComputedStyle(allUserStreams[bob].tile.querySelector('.userPlaceholder')).backgroundColor, getComputedStyle(document.querySelector('#chatText .chatName')).color];
+  });
+  assert.strictEqual(circle, name);
+  const fresh = await (await context(t)).newPage(); // no one seen yet
+  await fresh.goto(BASE + 'endcall.html');
+  const colors = await fresh.evaluate(() => ['Mara', 'Jonas', 'Ada', 'Mara'].map(personColor)); // Mara and Jonas share a hash bucket
+  assert.strictEqual(new Set(colors).size, 3, 'everyone in the call gets their own color, and keeps it: ' + colors);
+});
+
+test('person colours: the end page keeps the colours of the call', async t => {
+  const a = await join(t, 'Mara'), b = await join(t, 'Jonas'); // one hash bucket: who comes first matters
+  await waitFor(async () => (await connectedPeers(a)) === 1, 'ICE connected');
+  await chat(b, 'notes are in the pad');
+  await waitFor(() => a.evaluate(() => document.querySelector('#chatText .chatName')), 'message on Mara');
+  const inCall = await a.evaluate(() => getComputedStyle(document.querySelector('#chatText .chatName')).color);
+  await a.click('#cancelCallBtn');
+  await a.waitForURL(/endcall\.html$/, { timeout: 5000 });
+  assert.strictEqual(await a.evaluate(() => getComputedStyle(document.querySelector('#chatText .chatName')).color), inCall);
+});
+
+test('lobby mic check: a bar you can see that moves with your voice', async t => {
+  const a = await open(t, 'alice');
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown');
+  assert.ok((await a.locator('#micMeter').boundingBox()).height >= 8, 'tall enough to see while silent');
+  await waitFor(() => a.evaluate(() => $('#micMeter').value > 0), 'the fake mic\'s beep moves it');
+  const land = await open(t, 'bob', null, '', { viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true }); // short: the card scrolls, nothing is squashed
+  await waitFor(() => land.locator('#lobby').isVisible(), 'lobby shown, landscape phone');
+  const [meter, preview] = await Promise.all(['#micMeter', '#lobbyPreview'].map(s => land.locator(s).boundingBox()));
+  assert.ok(meter.height >= 8 && preview.height >= 100, `landscape: meter ${meter.height}px, preview ${preview.height}px`);
+});
+
+test('status chips stay clear of circles, mute badges, the bar and its tabs; the own video sits at the bottom of its card', async t => {
+  for (const [width, height, n, phone] of [[1280, 720, 3, false], [680, 720, 4, false], [844, 390, 4, true]]) {
+    state(t).room = `r${Date.now()}x${width}`;
+    const opts = { viewport: { width, height }, isMobile: phone, hasTouch: phone };
+    const a = await join(t, 'alice', null, '', opts), rest = [];
+    for (const name of ['Christina-Alexandra Montgomery-Smith', 'carol', 'dave'].slice(0, n - 1)) rest.push(await join(t, name));
+    await waitFor(async () => (await connectedPeers(a)) === n - 1, `${n} in the call`);
+    await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'camera tab shown (2 fake cams)');
+    await rest[0].click('#muteUnmuteMicBtn'); await rest.at(-1).click('#muteUnmuteMicBtn');
+    await waitFor(() => a.evaluate(n => document.querySelectorAll('.audioMuted').length == n, Math.min(2, n - 1)), 'mute badges');
+    const bad = await a.evaluate(() => {
+      for (const s of document.querySelectorAll('.peerStatus')) s.textContent = 'reconnecting…';
+      const box = e => e.getBoundingClientRect(), hit = (p, q) => p.left < q.right && q.left < p.right && p.top < q.bottom && q.top < p.bottom;
+      const bar = [$('#mediaControll'), ...document.querySelectorAll('.selectDeviceBtn')].filter(e => e.getClientRects().length && getComputedStyle(e).display != 'none');
+      const others = [...document.querySelectorAll('.userPlaceholderContainer:not([hidden]) .userPlaceholder, .audioMuted'), ...bar];
+      return [...document.querySelectorAll('.peerStatus')].flatMap(chip => others.filter(o => hit(box(chip), box(o))).map(o => `${chip.parentElement.querySelector('.userPlaceholder').textContent} chip / ${o.className || o.id}`));
+    });
+    assert.deepStrictEqual(bad, [], `${width}x${height}, ${n} people`);
+    await Promise.all([a, ...rest].map(p => p.context().close()));
+  }
+  state(t).room = `r${Date.now()}self`;
+  const p = await join(t, 'alice', null, '', { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }), q = await join(t, 'bob');
+  await waitFor(async () => (await connectedPeers(p)) === 1, '1:1 call');
+  await p.click('#addRemoveCameraBtn');
+  await waitFor(() => p.evaluate(() => document.querySelector('.selfPreview video')?.videoHeight > 0), 'own video');
+  const [video, card] = await Promise.all(['.selfPreview video', '.selfPreview'].map(s => p.locator(s).boundingBox()));
+  assert.ok(Math.abs(video.y + video.height - (card.y + card.height)) <= 1, `own video at the card's bottom, next to the bar (${video.y + video.height} vs ${card.y + card.height})`);
+  await q.context().close();
+});
+
+test('person colours: four people, four colours, none of them the "on" blue', async t => {
+  const a = await join(t, 'alice'), others = [await join(t, 'bob'), await join(t, 'carol'), await join(t, 'dave')];
+  await waitFor(async () => (await connectedPeers(a)) === 3 && (await a.evaluate(() => [...document.querySelectorAll('.videoplaceholder')].every(e => e.style.getPropertyValue('--person')))), 'all named: every tile has its colour');
+  const colors = await a.evaluate(() => [...document.querySelectorAll('.userPlaceholder')].map(e => getComputedStyle(e).backgroundColor));
+  assert.strictEqual(new Set(colors).size, 4, colors.join(' '));
+  const live = await a.evaluate(() => { const e = document.createElement('i'); e.style.color = 'var(--live)'; document.body.append(e); return getComputedStyle(e).color; });
+  assert.ok(!colors.includes(live), 'no one wears the "on" blue');
+  void others;
+});
+
+test('tile labels: name, status, PiP and mute never overlap; a long name stays on one line', async t => {
+  const long = 'Christina-Alexandra Montgomery-Smith';
+  for (const [width, height] of [[1280, 720], [390, 844]]) {
+    state(t).room = `r${Date.now()}x${width}`;
+    const a = await join(t, 'alice', null, '', { viewport: { width, height } }), b = await join(t, long), c = await join(t, 'carol');
+    await waitFor(async () => (await connectedPeers(a)) === 2, 'call up');
+    await b.click('#addRemoveCameraBtn'); await b.click('#muteUnmuteMicBtn');
+    await waitFor(() => a.evaluate(() => !!document.querySelector('.userName') && !!document.querySelector('.audioMuted')), 'bob\'s video and mute icon');
+    const bad = await a.evaluate(() => {
+      for (const s of document.querySelectorAll('.peerStatus')) s.textContent = 'reconnecting…';
+      const out = [], hit = (p, q) => p.left < q.right && q.left < p.right && p.top < q.bottom && q.top < p.bottom;
+      for (const tile of document.querySelectorAll('.videoplaceholder')) {
+        const els = [...tile.querySelectorAll('.userName, .peerStatus, .pipBtn:not([hidden]), .audioMuted')].filter(e => e.getClientRects().length);
+        for (const [i, e] of els.entries()) for (const f of els.slice(i + 1)) if (hit(e.getBoundingClientRect(), f.getBoundingClientRect())) out.push(`${e.className} / ${f.className}`);
+        const n = tile.querySelector('.userName');
+        if (n && n.getBoundingClientRect().height > 30) out.push('name wraps');
+        if (n && n.getBoundingClientRect().right > tile.getBoundingClientRect().right) out.push('name leaves its tile');
+      }
+      return out;
+    });
+    assert.deepStrictEqual(bad, [], `${width}x${height}`);
+    await Promise.all([a, b, c].map(p => p.context().close()));
+  }
+});
+
+test('circles fit their tiles, also short ones; the own preview is a white card', async t => {
+  const fits = page => page.evaluate(() => [...document.querySelectorAll('.videoplaceholder')].filter(tile => {
+    const c = tile.querySelector('.userPlaceholder').getBoundingClientRect(), r = tile.getBoundingClientRect(), ring = 10; // 4px gap + up to 6px while speaking
+    return !tile.querySelector('.userPlaceholderContainer').hidden && (c.left - ring < r.left || c.right + ring > r.right || c.top - ring < r.top || c.bottom + ring > r.bottom);
+  }).map(tile => tile.querySelector('.userPlaceholder').textContent));
+  state(t).room = `r${Date.now()}land`;
+  const a = await join(t, 'alice', null, '', { viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true });
+  const others = [await join(t, 'bob'), await join(t, 'carol'), await join(t, 'dave')];
+  await waitFor(async () => (await connectedPeers(a)) === 3, 'four in the call');
+  assert.deepStrictEqual(await fits(a), [], 'landscape phone, four people');
+  await others[1].click('#muteUnmuteMicBtn');
+  await waitFor(() => a.evaluate(() => !!document.querySelector('.audioMuted')), 'carol muted on alice');
+  const underBar = await a.evaluate(() => {
+    const bar = [$('#mediaControll'), ...document.querySelectorAll('.selectDeviceBtn')].filter(e => e.getClientRects().length && getComputedStyle(e).display != 'none').map(e => e.getBoundingClientRect());
+    const hit = (p, q) => p.left < q.right && q.left < p.right && p.top < q.bottom && q.top < p.bottom;
+    return [...document.querySelectorAll('.userPlaceholder, .audioMuted')].filter(e => bar.some(r => hit(e.getBoundingClientRect(), r))).map(e => e.textContent || 'mute icon');
+  });
+  assert.deepStrictEqual(underBar, [], 'landscape phone: no circle or mute icon under the bar');
+  await Promise.all([a, ...others].map(p => p.context().close()));
+  state(t).room = `r${Date.now()}port`;
+  const p = await join(t, 'alice', null, '', { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }), q = await join(t, 'bob');
+  await waitFor(async () => (await connectedPeers(p)) === 1 && (await p.evaluate(() => !!document.querySelector('.selfPreview'))), '1:1 call');
+  assert.deepStrictEqual(await fits(p), [], 'phone 1:1, own preview included');
+  assert.strictEqual(await p.evaluate(() => getComputedStyle(document.querySelector('.selfPreview > .userPlaceholderContainer')).backgroundColor), 'rgb(255, 255, 255)');
+  await q.context().close();
+});
+
+test('without video, a peer\'s mute icon sits on their circle', async t => {
+  for (const [width, height] of [[390, 844], [1280, 800]]) {
+    state(t).room = `r${Date.now()}x${width}`;
+    const a = await join(t, 'alice', null, '', { viewport: { width, height } }), b = await join(t, 'bob');
+    await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+    await b.click('#muteUnmuteMicBtn');
+    const tile = '.videoplaceholder:not(.selfPreview)';
+    await waitFor(() => a.locator(`${tile} .audioMuted`).isVisible(), 'bob muted on alice');
+    const [icon, circle] = await Promise.all([`${tile} .audioMuted`, `${tile} .userPlaceholder`].map(s => a.locator(s).boundingBox()));
+    const touches = icon.x < circle.x + circle.width && circle.x < icon.x + icon.width && icon.y < circle.y + circle.height && circle.y < icon.y + icon.height;
+    assert.ok(touches, `${width}x${height}: icon ${JSON.stringify(icon)} on circle ${JSON.stringify(circle)}`);
+    await Promise.all([a.context().close(), b.context().close()]);
+  }
+});
+
+test('nothing covers the call bar, its device tabs, or a peer\'s mute icon', async t => {
+  const overlaps = page => page.evaluate(() => {
+    const box = e => e && e.getClientRects().length && getComputedStyle(e).display != 'none' ? e.getBoundingClientRect() : null;
+    const bar = [['bar', $('#mediaControll')], ...[...document.querySelectorAll('.selectDeviceBtn')].map(e => [e.id, e])];
+    const peerMute = [...document.querySelectorAll('.videoplaceholder:not(.selfPreview) .audioMuted')][0];
+    const pairs = [...bar.map(([n, e]) => [['own preview', $('.selfPreview')], [n, e]]), ...bar.map(([n, e]) => [['peer mute icon', peerMute], [n, e]]),
+      [['peer mute icon', peerMute], ['own preview', $('.selfPreview')]], ...bar.map(([n, e]) => [['chat', $('#chatDiv')], [n, e]])];
+    const hit = (a, b) => a && b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    return pairs.filter(([[, x], [, y]]) => hit(box(x), box(y))).map(([[n], [m]]) => `${n} / ${m}`);
+  });
+  for (const [width, height, phone] of [[390, 844, true], [700, 700, false], [1280, 800, false]]) {
+    state(t).room = `r${Date.now()}x${width}`; // a fresh room per size: no one left over from the last
+    const a = await join(t, 'alice', null, '', { viewport: { width, height }, hasTouch: phone, isMobile: phone });
+    const b = await join(t, 'bob');
+    await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+    await waitFor(() => a.locator('#selectCameraBtn').isVisible(), 'camera tab shown (2 fake cams)');
+    await b.click('#muteUnmuteMicBtn');
+    await waitFor(() => a.evaluate(() => !!document.querySelector('.videoplaceholder:not(.selfPreview) .audioMuted')), 'bob muted on alice');
+    if (!phone) { await a.click('#moreBtn'); await a.click('#addRemoveChatBtn'); } // phones: the chat covers the call on purpose
+    assert.deepStrictEqual(await overlaps(a), [], `${width}x${height}`);
+    const mute = await a.locator('.videoplaceholder:not(.selfPreview) .audioMuted').boundingBox();
+    assert.ok(mute.y >= 0 && mute.y + mute.height <= height && mute.x >= 0 && mute.x + mute.width <= width, `peer mute icon on screen ${width}x${height}`);
+    await Promise.all([a.context().close(), b.context().close()]);
+  }
+});
+
 test('screen share button follows getDisplayMedia, not the user agent', async t => {
   for (const [init, shown] of [[null, true], [noScreenShare, false]]) {
     const a = await join(t, null, init, '', { userAgent: 'Mozilla/5.0 (Linux; Android 14) Mobile' });
@@ -1157,7 +1337,7 @@ test('unplugged camera turns the camera off', async t => {
   await a.click('#addRemoveCameraBtn');
   await waitFor(() => a.evaluate(() => camActive), 'camera on');
   await a.evaluate(() => allUserStreams[MY_UUID].videostream.getVideoTracks()[0].dispatchEvent(new Event('ended')));
-  assert.deepStrictEqual(await a.evaluate(() => [camActive, !!allUserStreams[MY_UUID].videostream, $('#addRemoveCameraBtn').style.color]), [false, false, 'black']);
+  assert.deepStrictEqual(await a.evaluate(() => [camActive, !!allUserStreams[MY_UUID].videostream, $('#addRemoveCameraBtn').classList.contains('on')]), [false, false, false]); // the button no longer reads as on
 });
 
 test('hang up releases mic, camera and socket right away, once', async t => {
@@ -1205,12 +1385,12 @@ test('mute icon on the own tile; unmuting in silence clears it for peers (#83)',
   await waitFor(() => b.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('AL')), 'alice\'s tile on bob');
   const aId = await a.evaluate(() => MY_UUID);
   const muted = p => p.evaluate(id => !!allUserStreams[id].tile.querySelector('.audioMuted'), aId);
-  const border = () => a.evaluate(() => allUserStreams[MY_UUID].tile.querySelector('.userPlaceholder').style.border);
+  const ring = () => a.evaluate(() => allUserStreams[MY_UUID].tile.querySelector('.userPlaceholder').style.getPropertyValue('--level'));
   await a.evaluate(() => setAudioLevel(MY_UUID, 2)); // speaking when the mute is clicked
   await a.click('#muteUnmuteMicBtn');
   await waitFor(() => muted(b), 'mute icon on bob');
   assert.ok(await muted(a), 'own tile shows the mute icon');
-  assert.strictEqual(await border(), '2px solid rgba(255, 255, 255, 0)', 'not lit as speaking while muted');
+  assert.strictEqual(await ring(), '0', 'not lit as speaking while muted');
   await a.click('#muteUnmuteMicBtn');
   await waitFor(async () => !(await muted(b)), 'mute icon gone on bob');
   assert.ok(!(await muted(a)), 'own tile unmuted');
@@ -1248,9 +1428,11 @@ test('tiles: rows fill the window, a video fits its tile, also right after a res
   const boxes = () => a.evaluate(() => [...document.querySelectorAll('#mediaDiv .videoplaceholder, #mediaDiv video')]
     .map(e => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round).join(); }));
   // 1280x720: two tiles on top, the third centered below; bob's video (listed after his tile) is as big as his tile allows
-  assert.deepStrictEqual(await boxes(), ['0,0,640,360', '640,0,640,360', '640,0,640,360', '320,360,640,360']);
+  // the tiles end above the bar and its device tabs: 16 + 92 = 108px up, (720 - 108) / 2 = 306
+  assert.deepStrictEqual(await boxes(), ['0,0,640,306', '640,0,640,306', '640,0,640,306', '320,306,640,306']);
   await a.setViewportSize({ width: 1280, height: 400 });
-  assert.deepStrictEqual(await boxes(), ['0,0,640,200', '640,0,640,200', '640,0,640,200', '320,200,640,200'], 'no re-layout needed');
+  // a short window gets the phone layout, the bar 10px up: (400 - 102) / 2 = 149
+  assert.deepStrictEqual(await boxes(), ['0,0,640,149', '640,0,640,149', '640,0,640,149', '320,149,640,149'], 'no re-layout needed');
 });
 
 test('picture-in-picture survives a re-layout (#27)', async t => {

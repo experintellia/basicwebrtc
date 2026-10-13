@@ -1,3 +1,38 @@
+/* Porcelain: a light, quiet look. Every color is one of these tokens; people get theirs from personColor (chatline.js) as --person. */
+:root {
+  --bg: #f6f6f4; /* pages */
+  --stage: #ecece9; /* the call */
+  --surface: #fff; /* cards, panels, the bar */
+  --soft: #f0f0ed; /* hover, chat bubbles, secondary buttons */
+  --hair: #dcddd8; /* borders */
+  --edge: #8e918a; /* input borders: 3:1 on white */
+  --ink: #1b1d21;
+  --dim: #5f6269;
+  --live: #2f3fce; /* on: mic, camera, screen share, focus */
+  --live-tint: #eceefb;
+  --leave: #b42318;
+  --radius: 6px;
+  --shadow: 0 8px 24px #1b1d211a;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --barBottom: max(16px, env(safe-area-inset-bottom)); /* the bar's distance from the bottom edge */
+  --selfPreviewBottomOffset: 116px; /* above the bar and its device tabs */
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  word-break: break-word;
+  font: 16px/1.4 var(--font);
+  color: var(--ink);
+  background: var(--bg);
+  overflow: hidden;
+}
+
+button, input, select {
+  font: inherit;
+  color: inherit;
+}
+
 audio {
   max-width: 100%;
 }
@@ -7,58 +42,322 @@ audio {
   height: 1em;
   vertical-align: -0.125em;
   fill: currentColor;
-  font-family: sans-serif; /* as the icon font did: under monospace, em sizes are 13/16 as big */
-}
-
-.pipBtn .icon {
-  width: 30px;
-  height: 30px;
-}
-
-body {
-  margin: 0;
-  padding: 0em;
-  word-break: break-word;
-  font-family: Monospace;
-  overflow: hidden;
-  background: rgb(43, 42, 42);;
 }
 
 video {
-  background: #222;
+  background: var(--hair);
   width: 100%;
 }
 
-.userPlaceholder {
-  width: 150px;
-  height: 150px;
-  line-height: 150px;
-  border-radius: 50%;
-  margin-left: auto;
-  margin-right: auto;
-  background: #8e8effa1;
-  font-size: 7em;
-  color: #1a1a1a;
-  text-align: center;
-  position: relative;
-  top: 25%;
+/* primary and secondary buttons, inputs: one shape */
+#joinBtn, #newCallBtn, #chatSendBtn, #copyLinkBtn, .knock button, #copyChatBtn, #nameInput, #chatInputText, #shareLink, #lobby select {
+  border-radius: var(--radius);
+  font-size: 16px; /* below 16px iOS zooms in on focus */
 }
 
-.callBtn {
-  padding: 10px 15px;
-  width: 45px;
+#joinBtn, #newCallBtn, #chatSendBtn, #copyLinkBtn, .knock button {
+  border: 1px solid transparent; /* as tall as the secondary buttons */
+  background: var(--ink);
+  color: var(--bg);
+  font-weight: 600;
   cursor: pointer;
 }
 
-.callBtn:hover {
-  background: #ababad40;
+#joinBtn:hover, #newCallBtn:hover, #chatSendBtn:hover, #copyLinkBtn:hover, .knock button:hover {
+  background: #33363c;
 }
 
-.deviceGroup {
+#copyChatBtn, .knock button + button {
+  border: 1px solid var(--hair);
+  background: var(--soft);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+#nameInput, #chatInputText, #shareLink, #lobby select {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--edge);
+  background: var(--surface);
+  color: var(--ink);
+  outline: none;
+}
+
+#nameInput:focus, #chatInputText:focus, #shareLink:focus, #lobby select:focus {
+  border-color: var(--live);
+  box-shadow: 0 0 0 1px var(--live); /* 2px in all */
+}
+
+/* cards and panels */
+#chatDiv, #shareDialog, #moreMenu, #lobby, .knock, #endCard, #endChat {
+  border: 1px solid var(--hair);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+#lobby h2, #endCard h2, #endChat h2, #shareDialog h2 {
+  margin: 0;
+  font-size: 1.25em;
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+
+#lobbyMsg, #intro p, #endCard p, #endChat p, #shareDialog p {
+  margin: 0;
+  color: var(--dim);
+}
+
+#chatText a, #intro a {
+  color: var(--live);
+}
+
+/* the call */
+#mediaDiv { /* tiles in rows: updateUserLayout sets --rows and --cols */
+  position: fixed;
+  inset: 0;
+  box-sizing: border-box;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) calc(var(--barBottom) + 92px) env(safe-area-inset-left); /* names clear of the notch; tiles end above the bar and its device tabs */
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center; /* an incomplete last row in the middle */
+  background: var(--stage);
+}
+
+.videoplaceholder {
+  --disc: min(150px, 30vmin); /* the circle; the mute badge and status sit around it. Browsers without container units (Safari < 16) size it by the window */
+  container-type: size;
+  position: relative;
+  width: calc(100% / var(--cols));
+  height: calc(100% / var(--rows));
+}
+
+@supports (width: 1cqmin) {
+  .videoplaceholder {
+    --disc: min(150px, 65cqmin, 100cqh - 76px); /* smaller in short tiles, with room for the status chip under it */
+  }
+}
+
+.videoplaceholder.selfPreview { /* own tile in a 1:1 call, over the other one */
+  --gap: var(--surface);
+  position: absolute;
+  left: calc(20px + env(safe-area-inset-left));
+  bottom: calc(var(--selfPreviewBottomOffset) + env(safe-area-inset-bottom));
+  z-index: 1;
+  width: 20%;
+  min-width: 126px;
+  height: 30%;
+}
+
+.videoplaceholder.selfPreview:has(> .userCont) { /* own video: the card is as tall as the video, so it sits right above the bar */
+  height: auto;
+  container-type: normal;
+}
+
+.selfPreview > .userCont {
   position: relative;
 }
 
-/* caret tab on top of the mic/camera button: opens the device list */
+.selfPreview video, .selfPreview > .userPlaceholderContainer {
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+
+.userCont {
+  position: absolute;
+  inset: 0;
+}
+
+.userCont video { /* frame-sized, at the tile's top, as big as the tile allows */
+  display: block;
+  max-height: 100%;
+}
+
+video.mirror {
+  transform: scaleX(-1);
+}
+
+.videoplaceholder > .userPlaceholderContainer {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--stage);
+}
+
+.videoplaceholder.selfPreview > .userPlaceholderContainer {
+  background: var(--surface);
+}
+
+.videoplaceholder > .userPlaceholderContainer[hidden] {
+  display: none;
+}
+
+.userPlaceholder { /* a person: their color, their initials, a ring while they speak (--level from setAudioLevel) */
+  width: var(--disc);
+  height: var(--disc);
+  line-height: var(--disc);
+  border-radius: 50%;
+  background: var(--person, var(--dim));
+  color: #fff;
+  font-size: calc(var(--disc) * .37);
+  font-weight: 600;
+  text-align: center;
+  box-shadow: 0 0 0 4px var(--gap, var(--stage)), 0 0 0 calc(3.5px + var(--level, 0) * 3px) var(--ink); /* quiet: the ink stays under the gap */
+  transition: box-shadow .1s;
+}
+
+.userName, .peerStatus, .pipBtn, .audioMuted { /* small chips over a tile */
+  position: absolute;
+  z-index: 10;
+  border-radius: 4px;
+  background: #ffffffe6;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.userName { /* top left, one line, clear of the PiP button */
+  top: 8px;
+  left: 8px;
+  max-width: calc(100% - 64px);
+  padding: 2px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.userName::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--person, var(--dim));
+}
+
+.peerStatus { /* under the circle, away from the name tag */
+  top: calc(50% + var(--disc) / 2 + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+.peerStatus:empty {
+  display: none;
+}
+
+.pipBtn {
+  top: 8px;
+  right: 8px;
+  padding: 4px;
+  border: 0;
+  line-height: 0;
+  cursor: pointer;
+}
+
+.pipBtn .icon {
+  width: 22px;
+  height: 22px;
+}
+
+.audioMuted { /* a badge on the circle's lower right edge */
+  background: var(--surface);
+  left: calc(50% + var(--disc) * .35 - 14px);
+  top: calc(50% + var(--disc) * .35 - 14px);
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px var(--gap, var(--stage));
+  color: var(--leave);
+}
+
+.userCont ~ .audioMuted { /* with video: under the name tag */
+  left: 8px;
+  top: 38px;
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+/* the bar: wide equal cells with labels, floating clear of the edges and the safe areas */
+#mediaControllContainer {
+  position: fixed;
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
+  bottom: var(--barBottom);
+}
+
+#mediaControll {
+  max-width: 420px;
+  margin: 0 auto;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  border: 1px solid var(--hair);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+#mediaControll > * + * {
+  border-left: 1px solid var(--soft);
+}
+
+.deviceGroup, #moreGroup {
+  position: relative;
+}
+
+.callBtn {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 10px 0 9px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+
+.callBtn .icon {
+  width: 22px;
+  height: 20px;
+}
+
+@media (hover: hover) { /* phones: no hover left behind on the last tapped button */
+  .callBtn:hover {
+    background-color: var(--soft);
+  }
+}
+
+#micGroup .callBtn {
+  border-radius: 11px 0 0 11px;
+}
+
+#cancelCallBtn {
+  border-radius: 0 11px 11px 0;
+  color: var(--leave);
+}
+
+.callBtn.on { /* mic live, camera or screen shared: a blue tint, blue icon and a short line under the label */
+  background-color: var(--live-tint);
+  background-image: linear-gradient(var(--live), var(--live));
+  background-position: center bottom 3px;
+  background-size: 24px 2px;
+  background-repeat: no-repeat;
+}
+
+.callBtn.on .icon {
+  color: var(--live);
+}
+
+/* tab on top of the mic/camera/screen button: opens the device list */
 .selectDeviceBtn {
   position: absolute;
   bottom: 100%;
@@ -66,20 +365,26 @@ video {
   right: 0;
   height: 28px;
   line-height: 28px;
-  font-size: 20px;
-  border-radius: 5px 5px 0 0;
-  border: 1px solid #fff;
+  font-size: 14px;
+  text-align: center;
+  color: var(--dim);
+  border-radius: 8px 8px 0 0;
+  border: 1px solid var(--hair);
   border-bottom: 0;
   box-sizing: border-box;
-  background: #ffffffc0;
+  background: var(--surface);
 }
 
 .selectDeviceBtn:hover {
-  background: #fff;
+  color: var(--ink);
 }
 
-#moreGroup {
-  position: relative;
+/* invisible native select over the icon, so the OS picker opens on click */
+.selectDeviceBtn select {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 
 #moreMenu {
@@ -88,7 +393,7 @@ video {
   right: 0;
   z-index: 30;
   padding: 6px;
-  font: 16px sans-serif;
+  font-size: 15px;
   text-align: left;
 }
 
@@ -102,17 +407,16 @@ video {
   width: 100%;
   padding: 12px 16px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: none;
-  color: inherit;
-  font: inherit;
+  gap: 6px;
   white-space: nowrap;
   text-align: left;
   cursor: pointer;
 }
 
 #moreMenu button:hover {
-  background: #ffffff1a;
+  background: var(--soft);
 }
 
 #moreMenu .icon {
@@ -131,53 +435,34 @@ video {
   padding: 0 5px;
   box-sizing: border-box;
   border-radius: 10px;
-  background: #e53935;
+  background: var(--leave);
   color: #fff;
-  font: bold 12px/20px sans-serif;
+  font: 700 12px/20px var(--font);
   text-align: center;
 }
 
 #moreBtn[data-unread]::after {
   position: absolute;
   top: -10px;
-  right: -2px;
-  min-width: 26px;
-  height: 26px;
-  border: 2px solid #fff;
-  border-radius: 13px;
-  font-size: 15px;
-  line-height: 22px;
+  right: 6px;
+  border: 2px solid var(--surface);
+  line-height: 16px;
 }
 
 #addRemoveChatBtn[data-unread]::after {
   margin-left: auto;
 }
 
-/* invisible native select over the icon, so the OS picker opens on click */
-.selectDeviceBtn select {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-#cancelCallBtn {
-  color: #710000;
-}
-
-#muteUnmuteMicBtn [href="#microphone-alt"] {
-  color: #044e04;
-}
-
+/* chat */
 #chatDiv {
   width: 320px;
   height: 420px;
   max-height: calc(100dvh - 150px); /* short desktop windows above the phone breakpoint */
   position: absolute;
   right: 20px;
-  bottom: 130px;
+  bottom: 120px; /* above the bar's device tabs */
   z-index: 20;
-  font: 15px sans-serif;
+  font-size: 15px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -187,52 +472,23 @@ video {
   display: none;
 }
 
-#chatDiv, #shareDialog, #moreMenu, #lobby, .knock, #endCard, #endChat {
-  border: 1px solid #80808087;
-  border-radius: 12px;
-  background: rgb(43, 42, 42);
-  color: #ddd;
-  box-shadow: 0 10px 40px #000a;
-}
-
-#chatDiv button, #shareDialog button, #lobby button, .knock button, #endChat button {
-  border: 0;
-  cursor: pointer;
-  font: inherit;
-}
-
-#chatInputText, #shareLink, #nameInput {
-  flex: 1;
-  min-width: 0;
-  border: 1px solid #555;
-  background: #1e1e1e;
-  color: #fff;
-}
-
-#chatSendBtn, #copyLinkBtn, #joinBtn, .knock button, #newCallBtn {
-  background: #3b6fd6;
-  color: #fff;
-}
-
-#chatSendBtn:hover, #copyLinkBtn:hover, #joinBtn:hover, .knock button:hover, #newCallBtn:hover {
-  background: #4c80e8;
-}
-
 #chatHeader {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 6px 6px 6px 16px;
-  border-bottom: 1px solid #ffffff1a;
-  font-weight: bold;
-  color: #fff;
+  border-bottom: 1px solid var(--hair);
+  font-weight: 700;
 }
 
-#chatDiv #chatCloseBtn {
+#chatDiv #chatCloseBtn, #shareDialog button[value=close] {
   padding: 4px 10px;
+  border: 0;
   background: none;
-  color: #aaa;
+  color: var(--dim);
   font-size: 1.6em;
+  line-height: 1;
+  cursor: pointer;
 }
 
 #chatText {
@@ -246,7 +502,7 @@ video {
   display: block;
   margin-top: 40%;
   text-align: center;
-  color: #777;
+  color: var(--dim);
 }
 
 #chatText > div {
@@ -254,65 +510,49 @@ video {
   max-width: 85%;
   margin: 6px 0;
   padding: 7px 11px;
-  border-radius: 12px;
-  background: #3a3939;
+  border-radius: 10px;
+  background: var(--soft);
   line-height: 1.35;
 }
 
-.chatName {
-  color: #a9a9ff;
-}
-
-#chatText a, #intro a {
-  color: #9cf;
+.chatName { /* color: personColor, set by chatLine */
+  font-weight: 700;
 }
 
 #chatInputRow {
   display: flex;
   gap: 8px;
   padding: 10px;
-  border-top: 1px solid #ffffff1a;
+  border-top: 1px solid var(--hair);
 }
 
 #chatInputText {
-  padding: 9px 14px;
-  border-radius: 20px;
-  outline: none;
-  font: 16px sans-serif; /* below 16px iOS zooms in on focus */
-}
-
-#chatInputText:focus {
-  border-color: #3b6fd6;
+  padding: 9px 12px;
 }
 
 #chatSendBtn {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  width: 42px;
+  height: 42px;
 }
 
+/* share dialog */
 #shareDialog {
   width: min(420px, 90vw);
   box-sizing: border-box;
   padding: 20px;
-  font: 16px sans-serif;
 }
 
 #shareDialog::backdrop {
-  background: #0008;
+  background: #1b1d2155;
   backdrop-filter: blur(3px);
 }
 
 #shareDialog h2 {
-  margin: 0 0 8px;
-  font-size: 1.2em;
-  color: #fff;
+  margin-bottom: 8px;
 }
 
 #shareDialog p {
-  margin: 0 0 16px;
-  color: #aaa;
-  line-height: 1.4;
+  margin-bottom: 16px;
 }
 
 #shareDialog div {
@@ -323,55 +563,31 @@ video {
 #shareDialog button[value=close] {
   float: right;
   margin: -10px -8px 0 0;
-  padding: 4px 10px;
-  background: none;
-  color: #aaa;
-  font-size: 1.5em;
 }
 
 #shareLink {
   padding: 10px;
-  border-radius: 6px;
-  font: 14px monospace;
+  font: 14px ui-monospace, monospace;
 }
 
 #copyLinkBtn {
   padding: 10px 16px;
-  border-radius: 6px;
   white-space: nowrap;
 }
 
-::-webkit-scrollbar {
-  width: 10px;
-}
-
-::-webkit-scrollbar-track {
-  background: #f1f1f1; 
-}
- 
-::-webkit-scrollbar-thumb {
-  background: #888; 
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #555; 
-}
-
-
-/* TV EFFECT */
-
-
+/* notices */
 #unsupported, #micError {
   position: fixed;
   inset: 0;
   z-index: 100;
   padding: 40px;
-  background: black;
-  color: white;
-  font: 1.5em sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 1.4em;
   text-align: center;
 }
 
+/* TV EFFECT */
 div#topDiv, div#bottomDiv {
   animation: tvClose 0.5s forwards;
 }
@@ -389,141 +605,30 @@ div#centerDiv {
 }
 
 div#topDiv, div#bottomDiv {
-  width:100%;
-  height:0%;
-  opacity:0.9;
-  background:black;
-  position:absolute;
+  width: 100%;
+  height: 0%;
+  opacity: 0.9;
+  background: black;
+  position: absolute;
 }
 div#topDiv { top: 0%; }
 div#bottomDiv { bottom: 0%; }
-div#centerDiv{
-  position:absolute;
+div#centerDiv {
+  position: absolute;
   height: 1px;
   top: 50%;
-  width:100%;
-  background: white;
-  z-index:1;
-}
-
-
-/* UI */
-
-/* safe areas: kept clear of the notch and home indicator (viewport-fit=cover in the pages) */
-#mediaControllContainer {
-  position: fixed;
-  bottom: env(safe-area-inset-bottom);
-  height: 100px;
   width: 100%;
-  box-sizing: border-box;
-  padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
-  text-align: center;
-  font-size: 2.5em;
-}
-
-#mediaControll{
-  max-width: 100%;
-  width: fit-content;
-  display: flex;
-  margin-left: auto;
-  margin-right: auto;
-  background: #ffffff3b;
-  border-radius: 5px;
-}
-
-#mediaDiv { /* tiles in rows: updateUserLayout sets --rows and --cols */
-  position: fixed;
-  inset: 0;
-  box-sizing: border-box;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); /* video may run under the home indicator, names may not reach the notch */
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center; /* an incomplete last row in the middle */
-}
-
-.videoplaceholder {
-  position: relative;
-  width: calc(100% / var(--cols));
-  height: calc(100% / var(--rows));
-}
-
-.videoplaceholder.selfPreview { /* own tile in a 1:1 call, over the other one */
-  position: absolute;
-  left: calc(20px + env(safe-area-inset-left));
-  bottom: calc(var(--selfPreviewBottomOffset) + env(safe-area-inset-bottom));
+  background: white;
   z-index: 1;
-  width: 20%;
-  min-width: 126px;
-  height: 30%;
-}
-
-.userCont {
-  position: absolute;
-  inset: 0;
-}
-
-.userCont video { /* frame-sized, at the tile's top, as big as the tile allows */
-  display: block;
-  max-height: 100%;
-}
-
-video.mirror {
-  transform: scaleX(-1);
-}
-
-.userName {
-  position: absolute;
-  top: 7px;
-  left: 7px;
-  z-index: 10;
-  color: white;
-  font-size: 1.3em;
-  text-shadow: 1px 0 0 #000, 0 -1px 0 #000, 0 1px 0 #000, -1px 0 0 #000;
-}
-
-.pipBtn {
-  position: absolute;
-  top: 5px;
-  right: 10px;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-}
-
-.audioMuted {
-  position: absolute;
-  top: 0;
-  padding: 10px;
-  color: white;
-  font-size: 1.7em;
-}
-
-.videoplaceholder > .userPlaceholderContainer {
-  width:100%;
-  height:100%;
-  position:absolute;
-  overflow:hidden;
-  background: #474747;
-}
-
-:root {
-  --selfPreviewBottomOffset: 30px;
 }
 
 @media only screen and (max-width: 600px), only screen and (max-height: 460px) {
   :root {
-    --selfPreviewBottomOffset: 80px;
-  }
-  #mediaControllContainer {
-    height: unset;
-    bottom: max(10px, env(safe-area-inset-bottom));
-    font-size: 1.7em;
+    --selfPreviewBottomOffset: 108px;
   }
 
-  .callBtn {
-    padding: 8px 5px;
-    width: auto;
-    min-width: 34px; /* 44px tap target incl. padding, 7 buttons fit 320px */
+  :root {
+    --barBottom: max(10px, env(safe-area-inset-bottom));
   }
 
   #chatDiv {
@@ -537,27 +642,6 @@ video.mirror {
     border-radius: 0;
   }
 
-  .selfPreview .userPlaceholder {
-    width: 120px;
-    height: 120px;
-    font-size: 5em;
-    line-height: 120px;
-    padding: 0;
-  }
-}
-
-
-.peerStatus {
-  position: absolute;
-  top: 10px;
-  width: 100%;
-  text-align: center;
-  color: white;
-  z-index: 10;
-}
-
-.peerStatus:empty {
-  display: none;
 }
 
 /* pre-join screen: own preview, name, mic and camera; the call UI stays hidden until Join */
@@ -578,21 +662,29 @@ video.mirror {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  font: 16px sans-serif;
+}
+
+#lobby > * {
+  flex-shrink: 0; /* a short window scrolls the card instead of squashing the preview and the mic check */
 }
 
 #lobby[hidden], #endChat[hidden] {
   display: none;
 }
 
-#lobby h2, #endCard h2, #endChat h2 {
-  margin: 0;
-  font-size: 1.3em;
-  color: #fff;
+#intro {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--hair);
+}
+
+#intro[hidden] {
+  display: none;
 }
 
 #intro ul {
-  margin: 8px 0;
+  margin: 0;
   padding: 0;
   list-style: none;
   display: grid;
@@ -608,13 +700,13 @@ video.mirror {
   flex: none;
   width: 1.2em;
   height: 1.2em;
-  color: #4caf50;
+  color: var(--live);
 }
 
 #lobbyPreview {
   aspect-ratio: 16 / 9;
-  border-radius: 8px;
-  background: #1e1e1e;
+  border-radius: 10px;
+  background: var(--stage);
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -623,7 +715,7 @@ video.mirror {
 
 #lobbyPreview:has(video[hidden])::before {
   content: "Camera is off";
-  color: #777;
+  color: var(--dim);
 }
 
 #lobbyVideo {
@@ -644,18 +736,14 @@ video.mirror {
 
 #lobby label .icon {
   width: 1.4em;
-  color: #ddd;
 }
 
 #lobby select {
-  flex: 1;
-  min-width: 0;
   padding: 9px;
-  border: 1px solid #555;
-  border-radius: 8px;
-  background: #1e1e1e;
-  color: #fff;
-  font: inherit;
+}
+
+#lobby input[type=checkbox] {
+  accent-color: var(--ink);
 }
 
 #micMeter {
@@ -663,22 +751,21 @@ video.mirror {
   height: 8px;
 }
 
-#lobbyMsg, #intro p, #endCard p, #endChat p {
-  margin: 0;
-  color: #aaa;
-}
-
-#joinBtn, #newCallBtn {
-  padding: 14px;
-  font-size: 1.15em;
-  font-weight: bold;
-}
+#micMeter::-webkit-meter-bar { background: var(--hair); border: 0; border-radius: 4px; }
+#micMeter::-webkit-meter-optimum-value, #micMeter::-webkit-meter-suboptimum-value { background: var(--live); border-radius: 4px; }
+#micMeter::-moz-meter-bar { background: var(--live); }
 
 #nameInput, #joinBtn, #newCallBtn, #copyChatBtn {
   padding: 10px 14px;
-  border-radius: 8px;
-  font-family: sans-serif;
-  font-size: 16px; /* below 16px iOS zooms in on focus */
+}
+
+#joinBtn, #newCallBtn {
+  padding: 13px;
+}
+
+#joinBtn:disabled {
+  opacity: .5;
+  cursor: default;
 }
 
 /* end screen (endcall.html): the call in a few lines, the chat to save links from, and a way to start the next one */
@@ -710,34 +797,19 @@ video.mirror {
   padding: 0; /* the card has its own */
 }
 
-#copyChatBtn {
-  background: #555;
-  color: #fff;
-}
-
-#copyChatBtn:hover {
-  background: #666;
-}
-
 #endChat #chatNote { /* the chat lives only in this tab */
   padding: 8px 10px;
-  border-left: 3px solid #f0c36a;
-  border-radius: 4px;
-  background: #ffffff0d;
-  color: #ddd;
+  border-radius: var(--radius);
+  background: #fdf3dc;
+  color: var(--ink);
 }
 
 #duration {
   font-size: 3em;
-  font-weight: bold;
+  font-weight: 700;
+  letter-spacing: -.03em;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  color: #fff;
-}
-
-#with {
-  font-size: 1.1em;
-  color: #ddd;
 }
 
 #duration:empty, #with:empty {
@@ -745,7 +817,7 @@ video.mirror {
 }
 
 #nerdStats summary {
-  color: #aaa;
+  color: var(--dim);
   cursor: pointer;
 }
 
@@ -757,22 +829,16 @@ video.mirror {
 }
 
 #stats dt {
-  color: #aaa;
+  color: var(--dim);
 }
 
 #stats dd {
   margin: 0;
-  color: #fff;
 }
 
 #newCallBtn {
   text-align: center;
   text-decoration: none;
-}
-
-#joinBtn:disabled {
-  opacity: .5;
-  cursor: default;
 }
 
 /* join requests of a locked room, on top for every member */
@@ -791,7 +857,6 @@ video.mirror {
   gap: 8px;
   margin-bottom: 8px;
   padding: 10px 12px;
-  font: 16px sans-serif;
 }
 
 .knock span {
@@ -800,9 +865,4 @@ video.mirror {
 
 .knock button {
   padding: 8px 12px;
-  border-radius: 8px;
-}
-
-.knock button + button {
-  background: #555;
 }
