@@ -1196,6 +1196,26 @@ test('remote mute icon survives re-layout and is shown to late-joining peers', a
   for (const p of [a, b, c]) await p.context().close();
 });
 
+test('mute icon on the own tile; unmuting in silence clears it for peers (#83)', async () => {
+  const room = 'r' + Date.now();
+  const silentMic = () => { const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); navigator.mediaDevices.getUserMedia = c => c.audio ? Promise.resolve(new AudioContext().createMediaStreamDestination().stream) : gum(c); };
+  const a = await join(room, 'alice', silentMic); // the meter never sees a level change
+  const b = await join(room, 'bob');
+  await waitFor(() => b.evaluate(() => document.querySelector('#mediaDiv').textContent.includes('AL')), 'alice\'s tile on bob');
+  const aId = await a.evaluate(() => MY_UUID);
+  const muted = p => p.evaluate(id => !!allUserStreams[id].tile.querySelector('.audioMuted'), aId);
+  const border = () => a.evaluate(() => allUserStreams[MY_UUID].tile.querySelector('.userPlaceholder').style.border);
+  await a.evaluate(() => setAudioLevel(MY_UUID, 2)); // speaking when the mute is clicked
+  await a.click('#muteUnmuteMicBtn');
+  await waitFor(() => muted(b), 'mute icon on bob');
+  assert.ok(await muted(a), 'own tile shows the mute icon');
+  assert.strictEqual(await border(), '2px solid rgba(255, 255, 255, 0)', 'not lit as speaking while muted');
+  await a.click('#muteUnmuteMicBtn');
+  await waitFor(async () => !(await muted(b)), 'mute icon gone on bob');
+  assert.ok(!(await muted(a)), 'own tile unmuted');
+  await a.context().close(); await b.context().close();
+});
+
 test('layout skipped in fullscreen is redone on exit', async () => {
   const room = 'r' + Date.now();
   const a = await join(room, 'alice', () => { window.__fs = null; Object.defineProperty(document, 'fullscreenElement', { get: () => window.__fs }); });
