@@ -1042,6 +1042,43 @@ test('all call buttons fit on screen from phone to small desktop widths', async 
   }
 });
 
+// iPhone notch / home indicator, emulated by Chromium. ins = [top, right, bottom, left]; Chromium applies them with or without viewport-fit.
+async function notched(t, opts, ins, path = '') {
+  const page = await (await context(t, opts)).newPage();
+  const [top, right, bottom, left] = ins;
+  await (await page.context().newCDPSession(page)).send('Emulation.setSafeAreaInsetsOverride', { insets: { top, right, bottom, left } });
+  await page.goto(`${BASE}${path}#roomname=${room(t)}`);
+  return page;
+}
+// Visible elements matching sels that reach into the insets.
+const unsafe = (page, sels, ins) => page.evaluate(([sels, [top, right, bottom, left]]) => sels.flatMap(s => [...document.querySelectorAll(s)])
+  .filter(e => e.getClientRects().length && getComputedStyle(e).visibility != 'hidden')
+  .filter(e => { const r = e.getBoundingClientRect(); return r.top < top - .5 || r.right > innerWidth - right + .5 || r.bottom > innerHeight - bottom + .5 || r.left < left - .5; })
+  .map(e => e.id || e.className), [sels, ins]);
+
+test('safe areas: nothing to tap or read sits under the notch or the home indicator', async t => {
+  for (const [w, h, ins] of [[390, 844, [47, 0, 34, 0]], [844, 390, [0, 47, 21, 47]]]) {
+    const opts = { viewport: { width: w, height: h }, hasTouch: true, isMobile: true }, size = `${w}x${h}`;
+    for (const path of ['', 'endcall.html']) {
+      const p = await notched(t, opts, ins, path);
+      assert.match(await p.$eval('meta[name=viewport]', m => m.content), /viewport-fit=cover/, `${path || 'index.html'}: without it iOS reports no insets`);
+      if (path) assert.deepStrictEqual(await unsafe(p, ['#endCard', '#newCallBtn'], ins), [], `end page ${size}`);
+      else assert.deepStrictEqual(await unsafe(p, ['#lobby'], ins), [], `lobby ${size}`);
+      await p.context().close();
+    }
+    const a = await notched(t, opts, ins);
+    await a.click('#joinBtn');
+    const b = await join(t, 'bob');
+    await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+    await a.click('#addRemoveCameraBtn'); await b.click('#addRemoveCameraBtn'); // name tags and PiP buttons
+    await waitFor(() => a.evaluate(() => document.querySelectorAll('#mediaDiv video').length == 2), 'both videos');
+    assert.deepStrictEqual(await unsafe(a, ['#mediaControll', '.callBtn', '.selfPreview', '.userName', '.pipBtn', '#knocks'], ins), [], `call ${size}`);
+    await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
+    assert.deepStrictEqual(await unsafe(a, ['#chatHeader', '#chatCloseBtn', '#chatInputRow'], ins), [], `chat ${size}`);
+    await Promise.all([a.context().close(), b.context().close()]);
+  }
+});
+
 test('screen share button follows getDisplayMedia, not the user agent', async t => {
   for (const [init, shown] of [[null, true], [noScreenShare, false]]) {
     const a = await join(t, null, init, '', { userAgent: 'Mozilla/5.0 (Linux; Android 14) Mobile' });
