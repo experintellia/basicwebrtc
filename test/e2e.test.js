@@ -1122,6 +1122,21 @@ test('lobby mic check: a bar you can see that moves with your voice', async t =>
   await waitFor(() => a.evaluate(() => $('#micMeter').value > 0), 'the fake mic\'s beep moves it');
 });
 
+test('without video, a peer\'s mute icon sits on their circle', async t => {
+  for (const [width, height] of [[390, 844], [1280, 800]]) {
+    state(t).room = `r${Date.now()}x${width}`;
+    const a = await join(t, 'alice', null, '', { viewport: { width, height } }), b = await join(t, 'bob');
+    await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up');
+    await b.click('#muteUnmuteMicBtn');
+    const tile = '.videoplaceholder:not(.selfPreview)';
+    await waitFor(() => a.locator(`${tile} .audioMuted`).isVisible(), 'bob muted on alice');
+    const [icon, circle] = await Promise.all([`${tile} .audioMuted`, `${tile} .userPlaceholder`].map(s => a.locator(s).boundingBox()));
+    const touches = icon.x < circle.x + circle.width && circle.x < icon.x + icon.width && icon.y < circle.y + circle.height && circle.y < icon.y + icon.height;
+    assert.ok(touches, `${width}x${height}: icon ${JSON.stringify(icon)} on circle ${JSON.stringify(circle)}`);
+    await Promise.all([a.context().close(), b.context().close()]);
+  }
+});
+
 test('nothing covers the call bar, its device tabs, or a peer\'s mute icon', async t => {
   const overlaps = page => page.evaluate(() => {
     const box = e => e && e.getClientRects().length && getComputedStyle(e).display != 'none' ? e.getBoundingClientRect() : null;

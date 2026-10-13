@@ -122,6 +122,7 @@ video {
 }
 
 .videoplaceholder {
+  --disc: 150px; /* the circle; the mute badge sits on its edge */
   position: relative;
   width: calc(100% / var(--cols));
   height: calc(100% / var(--rows));
@@ -169,9 +170,9 @@ video.mirror {
 }
 
 .userPlaceholder { /* a person: their color, their initials, a ring while they speak (--level from setAudioLevel) */
-  width: 150px;
-  height: 150px;
-  line-height: 150px;
+  width: var(--disc);
+  height: var(--disc);
+  line-height: var(--disc);
   border-radius: 50%;
   margin: 0 auto;
   background: var(--person, var(--dim));
@@ -233,20 +234,28 @@ video.mirror {
   cursor: pointer;
 }
 
-.userCont ~ .audioMuted {
-  top: 38px;
-}
-
 .pipBtn .icon {
   width: 22px;
   height: 22px;
 }
 
-.audioMuted { /* top left, under the name tag when there is one: never under the bar or the own preview */
-  left: 8px;
-  top: 8px;
-  padding: 5px 7px;
+.audioMuted { /* a badge on the circle's lower right edge (.userPlaceholder sits 25% down, centered) */
+  left: calc(50% + var(--disc) * .35 - 14px);
+  top: calc(25% + var(--disc) * .85 - 14px);
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px var(--stage);
   color: var(--leave);
+}
+
+.userCont ~ .audioMuted { /* with video: under the name tag */
+  left: 8px;
+  top: 38px;
+  border-radius: 4px;
+  box-shadow: none;
 }
 
 /* the bar: wide equal cells with labels, floating clear of the edges and the safe areas */
@@ -604,11 +613,12 @@ div#centerDiv {
     border-radius: 0;
   }
 
+  .videoplaceholder.selfPreview {
+    --disc: 120px;
+  }
+
   .selfPreview .userPlaceholder {
-    width: 120px;
-    height: 120px;
     font-size: 44px;
-    line-height: 120px;
   }
 }
 
