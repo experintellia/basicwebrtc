@@ -1154,6 +1154,34 @@ test('rapid camera/screen clicks leave no live stream behind', async () => {
   await a.context().close();
 });
 
+test('camera off and on while a camera switch is pending: one live camera, the one sent (#84)', async () => {
+  const room = 'r' + Date.now();
+  const a = await join(room, 'alice', `(${trackPcs})(); (${() => { // records every track handed out; a getUserMedia called while __hold is set waits for __go()
+    const md = navigator.mediaDevices, gum = md.getUserMedia.bind(md);
+    window.__streams = [];
+    md.getUserMedia = async c => { await window.__hold; const s = await gum(c); __streams.push(new MediaStream(s.getTracks())); return s; }; // a copy: the page adds tracks to its streams
+  }})();`);
+  const b = await join(room, 'bob');
+  await waitFor(async () => (await connectedPeers(a)) === 1, 'ICE connected');
+  await a.click('#addRemoveCameraBtn');
+  for (const fail of [true, false]) { // the switch fails (first: it picks the second camera, not the picker's fallback), or gets a camera
+    await waitFor(() => a.evaluate(() => camActive && $('#cameraSelect').options.length > 1), 'camera on, picker filled');
+    const other = await a.evaluate(() => [...$('#cameraSelect').options].find(o => o.value != selectedCameraId).value);
+    await a.evaluate(([o, fail]) => { // only the switch's getUserMedia waits
+      window.__hold = new Promise((ok, no) => window.__go = () => fail ? no(new DOMException('busy', 'NotReadableError')) : ok());
+      pick('#cameraSelect', o);
+      __hold = null;
+    }, [other, fail]);
+    await a.click('#addRemoveCameraBtn'); await a.click('#addRemoveCameraBtn'); // off and on again meanwhile
+    await waitFor(() => a.evaluate(() => camActive), 'camera on again');
+    await a.evaluate(() => __go());
+    await waitFor(() => a.evaluate(() => !$('#cameraSelect').disabled), 'switch done');
+    assert.strictEqual(await liveVideoLeft(a), 1, `one live camera (switch ${fail ? 'failed' : 'got one'})`);
+    assert.ok(await a.evaluate(o => { const t = allUserStreams[MY_UUID].videostream.getVideoTracks()[0]; return t.getSettings().deviceId == o && __raw.at(-1).getSenders().some(s => s.track?.id == t.id) && selectedCameraId == o; }, other), 'the slot sends the camera turned on, still picked');
+  }
+  await a.context().close(); await b.context().close();
+});
+
 test('cancelling the screen picker keeps the camera', async () => {
   const a = await join('r' + Date.now(), 'alice', () => { navigator.mediaDevices.getDisplayMedia = () => Promise.reject(new DOMException('cancelled', 'NotAllowedError')); });
   await a.click('#addRemoveCameraBtn');
