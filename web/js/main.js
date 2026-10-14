@@ -246,7 +246,7 @@ $("#micSelect").onchange = async function () { //Swap the mic track in place, so
 $("#muteUnmuteMicBtn").onclick = function () {
   micMuted = !micMuted;
   this.querySelector("use").setAttribute("href", micMuted ? "#microphone-alt-slash" : "#microphone-alt"); // the label stays
-  this.classList.toggle("on", !micMuted);
+  this.setAttribute("aria-pressed", !micMuted);
   if (allUserStreams[MY_UUID] && allUserStreams[MY_UUID]["audiostream"]) {
     allUserStreams[MY_UUID]["audiostream"].getAudioTracks()[0].enabled = !micMuted;
   }
@@ -263,6 +263,7 @@ $("#addRemoveChatBtn").onclick = function () {
 $("#moreBtn").onclick = () => $("#moreMenu").hidden = !$("#moreMenu").hidden;
 $("#moreMenu").onclick = () => $("#moreMenu").hidden = true; // picking an item closes it
 addEventListener("click", e => $("#moreGroup").contains(e.target) || ($("#moreMenu").hidden = true));
+for (const e of ["keydown", "pointerdown"]) addEventListener(e, () => document.body.classList.toggle("keyboard", e == "keydown"), true); // last input: focus rings on the device tabs
 $("#chatCloseBtn").onclick = () => $("#addRemoveChatBtn").click();
 
 $("#chatSendBtn").onclick = sendMsg;
@@ -363,7 +364,7 @@ function toggleCamera() {
 }
 
 function startVideo(stream, btn) {
-  btn.classList.add("on");
+  btn.setAttribute("aria-pressed", true);
   stream.getVideoTracks()[0].onended = () => allUserStreams[MY_UUID]["videostream"] == stream && stopVideo(); // unplugged camera, browser's "Stop sharing" bar
   for (var i in pcs) pcs[i].setVideo(stream.getVideoTracks()[0]);
   sendToPeers({ video: true });
@@ -378,7 +379,7 @@ function stopVideo() { // camera and screen share use the same slot
   sendToPeers({ video: false });
   stream.getTracks().forEach(track => track.stop());
   delete allUserStreams[MY_UUID]["videostream"];
-  for (const b of [$("#addRemoveCameraBtn"), $("#addRemoveScreenBtn")]) b.classList.remove("on");
+  for (const b of [$("#addRemoveCameraBtn"), $("#addRemoveScreenBtn")]) b.setAttribute("aria-pressed", false);
   camActive = screenActive = false;
   $("#selectScreenModeBtn").style.display = "none";
   store("camOn", ""); // also when unplugged or replaced by a screen share
