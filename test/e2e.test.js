@@ -1783,7 +1783,7 @@ test('dark mode: the system setting gives a dark lobby, call, chat and end page 
   await waitFor(() => a.evaluate(() => document.querySelectorAll('#chatText .chatName').length == 3 && !!document.querySelector('.audioMuted')), 'three messages and bob muted');
   await a.click('#moreBtn');
   assert.deepStrictEqual(await lowContrast(a, ['.userName', '.callBtn', '#cancelCallBtn', '#moreMenu button', '#chatHeader', '#chatText > div', '.chatName', '#chatText a', '#chatSendBtn'], 4.5), [], 'call and chat text');
-  assert.deepStrictEqual(await lowContrast(a, ['.callBtn.on .icon', '.audioMuted'], 3), [], 'icons: on state and mute');
+  assert.deepStrictEqual(await lowContrast(a, ['.callBtn[aria-pressed=true] .icon', '.audioMuted'], 3), [], 'icons: on state and mute');
   await a.evaluate(() => [...document.querySelectorAll('.videoplaceholder')].find(t => !t.querySelector('video')).style.removeProperty('--person')); // a peer whose name is not known yet
   assert.deepStrictEqual(await lowContrast(a, ['.userPlaceholder'], 4.5), [], 'white initials on every circle');
   assert.deepStrictEqual(await lowContrast(a, ['#chatInputText'], 3, 'borderTopColor'), [], 'chat input border');
