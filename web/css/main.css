@@ -564,8 +564,9 @@ video.mirror {
   margin-bottom: 16px;
 }
 
-#shareDialog div {
+#shareDialog div { /* the link on its own lines, the button below: the room part stays in view on phones */
   display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
@@ -576,7 +577,9 @@ video.mirror {
 
 #shareLink {
   padding: 10px;
-  font: 14px ui-monospace, monospace;
+  font-family: ui-monospace, monospace;
+  resize: none;
+  field-sizing: content; /* as tall as the link; rows="3" where unsupported */
 }
 
 #copyLinkBtn {
