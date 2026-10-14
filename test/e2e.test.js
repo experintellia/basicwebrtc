@@ -251,6 +251,18 @@ test('first connect: the answerer checks the initiator\'s candidates before its 
   for (const p of [a, b]) await waitFor(async () => (await connectedPeers(p)) === 1 && (await liveRemoteAudio(p)) === 1, 'ICE and audio');
 });
 
+// #95: bob has applied alice's first offer, but his answer never reaches her. A rollback of a first offer reorders its m-lines, which bob rejects.
+test('a lost first answer: the call still connects', async t => {
+  const a = await join(t, 'alice'); // already in the room -> initiator
+  await a.evaluate(() => { // alice drops the first answer she gets
+    const h = socket.listeners('signaling')[0];
+    socket.off('signaling');
+    socket.on('signaling', d => d.signalingData?.type == 'answer' && !window.__dropped ? (window.__dropped = true) : h(d));
+  });
+  const b = await join(t, 'bob');
+  for (const p of [a, b]) await waitFor(() => callUp(p), 'call up', 20000);
+});
+
 // #6: bob's socket reconnects; alice's old pc still sends an offer to bob before alice rebuilds it.
 test('stale offer from the old connection after a fast reconnect', async t => {
   const [a, b] = await call(t);
