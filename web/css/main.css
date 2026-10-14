@@ -127,7 +127,8 @@ video {
 
 .videoplaceholder {
   --disc: min(150px, 30vmin); /* the circle; the mute badge and status sit around it. Browsers without container units (Safari < 16) size it by the window */
-  --mid: calc(50% - 26px); /* the circle's centre: lifted so circle, name and status chip are centred together */
+  --lift: 0px;
+  --mid: calc(50% - var(--lift)); /* the circle's centre */
   container-type: size;
   position: relative;
   width: calc(100% / var(--cols));
@@ -137,6 +138,13 @@ video {
 @supports (width: 1cqmin) {
   .videoplaceholder {
     --disc: min(150px, 65cqmin, 100cqh - 76px); /* smaller in short tiles, with room for the name and status chip under it */
+    --lift: 26px; /* circle, name and status chip centred together */
+  }
+}
+
+@media (max-width: 600px) { /* phone 1:1: the other one's circle, name and chip end above the own card (30% high, see .selfPreview) */
+  #mediaDiv:has(> .selfPreview) > .videoplaceholder:not(.selfPreview, :has(> .userCont)) {
+    height: calc(100% + var(--barBottom) + 92px - var(--selfPreviewBottomOffset) - env(safe-area-inset-bottom) - 30dvh - 8px);
   }
 }
 
@@ -206,7 +214,7 @@ video.mirror {
   font-size: calc(var(--disc) * .37);
   font-weight: 600;
   text-align: center;
-  margin-bottom: 52px; /* lifts it to --mid */
+  margin-bottom: calc(2 * var(--lift)); /* centred at --mid */
   box-shadow: 0 0 0 4px var(--gap, var(--stage)), 0 0 0 calc(3.5px + var(--level, 0) * 3px) var(--ink); /* quiet: the ink stays under the gap */
   transition: box-shadow .1s;
 }

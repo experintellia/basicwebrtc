@@ -1251,6 +1251,18 @@ test('without video, the name sits under the circle: one line, as text, clear of
     assert.deepStrictEqual(bad, [], `${width}x${height}`);
     await Promise.all([a, ...rest].map(p => p.context().close()));
   }
+  state(t).room = `r${Date.now()}one`; // phone 1:1: the own card sits bottom left, over the other one's tile
+  const p = await notched(t, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }, [47, 0, 34, 0]);
+  await p.click('#joinBtn');
+  const q = await join(t, 'Alexandra Schmidt-Montgomery');
+  await waitFor(async () => (await connectedPeers(p)) === 1 && (await p.evaluate(() => !!document.querySelector('.selfPreview') && Object.values(allUserStreams).some(s => realName(s.username)))), '1:1 call, name known');
+  const covered = await p.evaluate(() => {
+    for (const s of document.querySelectorAll('.peerStatus')) s.textContent = 'reconnecting…';
+    const card = $('.selfPreview').getBoundingClientRect(), hit = q => card.left < q.right && q.left < card.right && card.top < q.bottom && q.top < card.bottom;
+    return [...document.querySelectorAll('.videoplaceholder:not(.selfPreview) :is(.discName, .peerStatus, .userPlaceholder)')].filter(e => hit(e.getBoundingClientRect())).map(e => e.className);
+  });
+  assert.deepStrictEqual(covered, [], 'phone 1:1: the own card covers the other one');
+  await q.context().close();
 });
 
 test('circles fit their tiles, also short ones; the own preview is a white card', async t => {
