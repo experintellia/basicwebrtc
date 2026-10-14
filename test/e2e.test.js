@@ -1042,6 +1042,20 @@ test('chat, rename and share live in the more menu', async t => {
   await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
   assert.strictEqual(await a.locator('#moreMenu').isVisible(), false, 'picking an item closes the menu');
   assert.deepStrictEqual(await unread(), [undefined, undefined], 'read');
+  // keyboard and screen readers: aria-expanded follows the menu, Escape and Tabbing out close it
+  const state = () => a.evaluate(() => [document.querySelector('#moreBtn').getAttribute('aria-expanded'), document.querySelector('#moreMenu').hidden, document.activeElement.id]);
+  await a.click('#moreBtn');
+  assert.deepStrictEqual((await state()).slice(0, 2), ['true', false], 'click opens, announced');
+  await a.mouse.click(5, 5);
+  assert.deepStrictEqual((await state()).slice(0, 2), ['false', true], 'outside click closes, announced');
+  await a.focus('#moreBtn'); await a.keyboard.press('Enter'); await a.keyboard.press('Tab');
+  assert.deepStrictEqual(await state(), ['true', false, 'addRemoveChatBtn'], 'Enter opens, Tab walks into it');
+  await a.keyboard.press('Escape');
+  assert.deepStrictEqual(await state(), ['false', true, 'moreBtn'], 'Escape closes, focus back on More');
+  await a.keyboard.press('Enter'); await a.focus('#shareBtn'); await a.keyboard.press('Tab');
+  assert.deepStrictEqual(await state(), ['false', true, 'cancelCallBtn'], 'Tabbing past it to Leave closes it');
+  await a.click('#moreBtn'); await a.click('#addRemoveChatBtn');
+  assert.deepStrictEqual((await state()).slice(0, 2), ['false', true], 'picking an item closes, announced');
 });
 
 const noScreenShare = () => { delete MediaDevices.prototype.getDisplayMedia; }; // phone browsers: no getDisplayMedia

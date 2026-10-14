@@ -260,9 +260,12 @@ $("#addRemoveChatBtn").onclick = function () {
   if (open) for (const b of [$("#moreBtn"), this]) delete b.dataset.unread;
   if (open && !matchMedia("(pointer: coarse)").matches) $("#chatInputText").focus(); // no keyboard covering the chat on phones
 }
-$("#moreBtn").onclick = () => $("#moreMenu").hidden = !$("#moreMenu").hidden;
-$("#moreMenu").onclick = () => $("#moreMenu").hidden = true; // picking an item closes it
-addEventListener("click", e => $("#moreGroup").contains(e.target) || ($("#moreMenu").hidden = true));
+const moreMenu = open => { $("#moreMenu").hidden = !open; $("#moreBtn").setAttribute("aria-expanded", open); };
+$("#moreBtn").onclick = () => moreMenu($("#moreMenu").hidden);
+$("#moreMenu").onclick = () => moreMenu(false); // picking an item closes it
+addEventListener("click", e => $("#moreGroup").contains(e.target) || moreMenu(false));
+$("#moreGroup").onkeydown = e => { if (e.key == "Escape" && !$("#moreMenu").hidden) { moreMenu(false); $("#moreBtn").focus(); } };
+$("#moreGroup").addEventListener("focusout", e => e.relatedTarget && !$("#moreGroup").contains(e.relatedTarget) && moreMenu(false)); // Tabbed past it
 for (const e of ["keydown", "pointerdown"]) addEventListener(e, () => document.body.classList.toggle("keyboard", e == "keydown"), true); // last input: focus rings on the device tabs
 $("#chatCloseBtn").onclick = () => $("#addRemoveChatBtn").click();
 
