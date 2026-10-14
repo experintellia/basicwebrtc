@@ -1462,6 +1462,22 @@ test('tiles: rows fill the window, a video fits its tile, also right after a res
   assert.deepStrictEqual(await boxes(), ['0,0,640,149', '640,0,640,149', '861,0,199,149', '320,149,640,149'], 'no re-layout needed');
 });
 
+test('without container units (Safari < 16) a video and its labels stay inside its tile (#102)', async t => {
+  const a = await open(t, 'alice', null, '', { viewport: { width: 1280, height: 720 } });
+  await a.route('**/css/main.css', async r => { const res = await r.fetch(); await r.fulfill({ response: res, body: (await res.text()).replace(/(\d)cq(min|h|w)\b/g, '$1xq$2') }); }); // an unknown unit, as old Safari sees cq*
+  await a.reload();
+  await a.click('#joinBtn');
+  const b = await join(t, 'bob'); await join(t, 'carol');
+  await waitFor(async () => (await connectedPeers(a)) === 2, '3 in the call');
+  await b.click('#addRemoveCameraBtn');
+  await waitFor(() => a.evaluate(() => document.querySelector('#mediaDiv video')?.videoHeight > 0), 'bob\'s video');
+  const out = await a.evaluate(() => [...document.querySelectorAll('.videoplaceholder:has(video)')].flatMap(tile => {
+    const r = tile.getBoundingClientRect();
+    return [...tile.querySelectorAll('video, .userName, .pipBtn')].filter(e => { const b = e.getBoundingClientRect(); return b.top < r.top - .5 || b.bottom > r.bottom + .5 || b.left < r.left - .5 || b.right > r.right + .5; }).map(e => e.className || e.tagName);
+  }));
+  assert.deepStrictEqual(out, []);
+});
+
 test('a video sits in the middle of its tile, like a circle; its name tag, mute icon and PiP button sit on the frame (#102)', async t => {
   for (const [width, height, n] of [[1280, 720, 3], [390, 844, 4]]) {
     state(t).room = `r${Date.now()}x${width}`;
@@ -1469,7 +1485,7 @@ test('a video sits in the middle of its tile, like a circle; its name tag, mute 
     for (const name of ['bob', 'carol', 'dave'].slice(0, n - 1)) rest.push(await join(t, name));
     await waitFor(async () => (await connectedPeers(a)) === n - 1, `${n} in the call`);
     await a.click('#addRemoveCameraBtn'); await rest[0].click('#addRemoveCameraBtn'); await rest[0].click('#muteUnmuteMicBtn');
-    await waitFor(() => a.evaluate(() => [...document.querySelectorAll('#mediaDiv video')].filter(v => v.videoHeight).length == 2 && !!document.querySelector('.audioMuted')), 'two videos, bob muted');
+    await waitFor(() => a.evaluate(() => [...document.querySelectorAll('#mediaDiv video')].filter(v => v.videoHeight && v.parentElement.style.getPropertyValue('--ar')).length == 2 && !!document.querySelector('.audioMuted')), 'two videos, bob muted');
     const bad = await a.evaluate(() => [...document.querySelectorAll('.videoplaceholder:has(video)')].flatMap(tile => {
       const v = tile.querySelector('video'), f = v.getBoundingClientRect(), r = tile.getBoundingClientRect(), out = [], near = (x, y) => Math.abs(x - y) <= 1;
       const who = tile.querySelector('.userName').textContent;
