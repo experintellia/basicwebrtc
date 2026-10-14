@@ -169,9 +169,21 @@ video {
   inset: 0;
 }
 
-.userCont video { /* frame-sized, at the tile's top, as big as the tile allows */
+.userCont video { /* without container units (Safari < 16): full tile width, at the tile's top */
   display: block;
   max-height: 100%;
+}
+
+@supports (width: 1cqmin) { /* after the rules above, so it overrides them */
+  .userCont { /* the video frame, in the middle of the tile like a circle, as big as the tile allows: --ar from updateUserLayout */
+    margin: auto;
+    width: min(100%, 100cqh * var(--ar));
+    height: fit-content;
+  }
+
+  .userCont video {
+    max-height: 100cqh;
+  }
 }
 
 video.mirror {
@@ -278,7 +290,7 @@ video.mirror {
   color: var(--leave);
 }
 
-.userCont ~ .audioMuted { /* with video: under the name tag */
+.userCont > .audioMuted { /* with video: under the name tag */
   left: 8px;
   top: 38px;
   border-radius: 4px;
