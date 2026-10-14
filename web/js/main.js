@@ -97,6 +97,7 @@ socket.on("currentIceServers", function (newIceServers) { // on every join in ou
 socket.on("signaling", function (data) {
   var fromUUID = data.fromUUID;
   if (data.signalingData == "reset") return removePeer(fromUUID);
+  if (data.signalingData == "renegotiate") socket.emit("getIceServers"); // its ICE is down, ours may look fine: fresh TURN credentials for our restart too (#96)
   if (!pcs[fromUUID]) {
     if (data.signalingData?.type != "offer") return; // only an offer starts a call: late candidates of a removed peer would leave a ghost
     createRemoteSocket(false, fromUUID)
