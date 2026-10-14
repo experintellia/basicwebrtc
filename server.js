@@ -176,6 +176,7 @@ ioServer.sockets.on('connection', function (socket) {
         if (!content || typeof content != "object" || roomOfUser === null) return;
         const dest = ioServer.sockets.sockets.get(socketID_UUIDMatch[content.destUUID]);
         if (dest?.data.room !== roomOfUser) return; // same room only
+        if (content.signalingData == "renegotiate") dest.emit('currentIceServers', iceServers()); // the ICE restart it asks for: fresh TURN credentials first, in order before it (#96)
         dest.emit('signaling', { signalingData: content.signalingData, fromUUID: MY_UUID }); // chat, names etc. go peer-to-peer
     });
 
