@@ -5,6 +5,7 @@
   --surface: #fff; /* cards, panels, the bar */
   --soft: #f0f0ed; /* hover, chat bubbles, secondary buttons */
   --hair: #dcddd8; /* borders */
+  --bars: var(--hair); /* beside a video that doesn't fill its frame */
   --edge: #8e918a; /* input borders: 3:1 on white */
   --ink: #1b1d21;
   --dim: #5f6269;
@@ -31,6 +32,7 @@
     --surface: #222327;
     --soft: #2c2e33;
     --hair: #3a3c42;
+    --bars: var(--stage); /* no brighter than the stage */
     --edge: #80838b;
     --ink: #ececea;
     --dim: #a4a7ae;
@@ -72,7 +74,7 @@ audio {
 }
 
 video {
-  background: var(--hair);
+  background: var(--bars);
   width: 100%;
 }
 
@@ -285,7 +287,8 @@ video.mirror {
   height: 8px;
   margin-right: 6px;
   border-radius: 50%;
-  background: var(--person, var(--dim));
+  color: var(--person, var(--nameless));
+  background: currentColor;
 }
 
 .discName { /* without video: the name under the circle, one line */
@@ -593,8 +596,8 @@ video.mirror {
 }
 
 @media (prefers-color-scheme: dark) {
-  .chatName { /* person colors are deep, for white initials: lighter as text on a dark bubble */
-    color: color-mix(in srgb, var(--person), #fff 50%);
+  .chatName, .userName::before { /* person colors are deep, for white initials: lighter on a dark bubble or chip */
+    color: color-mix(in srgb, var(--person, var(--nameless)), #fff 50%);
   }
 }
 

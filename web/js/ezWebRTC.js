@@ -189,7 +189,9 @@ function initEzWebRTC(initiator, config) {
             var myGen = ++gen;
             _this.emitEvent("signaling", { type: "offer", sdp: opusParams(pc.localDescription.sdp), gen: myGen })
             setTimeout(function () { //no answer in time: offer again
-                if (gen == myGen && pc.signalingState == "have-local-offer") reoffer();
+                if (gen != myGen || pc.signalingState != "have-local-offer") return;
+                if (pc.currentRemoteDescription) reoffer();
+                else _this.emitEvent("rebuild"); //first offer: the peer may have applied it, and a rollback reorders its m-lines (#95)
             }, 5000);
         } else if (_this.gotOffer) { //Dont send renegotiate req before getting at least one offer
             _this.emitEvent("signaling", "renegotiate");
