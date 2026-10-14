@@ -1010,6 +1010,21 @@ test('Enter in the share link keeps the dialog open', async t => {
   assert.strictEqual(await a.locator('#shareDialog').isVisible(), true);
 });
 
+// #101: "the room is the part after #" must be readable, not scrolled out of a one-line field.
+test('share dialog shows the whole link, room part included, on phones and desktop', async t => {
+  state(t).room += '0000'; // as long as a fresh room: "r" + 17 digits
+  for (const [opts, noFieldSizing] of [[PHONE], [PHONE, true], [{ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }], [{ viewport: { width: 1280, height: 800 } }]]) {
+    const a = await join(t, 'alice', () => { delete Navigator.prototype.share; }, '', opts);
+    if (noFieldSizing) await a.addStyleTag({ content: '#shareLink { field-sizing: fixed }' }); // e.g. Firefox: rows only
+    await a.click('#moreBtn'); await a.click('#shareBtn');
+    const [sh, ch, font] = await a.$eval('#shareLink', e => [e.scrollHeight, e.clientHeight, parseFloat(getComputedStyle(e).fontSize)]); // it wraps: only its height can overflow
+    assert.ok(sh <= ch, `${opts.viewport.width}px${noFieldSizing ? ' without field-sizing' : ''}: link fits its field (${sh} in ${ch})`);
+    assert.ok(font >= 16, 'no iOS zoom on focus');
+    assert.ok(await a.$eval('#shareLink', e => e.selectionStart == 0 && e.selectionEnd == e.value.length), 'still selected for manual copy');
+    await a.context().close();
+  }
+});
+
 test('chat, rename and share live in the more menu', async t => {
   const a = await join(t, 'alice');
   const items = ['#addRemoveChatBtn', '#changeNameBtn', '#shareBtn'];
@@ -1457,10 +1472,52 @@ test('tiles: rows fill the window, a video fits its tile, also right after a res
     .map(e => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round).join(); }));
   // 1280x720: two tiles on top, the third centered below; bob's video (listed after his tile) is as big as his tile allows
   // the tiles end above the bar and its device tabs: 16 + 92 = 108px up, (720 - 108) / 2 = 306
-  assert.deepStrictEqual(await boxes(), ['0,0,640,306', '640,0,640,306', '640,0,640,306', '320,306,640,306']);
+  // the video is frame-sized (4:3 fake camera) and centred (#102): as tall as the tile, 306 * 4 / 3 = 408 wide, 640 + (640 - 408) / 2 = 756
+  assert.deepStrictEqual(await boxes(), ['0,0,640,306', '640,0,640,306', '756,0,408,306', '320,306,640,306']);
   await a.setViewportSize({ width: 1280, height: 400 });
-  // a short window gets the phone layout, the bar 10px up: (400 - 102) / 2 = 149
-  assert.deepStrictEqual(await boxes(), ['0,0,640,149', '640,0,640,149', '640,0,640,149', '320,149,640,149'], 'no re-layout needed');
+  // a short window gets the phone layout, the bar 10px up: (400 - 102) / 2 = 149; the video 149 * 4 / 3 = 199 wide
+  assert.deepStrictEqual(await boxes(), ['0,0,640,149', '640,0,640,149', '861,0,199,149', '320,149,640,149'], 'no re-layout needed');
+});
+
+test('without container units (Safari < 16) a video and its labels stay inside its tile (#102)', async t => {
+  const a = await open(t, 'alice', null, '', { viewport: { width: 1280, height: 720 } });
+  await a.route('**/css/main.css', async r => { const res = await r.fetch(); await r.fulfill({ response: res, body: (await res.text()).replace(/(\d)cq(min|h|w)\b/g, '$1xq$2') }); }); // an unknown unit, as old Safari sees cq*
+  await a.reload();
+  await a.click('#joinBtn');
+  const b = await join(t, 'bob'); await join(t, 'carol');
+  await waitFor(async () => (await connectedPeers(a)) === 2, '3 in the call');
+  await b.click('#addRemoveCameraBtn');
+  await waitFor(() => a.evaluate(() => document.querySelector('#mediaDiv video')?.videoHeight > 0), 'bob\'s video');
+  const out = await a.evaluate(() => [...document.querySelectorAll('.videoplaceholder:has(video)')].flatMap(tile => {
+    const r = tile.getBoundingClientRect();
+    return [...tile.querySelectorAll('video, .userName, .pipBtn')].filter(e => { const b = e.getBoundingClientRect(); return b.top < r.top - .5 || b.bottom > r.bottom + .5 || b.left < r.left - .5 || b.right > r.right + .5; }).map(e => e.className || e.tagName);
+  }));
+  assert.deepStrictEqual(out, []);
+});
+
+test('a video sits in the middle of its tile, like a circle; its name tag, mute icon and PiP button sit on the frame (#102)', async t => {
+  for (const [width, height, n] of [[1280, 720, 3], [390, 844, 4]]) {
+    state(t).room = `r${Date.now()}x${width}`;
+    const a = await join(t, 'alice', null, '', { viewport: { width, height } }), rest = [];
+    for (const name of ['bob', 'carol', 'dave'].slice(0, n - 1)) rest.push(await join(t, name));
+    await waitFor(async () => (await connectedPeers(a)) === n - 1, `${n} in the call`);
+    await a.click('#addRemoveCameraBtn'); await rest[0].click('#addRemoveCameraBtn'); await rest[0].click('#muteUnmuteMicBtn');
+    await waitFor(() => a.evaluate(() => [...document.querySelectorAll('#mediaDiv video')].filter(v => v.videoHeight && v.parentElement.style.getPropertyValue('--ar')).length == 2 && !!document.querySelector('.audioMuted')), 'two videos, bob muted');
+    const bad = await a.evaluate(() => [...document.querySelectorAll('.videoplaceholder:has(video)')].flatMap(tile => {
+      const v = tile.querySelector('video'), f = v.getBoundingClientRect(), r = tile.getBoundingClientRect(), out = [], near = (x, y) => Math.abs(x - y) <= 1;
+      const who = tile.querySelector('.userName').textContent;
+      if (!near(f.left + f.width / 2, r.left + r.width / 2) || !near(f.top + f.height / 2, r.top + r.height / 2)) out.push(`${who}: video not centred`);
+      if (!near(f.width, f.height * v.videoWidth / v.videoHeight)) out.push(`${who}: grey bars beside the frame`);
+      if (!near(f.width, r.width) && !near(f.height, r.height)) out.push(`${who}: smaller than the tile allows`);
+      for (const e of tile.querySelectorAll('.userName, .pipBtn:not([hidden]), .audioMuted')) {
+        const b = e.getBoundingClientRect();
+        if (b.left < f.left || b.right > f.right || b.top < f.top || b.bottom > f.bottom) out.push(`${who}: ${e.className} off the frame`);
+      }
+      return out;
+    }));
+    assert.deepStrictEqual(bad, [], `${width}x${height}, ${n} people`);
+    await Promise.all([a, ...rest].map(p => p.context().close()));
+  }
 });
 
 test('picture-in-picture survives a re-layout (#27)', async t => {
