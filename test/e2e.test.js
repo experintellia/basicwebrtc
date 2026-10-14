@@ -1219,7 +1219,7 @@ test('tile labels: name, status, PiP and mute never overlap; a long name stays o
       for (const s of document.querySelectorAll('.peerStatus')) s.textContent = 'reconnecting…';
       const out = [], hit = (p, q) => p.left < q.right && q.left < p.right && p.top < q.bottom && q.top < p.bottom;
       for (const tile of document.querySelectorAll('.videoplaceholder')) {
-        const els = [...tile.querySelectorAll('.userName, .peerStatus, .pipBtn:not([hidden]), .audioMuted')].filter(e => e.getClientRects().length);
+        const els = [...tile.querySelectorAll('.userName, .discName, .peerStatus, .pipBtn:not([hidden]), .audioMuted')].filter(e => e.getClientRects().length);
         for (const [i, e] of els.entries()) for (const f of els.slice(i + 1)) if (hit(e.getBoundingClientRect(), f.getBoundingClientRect())) out.push(`${e.className} / ${f.className}`);
         const n = tile.querySelector('.userName');
         if (n && n.getBoundingClientRect().height > 30) out.push('name wraps');
@@ -1230,6 +1230,54 @@ test('tile labels: name, status, PiP and mute never overlap; a long name stays o
     assert.deepStrictEqual(bad, [], `${width}x${height}`);
     await Promise.all([a, b, c].map(p => p.context().close()));
   }
+});
+
+test('without video, the name sits under the circle: one line, as text, clear of the status chip; unnamed: nothing (#103)', async t => {
+  const long = 'Christina-Alexandra Montgomery-Smith <b>x</b>';
+  for (const [width, height, phone] of [[1280, 720, false], [390, 844, true], [844, 390, true]]) {
+    state(t).room = `r${Date.now()}x${width}`;
+    const a = await join(t, 'alice', null, '', { viewport: { width, height }, isMobile: phone, hasTouch: phone }), rest = [];
+    for (const name of [long, null, '🦊🦊']) rest.push(await join(t, name));
+    await waitFor(async () => (await connectedPeers(a)) === 3, 'four in the call');
+    await waitFor(() => a.evaluate(() => Object.values(allUserStreams).filter(s => realName(s.username)).length == 3), 'names known');
+    await rest[0].click('#muteUnmuteMicBtn'); await rest[2].click('#muteUnmuteMicBtn');
+    await waitFor(() => a.evaluate(() => document.querySelectorAll('.audioMuted').length == 2), 'mute badges');
+    const bad = await a.evaluate(() => {
+      for (const s of document.querySelectorAll('.peerStatus')) s.textContent = 'reconnecting…';
+      const out = [], ink = getComputedStyle(document.body).color;
+      for (const s of Object.values(allUserStreams)) {
+        const tile = s.tile, name = realName(s.username), n = tile.querySelector('.discName'), shown = n?.getClientRects().length && n.textContent;
+        if (!name) { if (shown) out.push(`unnamed shows "${n.textContent}"`); continue; }
+        if (!shown || n.textContent != name) { out.push(`${name}: shows "${n?.textContent}"`); continue; }
+        const [nb, c, st, r] = [n, tile.querySelector('.userPlaceholder'), tile.querySelector('.peerStatus'), tile].map(e => e.getBoundingClientRect());
+        if (nb.top < c.bottom) out.push(`${name}: not under the circle`);
+        if (Math.abs(nb.left + nb.right - c.left - c.right) > 2) out.push(`${name}: not centred under the circle`);
+        if (nb.height > 24) out.push(`${name}: wraps`);
+        if (nb.left < r.left || nb.right > r.right) out.push(`${name}: leaves its tile`);
+        if (st.top < nb.bottom) out.push(`${name}: status chip on the name`);
+        const m = tile.querySelector('.audioMuted')?.getBoundingClientRect();
+        if (m && m.left < nb.right && nb.left < m.right && m.top < nb.bottom && nb.top < m.bottom) out.push(`${name}: mute badge on the name`);
+        if (st.bottom > r.bottom) out.push(`${name}: status chip leaves the tile`);
+        if (getComputedStyle(n).color != ink) out.push(`${name}: not in ink`);
+      }
+      if (document.querySelector('#mediaDiv b')) out.push('a name became HTML');
+      return out;
+    });
+    assert.deepStrictEqual(bad, [], `${width}x${height}`);
+    await Promise.all([a, ...rest].map(p => p.context().close()));
+  }
+  state(t).room = `r${Date.now()}one`; // phone 1:1: the own card sits bottom left, over the other one's tile
+  const p = await notched(t, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }, [47, 0, 34, 0]);
+  await p.click('#joinBtn');
+  const q = await join(t, 'Alexandra Schmidt-Montgomery');
+  await waitFor(async () => (await connectedPeers(p)) === 1 && (await p.evaluate(() => !!document.querySelector('.selfPreview') && Object.values(allUserStreams).some(s => realName(s.username)))), '1:1 call, name known');
+  const covered = await p.evaluate(() => {
+    for (const s of document.querySelectorAll('.peerStatus')) s.textContent = 'reconnecting…';
+    const card = $('.selfPreview').getBoundingClientRect(), hit = q => card.left < q.right && q.left < card.right && card.top < q.bottom && q.top < card.bottom;
+    return [...document.querySelectorAll('.videoplaceholder:not(.selfPreview) :is(.discName, .peerStatus, .userPlaceholder)')].filter(e => hit(e.getBoundingClientRect())).map(e => e.className);
+  });
+  assert.deepStrictEqual(covered, [], 'phone 1:1: the own card covers the other one');
+  await q.context().close();
 });
 
 test('circles fit their tiles, also short ones; the own preview is a white card', async t => {
