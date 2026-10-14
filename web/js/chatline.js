@@ -19,7 +19,7 @@ function chatLine(name, msg) {
     const b = document.createElement("b");
     b.className = "chatName";
     b.textContent = name;
-    b.style.color = personColor(name);
+    b.style.setProperty("--person", personColor(name));
     line.append(b, ": ");
   }
   msg.split(/(https?:\/\/\S+)/).forEach((part, i) => { // odd parts are links
