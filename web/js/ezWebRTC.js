@@ -28,6 +28,7 @@ function initEzWebRTC(initiator, config) {
     dc.onclose = () => _this.emitEvent("close");
     dc.onmessage = e => { try { var msg = JSON.parse(e.data) } catch (err) { return } if (msg && typeof msg == "object") _this.emitEvent("message", msg) };
     this.send = obj => dc.readyState == "open" && (dc.send(JSON.stringify(obj)), true); // false: not open (yet)
+    this.offering = () => initiator && !pc.currentRemoteDescription; // our first offer is unanswered
     this.iceUp = () => pc.iceConnectionState == "connected" || pc.iceConnectionState == "completed";
     this.setIceServers = iceServers => { try { pc.setConfiguration({ iceServers }) } catch (e) { console.log("setConfiguration error", e) } }; // used from the next ICE restart on
     this.route = async function () { // the path in use: through a TURN relay or direct, and its round-trip time
@@ -113,7 +114,7 @@ function initEzWebRTC(initiator, config) {
         if (signalData == "renegotiate" && initiator) { //Got renegotiate request, so do it
             if (!retrying) pc.restartIce(); //its ICE may be down while ours looks fine (#4); ours down: retry() restarts
             negotiate();
-        } else if (signalData && signalData.type == "offer") { //Got an offer -> Create Answer)
+        } else if (signalData && signalData.type == "offer" && !initiator) { //Got an offer -> Create Answer); an initiator's: both started a call, the peer drops its own (#97)
             _this.gotOffer = true;
             await pc.setRemoteDescription(signalData) //only the answerer gets offers; have-remote-offer -> have-remote-offer is valid
             if (!video && (video = pc.getTransceivers().find(t => t.receiver.track.kind == "video"))) { // the initiator's video slot: send on it too

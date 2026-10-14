@@ -567,6 +567,22 @@ test('data channel closed while only the answerer\'s ICE is down: the call is re
   }
 });
 
+// #97 review: x dropped y on a socket reconnect and rejoined. y's "renegotiate" is still on its way when y gets x's userJoined:
+// both start a call, and each one's reset hits the other's new pc. One of them must win. Both ways round: UUID order decides.
+for (const swap of [false, true]) test(`both sides start a call at once: they agree on one${swap ? ' (other way round)' : ''}`, async t => {
+  const [a, b] = await call(t);
+  const [x, y] = swap ? [b, a] : [a, b];
+  for (const p of [x, y]) await p.evaluate(() => { // server 150ms away: the two starts cross
+    window.__pc = Object.values(pcs)[0];
+    __pc.mappedEvents.close = []; // no rebuild from the old call's close
+    const e = socket.emit.bind(socket); socket.emit = (n, ...a) => n == 'signaling' ? setTimeout(() => e(n, ...a), 150) : e(n, ...a);
+  });
+  const xId = await x.evaluate(() => MY_UUID), yId = await y.evaluate(() => MY_UUID);
+  await x.evaluate(id => removePeer(id), yId);
+  await y.evaluate(id => { __pc.emitEvent('signaling', 'renegotiate'); setTimeout(() => socket.listeners('userJoined')[0]({ UUID: id, keep: [] }), 100); }, xId); // x's offer is out before y's reset reaches x
+  for (const p of [a, b]) await waitFor(async () => (await p.evaluate(() => Object.values(pcs)[0] !== __pc)) && (await callUp(p)), 'new call on both sides', 30000);
+});
+
 test('signaling uses the socket while it is up, even if the data channel reads open', async t => {
   const [a, b] = await call(t);
   await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
