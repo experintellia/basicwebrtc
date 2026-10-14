@@ -154,6 +154,8 @@ video {
 
 .videoplaceholder {
   --disc: min(150px, 30vmin); /* the circle; the mute badge and status sit around it. Browsers without container units (Safari < 16) size it by the window */
+  --lift: 0px;
+  --mid: calc(50% - var(--lift)); /* the circle's centre */
   container-type: size;
   position: relative;
   width: calc(100% / var(--cols));
@@ -162,7 +164,14 @@ video {
 
 @supports (width: 1cqmin) {
   .videoplaceholder {
-    --disc: min(150px, 65cqmin, 100cqh - 76px); /* smaller in short tiles, with room for the status chip under it */
+    --disc: min(150px, 65cqmin, 100cqh - 76px); /* smaller in short tiles, with room for the name and status chip under it */
+    --lift: 26px; /* circle, name and status chip centred together */
+  }
+}
+
+@media (max-width: 600px) { /* phone 1:1: the other one's circle, name and chip end above the own card (30% high, see .selfPreview) */
+  #mediaDiv:has(> .selfPreview) > .videoplaceholder:not(.selfPreview, :has(> .userCont)) {
+    height: calc(100% + var(--barBottom) + 92px - var(--selfPreviewBottomOffset) - env(safe-area-inset-bottom) - 30dvh - 8px);
   }
 }
 
@@ -244,6 +253,7 @@ video.mirror {
   font-size: calc(var(--disc) * .37);
   font-weight: 600;
   text-align: center;
+  margin-bottom: calc(2 * var(--lift)); /* centred at --mid */
   box-shadow: 0 0 0 4px var(--gap, var(--stage)), 0 0 0 calc(3.5px + var(--level, 0) * 3px) var(--ink); /* quiet: the ink stays under the gap */
   transition: box-shadow .1s;
 }
@@ -278,8 +288,22 @@ video.mirror {
   background: var(--person, var(--dim));
 }
 
-.peerStatus { /* under the circle, away from the name tag */
-  top: calc(50% + var(--disc) / 2 + 12px);
+.discName { /* without video: the name under the circle, one line */
+  position: absolute;
+  top: calc(var(--mid) + var(--disc) / 2 + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 16px);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.peerStatus { /* under the circle and its name, away from the name tag */
+  top: calc(var(--mid) + var(--disc) / 2 + 34px);
   left: 50%;
   transform: translateX(-50%);
   padding: 3px 10px;
@@ -307,7 +331,7 @@ video.mirror {
 .audioMuted { /* a badge on the circle's lower right edge */
   background: var(--surface);
   left: calc(50% + var(--disc) * .35 - 14px);
-  top: calc(50% + var(--disc) * .35 - 14px);
+  top: calc(var(--mid) + var(--disc) * .35 - 14px);
   width: 28px;
   height: 28px;
   display: grid;

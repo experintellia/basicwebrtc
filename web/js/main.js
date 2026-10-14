@@ -526,12 +526,14 @@ function updateUserLayout() {
     var userDiv = fromHTML(`<div class="videoplaceholder">
       <div class="userPlaceholderContainer">
         <div class="userPlaceholder"></div>
+        <div class="discName"></div>
       </div>
     </div>`);
     userStream.tile = userDiv;
     if (name) userDiv.style.setProperty("--person", personColor(name)); // circle and name tag, like the chat name. Not before the name is known: a UUID would take a color
     if (count == 2 && i == MY_UUID) userDiv.classList.add("selfPreview"); // 1:1 call: the other one fills the screen
     userDiv.querySelector(".userPlaceholder").textContent = [...(name || i)].slice(0, 2).join("").toUpperCase();
+    userDiv.querySelector(".discName").textContent = name; // unnamed: empty
     userDiv.append(Object.assign(document.createElement("div"), { className: "peerStatus", textContent: userStream["status"] || "" }));
 
     if (userStream["videostream"]) {
@@ -541,7 +543,7 @@ function updateUserLayout() {
           <video autoplay muted playsinline></video>
           <button title="Enable Picture in Picture" class="pipBtn">${icon("pip")}</button>
         </div>`));
-      userDiv.querySelector(".userName").textContent = name ? name.charAt(0).toUpperCase() + name.slice(1) : i.substr(0, 2).toUpperCase();
+      userDiv.querySelector(".userName").textContent = name || i.substr(0, 2).toUpperCase();
       let video = userDiv.querySelector("video");
       const old = [...document.querySelectorAll("#mediaDiv video")].find(v => v.srcObject == userStream["videostream"]);
       if (old) { // reuse the element: replacing it would close picture-in-picture
