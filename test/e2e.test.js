@@ -1854,16 +1854,17 @@ test('a full room tells the next one so in the lobby (#29)', async t => {
   assert.ok(await e.isEnabled('#joinBtn'), 'she can try again');
 });
 
-// WCAG contrast of each visible element's text (or, with prop, its border) against the first opaque background under it: the ones below min.
+// WCAG contrast of each visible element's text (or, with prop, its border; with ::before, that prop of the pseudo-element) against the first opaque background under it: the ones below min.
 const lowContrast = (page, sels, min, prop = 'color') => page.evaluate(([sels, min, prop]) => {
   const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
   const rgba = c => { ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = c; ctx.fillRect(0, 0, 1, 1); return [...ctx.getImageData(0, 0, 1, 1).data]; }; // any CSS color, color-mix too
   const lum = c => rgba(c).slice(0, 3).map(v => (v /= 255) <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((s, v, i) => s + v * [.2126, .7152, .0722][i], 0);
   const bg = e => { for (; e; e = e.parentElement) { const c = getComputedStyle(e).backgroundColor; if (rgba(c)[3] > 128) return c; } return 'white'; };
   return sels.flatMap(s => {
-    const els = [...document.querySelectorAll(s)].filter(e => e.getClientRects().length);
+    const [q, pseudo] = s.split(/(?=::)/);
+    const els = [...document.querySelectorAll(q)].filter(e => e.getClientRects().length);
     if (!els.length) return [`${s}: not shown`];
-    return els.map(e => { const [x, y] = [lum(getComputedStyle(e)[prop]), lum(bg(prop == 'color' ? e : e.parentElement))].sort((p, q) => q - p); return [s, (x + .05) / (y + .05)]; })
+    return els.map(e => { const [x, y] = [lum(getComputedStyle(e, pseudo)[prop]), lum(bg(prop == 'color' || pseudo ? e : e.parentElement))].sort((p, q) => q - p); return [s, (x + .05) / (y + .05)]; })
       .filter(([, r]) => r < min).map(([s, r]) => `${s} ${r.toFixed(2)}`);
   });
 }, [sels, min, prop]);
@@ -1891,8 +1892,13 @@ test('dark mode: the system setting gives a dark lobby, call, chat and end page 
   await a.click('#moreBtn');
   assert.deepStrictEqual(await lowContrast(a, ['.userName', '.callBtn', '#cancelCallBtn', '#moreMenu button', '#chatHeader', '#chatText > div', '.chatName', '#chatText a', '#chatSendBtn'], 4.5), [], 'call and chat text');
   assert.deepStrictEqual(await lowContrast(a, ['.callBtn[aria-pressed=true] .icon', '.audioMuted'], 3), [], 'icons: on state and mute');
+  assert.deepStrictEqual(await lowContrast(a, ['.userName::before'], 3, 'backgroundColor'), [], 'the name-tag dot shows on its chip (#110)');
   await a.evaluate(() => [...document.querySelectorAll('.videoplaceholder')].find(t => !t.querySelector('video')).style.removeProperty('--person')); // a peer whose name is not known yet
   assert.deepStrictEqual(await lowContrast(a, ['.userPlaceholder'], 4.5), [], 'white initials on every circle');
+  await a.evaluate(() => $('.userName').closest('.videoplaceholder').style.removeProperty('--person'));
+  assert.deepStrictEqual(await lowContrast(a, ['.userName::before'], 3, 'backgroundColor'), [], 'a nameless dot too');
+  const [bars, stage] = await a.evaluate(() => [[...document.querySelectorAll('video')].find(v => v.getClientRects().length), $('#mediaDiv')].map(e => getComputedStyle(e).backgroundColor.match(/\d+/g).reduce((s, v) => s + +v, 0)));
+  assert.ok(bars <= stage, `the bars beside a video are no brighter than the stage (#110): ${bars} > ${stage}`);
   assert.deepStrictEqual(await lowContrast(a, ['#chatInputText'], 3, 'borderTopColor'), [], 'chat input border');
   await a.click('#cancelCallBtn');
   await a.waitForURL(/endcall\.html$/, { timeout: 5000 });
