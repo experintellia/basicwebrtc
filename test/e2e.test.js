@@ -960,9 +960,11 @@ test('URL params: missing room gets a fresh one; "+", "=" and a stray % stay as 
   const a = await (await context(t)).newPage();
   await a.goto(`${BASE}#username=bob`); // no roomname: a fresh room, old params dropped
   assert.match(await a.evaluate(() => location.hash), /^#roomname=r\d+$/);
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown'); // it opens once the mic is ready
   assert.strictEqual(await a.locator('#intro').isVisible(), true, 'a fresh visit says what this is');
   await a.goto(`${BASE}#roomname=a+b=100%`); // hash-only: the page reloads itself
   await waitFor(() => a.evaluate(() => roomname == 'a+b=100%').catch(() => false), 'room a+b=100%');
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown');
   assert.strictEqual(await a.locator('#intro').isVisible(), false, 'invited: straight to the join form');
 });
 
