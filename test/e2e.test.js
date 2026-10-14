@@ -521,12 +521,17 @@ test('ICE down: fresh ICE servers are fetched and set on the connection for its 
 
 // #96: only bob's ICE is down, so alice restarts on his request while her own ICE looks fine. She needs fresh TURN credentials too.
 test('ICE restart the answerer asks for: the initiator fetches fresh ICE servers as well', async t => {
-  const spy = () => { const s = RTCPeerConnection.prototype.setConfiguration; window.__configs = []; RTCPeerConnection.prototype.setConfiguration = function (c) { __configs.push(c); return s.call(this, c); }; };
+  const spy = () => { // logs setConfiguration and every offer alice sets
+    const P = RTCPeerConnection.prototype, s = P.setConfiguration, l = P.setLocalDescription;
+    window.__log = [];
+    P.setConfiguration = function (c) { __log.push(c); return s.call(this, c); };
+    P.setLocalDescription = function (d) { if (d?.type == 'offer') __log.push('offer'); return l.apply(this, arguments); };
+  };
   const [a, b] = await call(t, spy);
-  await a.evaluate(() => window.__old = webRTCConfig.iceServers);
+  await a.evaluate(() => { window.__old = webRTCConfig.iceServers; __log.length = 0; });
   await b.evaluate(() => Object.values(pcs)[0].emitEvent('signaling', 'renegotiate')); // as bob's retry() does while his ICE is down
-  await waitFor(() => a.evaluate(() => __configs.length), 'ICE servers set on alice');
-  assert.ok(await a.evaluate(() => __configs[0].iceServers === webRTCConfig.iceServers && __configs[0].iceServers !== __old), 'the ones just sent by the server, not the cached ones');
+  await waitFor(() => a.evaluate(() => __log.includes('offer')), 'alice restarted');
+  assert.ok(await a.evaluate(() => __log[0].iceServers === webRTCConfig.iceServers && __log[0].iceServers !== __old), 'fresh ICE servers set before the restart offer, not the cached ones');
 });
 
 test('rejoining peer that still has the call gets a reset when the other side rebuilds', async t => {
