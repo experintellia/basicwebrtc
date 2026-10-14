@@ -465,6 +465,7 @@ function createRemoteSocket(initiator, UUID) {
   // Off the server, or ICE still up (the peer closed it on purpose; its bye/reset/offer follows): gone.
   // Else SCTP gave up in a long outage (#58), so the initiator rebuilds; its reset replaces the answerer's pc.
   pc.on("close", () => pcs[UUID] === pc && (pc.left || pc.iceUp() ? removePeer(UUID) : initiator && createRemoteSocket(true, UUID)));
+  pc.on("rebuild", () => pcs[UUID] === pc && createRemoteSocket(true, UUID));
   pc.on("open", () => pc.send({ username: username, audioLvl: micMuted ? -1 : 0, video: !!allUserStreams[MY_UUID]["videostream"] }));
   pc.on("message", function (msg) { // from the peer: untrusted
     if (typeof msg.username == "string") {
