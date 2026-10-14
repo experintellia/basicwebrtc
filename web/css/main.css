@@ -568,9 +568,9 @@ video.mirror {
 
 #shareLink {
   padding: 10px;
-  font: 14px ui-monospace, monospace;
+  font-family: ui-monospace, monospace;
   resize: none;
-  field-sizing: content; /* as tall as the link; rows="2" where unsupported */
+  field-sizing: content; /* as tall as the link; rows="3" where unsupported */
 }
 
 #copyLinkBtn {

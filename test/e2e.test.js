@@ -1012,12 +1012,16 @@ test('Enter in the share link keeps the dialog open', async t => {
 
 // #101: "the room is the part after #" must be readable, not scrolled out of a one-line field.
 test('share dialog shows the whole link, room part included, on phones and desktop', async t => {
-  for (const opts of [PHONE, { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }, { viewport: { width: 1280, height: 800 } }]) {
+  state(t).room += '0000'; // as long as a fresh room: "r" + 17 digits
+  for (const [opts, noFieldSizing] of [[PHONE], [PHONE, true], [{ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }], [{ viewport: { width: 1280, height: 800 } }]]) {
     const a = await join(t, 'alice', () => { delete Navigator.prototype.share; }, '', opts);
+    if (noFieldSizing) await a.addStyleTag({ content: '#shareLink { field-sizing: fixed }' }); // e.g. Firefox: rows only
     await a.click('#moreBtn'); await a.click('#shareBtn');
-    const [sw, cw, sh, ch] = await a.$eval('#shareLink', e => [e.scrollWidth, e.clientWidth, e.scrollHeight, e.clientHeight]);
-    assert.ok(sw <= cw && sh <= ch, `${opts.viewport.width}px: link fits its field (${sw}x${sh} in ${cw}x${ch})`);
+    const [sh, ch, font] = await a.$eval('#shareLink', e => [e.scrollHeight, e.clientHeight, parseFloat(getComputedStyle(e).fontSize)]); // it wraps: only its height can overflow
+    assert.ok(sh <= ch, `${opts.viewport.width}px${noFieldSizing ? ' without field-sizing' : ''}: link fits its field (${sh} in ${ch})`);
+    assert.ok(font >= 16, 'no iOS zoom on focus');
     assert.ok(await a.$eval('#shareLink', e => e.selectionStart == 0 && e.selectionEnd == e.value.length), 'still selected for manual copy');
+    await a.context().close();
   }
 });
 
