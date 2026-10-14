@@ -315,6 +315,9 @@ video.mirror {
 
 .callBtn {
   display: grid;
+  width: 100%;
+  border: 0;
+  background-color: transparent;
   justify-items: center;
   gap: 4px;
   padding: 10px 0 9px;
@@ -345,7 +348,7 @@ video.mirror {
   color: var(--leave);
 }
 
-.callBtn.on { /* mic live, camera or screen shared: a blue tint, blue icon and a short line under the label */
+.callBtn[aria-pressed=true] { /* mic live, camera or screen shared: a blue tint, blue icon and a short line under the label */
   background-color: var(--live-tint);
   background-image: linear-gradient(var(--live), var(--live));
   background-position: center bottom 3px;
@@ -353,8 +356,14 @@ video.mirror {
   background-repeat: no-repeat;
 }
 
-.callBtn.on .icon {
+.callBtn[aria-pressed=true] .icon {
   color: var(--live);
+}
+
+/* keyboard focus on a cell or a device tab (its select is invisible): a --live ring, none for mouse and touch. A clicked select is :focus-visible too: .keyboard from main.js */
+.callBtn:focus-visible, .keyboard .selectDeviceBtn:has(:focus-visible) {
+  outline: 2px solid var(--live);
+  outline-offset: -2px;
 }
 
 /* tab on top of the mic/camera/screen button: opens the device list */
