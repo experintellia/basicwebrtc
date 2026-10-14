@@ -260,9 +260,12 @@ $("#addRemoveChatBtn").onclick = function () {
   if (open) for (const b of [$("#moreBtn"), this]) delete b.dataset.unread;
   if (open && !matchMedia("(pointer: coarse)").matches) $("#chatInputText").focus(); // no keyboard covering the chat on phones
 }
-$("#moreBtn").onclick = () => $("#moreMenu").hidden = !$("#moreMenu").hidden;
-$("#moreMenu").onclick = () => $("#moreMenu").hidden = true; // picking an item closes it
-addEventListener("click", e => $("#moreGroup").contains(e.target) || ($("#moreMenu").hidden = true));
+const moreMenu = open => { $("#moreMenu").hidden = !open; $("#moreBtn").setAttribute("aria-expanded", open); };
+$("#moreBtn").onclick = () => moreMenu($("#moreMenu").hidden);
+$("#moreMenu").onclick = () => moreMenu(false); // picking an item closes it
+addEventListener("click", e => $("#moreGroup").contains(e.target) || moreMenu(false));
+$("#moreGroup").onkeydown = e => { if (e.key == "Escape" && !$("#moreMenu").hidden) { moreMenu(false); $("#moreBtn").focus(); } };
+$("#moreGroup").addEventListener("focusout", e => e.relatedTarget && !$("#moreGroup").contains(e.relatedTarget) && moreMenu(false)); // Tabbed past it
 for (const e of ["keydown", "pointerdown"]) addEventListener(e, () => document.body.classList.toggle("keyboard", e == "keydown"), true); // last input: focus rings on the device tabs
 $("#chatCloseBtn").onclick = () => $("#addRemoveChatBtn").click();
 
@@ -465,6 +468,7 @@ function createRemoteSocket(initiator, UUID) {
   // Off the server, or ICE still up (the peer closed it on purpose; its bye/reset/offer follows): gone.
   // Else SCTP gave up in a long outage (#58), so the initiator rebuilds; its reset replaces the answerer's pc.
   pc.on("close", () => pcs[UUID] === pc && (pc.left || pc.iceUp() ? removePeer(UUID) : initiator && createRemoteSocket(true, UUID)));
+  pc.on("rebuild", () => pcs[UUID] === pc && createRemoteSocket(true, UUID));
   pc.on("open", () => pc.send({ username: username, audioLvl: micMuted ? -1 : 0, video: !!allUserStreams[MY_UUID]["videostream"] }));
   pc.on("message", function (msg) { // from the peer: untrusted
     if (typeof msg.username == "string") {
