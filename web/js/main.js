@@ -125,7 +125,7 @@ function setAudioLevel(UUID, level) {
   if (!tile) return;
   tile.querySelector(".audioMuted")?.remove();
   tile.querySelector(".userPlaceholder").style.setProperty("--level", Math.max(level, 0)); // the speaking ring; muted: none
-  if (level < 0) tile.insertAdjacentHTML("beforeend", '<div class="audioMuted">' + icon("microphone-alt-slash") + '</div>');
+  if (level < 0) (tile.querySelector(".userCont") || tile).insertAdjacentHTML("beforeend", '<div class="audioMuted">' + icon("microphone-alt-slash") + '</div>'); // with video: on its frame
 }
 
 // Peer left the server: keep the call while ICE is up, drop it once ICE goes down (crash, lost network).
@@ -552,6 +552,8 @@ function updateUserLayout() {
       }
       video.classList.toggle("mirror", mirror);
       video.srcObject = userStream["videostream"];
+      video.onresize = () => video.videoHeight && video.parentElement.style.setProperty("--ar", video.videoWidth / video.videoHeight); // the frame's shape: main.css fits it in the tile
+      video.onresize();
       userDiv.querySelector(".userPlaceholderContainer").hidden = true;
 
       const pipBtn = userDiv.querySelector(".pipBtn");
