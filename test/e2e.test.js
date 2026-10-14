@@ -1145,7 +1145,9 @@ test('lobby mic check: a bar you can see that moves with your voice', async t =>
   const a = await open(t, 'alice');
   await waitFor(() => a.locator('#lobby').isVisible(), 'lobby shown');
   assert.ok((await a.locator('#micMeter').boundingBox()).height >= 8, 'tall enough to see while silent');
-  await waitFor(() => a.evaluate(() => $('#micMeter').value > 0), 'the fake mic\'s beep moves it');
+  // the beep is short and the meter drops back to 0 after it: watch in the page, not by polling from here
+  const moves = () => a.evaluate(() => new Promise(r => { const end = Date.now() + 1000; (function f() { $('#micMeter').value > 0 ? r(true) : Date.now() > end ? r(false) : setTimeout(f, 5); })(); }));
+  await waitFor(moves, 'the fake mic\'s beep moves it');
   const land = await open(t, 'bob', null, '', { viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true }); // short: the card scrolls, nothing is squashed
   await waitFor(() => land.locator('#lobby').isVisible(), 'lobby shown, landscape phone');
   const [meter, preview] = await Promise.all(['#micMeter', '#lobbyPreview'].map(s => land.locator(s).boundingBox()));
