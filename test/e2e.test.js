@@ -553,6 +553,20 @@ test('data channel closed while both peers stay on the server: the call is rebui
   }
 });
 
+// #97: only bob's ICE is down when the data channel gives up. Alice's ICE is up, so she takes the close as deliberate and drops bob.
+test('data channel closed while only the answerer\'s ICE is down: the call is rebuilt', async t => {
+  const trackDcs = () => { const c = RTCPeerConnection.prototype.createDataChannel; window.__dcs = []; RTCPeerConnection.prototype.createDataChannel = function (...a) { const d = c.apply(this, a); __dcs.push(d); return d; }; };
+  const [a, b] = await call(t, null, trackDcs);
+  await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
+  for (const p of [a, b]) await p.evaluate(() => window.__pc = Object.values(pcs)[0]);
+  await b.evaluate(() => __pc.iceUp = () => false); // bob's side is down, alice's looks fine
+  await b.evaluate(() => __dcs[0].close()); // "close" on both sides
+  for (const p of [a, b]) {
+    await waitFor(async () => (await p.evaluate(() => { const pc = Object.values(pcs)[0]; return pc !== __pc && pc?.send({}); })) && (await callUp(p)), 'new call with an open data channel', 45000);
+    assert.strictEqual(await peerStatus(p), '', 'no "reconnecting…"');
+  }
+});
+
 test('signaling uses the socket while it is up, even if the data channel reads open', async t => {
   const [a, b] = await call(t);
   await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');

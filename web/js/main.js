@@ -98,6 +98,7 @@ socket.on("signaling", function (data) {
   var fromUUID = data.fromUUID;
   if (data.signalingData == "reset") return removePeer(fromUUID);
   if (!pcs[fromUUID]) {
+    if (data.signalingData == "renegotiate") return createRemoteSocket(true, fromUUID); // only an answerer asks: it still has the call we dropped (#97)
     if (data.signalingData?.type != "offer") return; // only an offer starts a call: late candidates of a removed peer would leave a ghost
     createRemoteSocket(false, fromUUID)
   }
