@@ -123,8 +123,10 @@ const nameOf = UUID => realName(allUserStreams[UUID]?.username);
 let sfx; // one AudioContext for every chime: browsers cap how many a page may open
 function chime(...hz) { // short notes, made here: no sound files
   const ctx = sfx ||= new AudioContext();
+  ctx.resume().catch(() => { }); // Safari suspends it after a phone call or Siri
   hz.forEach((f, i) => {
     const o = new OscillatorNode(ctx, { frequency: f }), g = new GainNode(ctx, { gain: 0 }), t = ctx.currentTime + i * .12;
+    g.gain.setValueAtTime(0, t); // else the fade-in starts now, and a later note starts loud: a click
     g.gain.linearRampToValueAtTime(.15, t + .01);
     g.gain.exponentialRampToValueAtTime(.001, t + .25);
     o.connect(g).connect(ctx.destination);

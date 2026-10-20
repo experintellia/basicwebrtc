@@ -400,8 +400,22 @@ test('a chime rises when someone joins and falls when they leave, once each', as
   await waitFor(async () => (await notes(b)) === '660,880', 'bob hears alice is there');
   await a.evaluate(() => createRemoteSocket(true, Object.keys(pcs)[0])); // a rebuild is no leave and join
   await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up again');
+  await new Promise(r => setTimeout(r, 2500)); // past the leave chime's re-check
+  assert.deepStrictEqual([await notes(a), await notes(b)], ['660,880', '660,880'], 'a rebuild is silent on both sides');
   await b.context().close();
   await waitFor(async () => (await notes(a)) === '660,880,880,660', 'alice hears bob leave');
+});
+
+test('each chime note fades in from silence: no click', async t => {
+  const a = await open(t, 'alice');
+  const peaks = await a.evaluate(async () => {
+    sfx = new OfflineAudioContext(1, 24000, 48000); // renders chime() instead of playing it
+    chime(660, 880);
+    const s = (await sfx.startRendering()).getChannelData(0), peak = (from, to) => Math.max(...s.slice(from * 48, to * 48).map(Math.abs));
+    return [peak(0, 1), peak(120, 121), peak(130, 140)]; // ms: each note's first, and the second note at full volume
+  });
+  assert.ok(peaks[0] < .03 && peaks[1] < .03, `notes start quietly: ${peaks}`);
+  assert.ok(peaks[2] > .1, `and get loud: ${peaks}`);
 });
 
 test('signaling socket reconnect keeps the call working', async t => {
