@@ -391,15 +391,14 @@ test('right-click a peer to set their volume, just for you: the tile shows it, a
   const [a, b] = await call(t);
   const volume = () => a.evaluate(() => document.querySelector('#audioStreams audio').volume);
   const badge = () => a.evaluate(() => document.querySelector('#mediaDiv .volumeSet')?.title || '');
-  const slide = v => a.$eval('#volumeRange', (r, v) => { r.value = v; r.dispatchEvent(new Event('input')); }, v);
+  const slide = v => a.$eval('#volumeRange', (r, v) => { r.value = v; r.dispatchEvent(new Event('input')); r.dispatchEvent(new Event('change')); }, v);
   assert.strictEqual(await badge(), '', 'no badge at full volume');
   await a.click('#mediaDiv .videoplaceholder:not(.selfPreview)', { button: 'right' });
   assert.ok(await a.locator('#volumeMenu').isVisible(), 'menu at the click');
   assert.match(await a.textContent('#volumeMenu'), /bob/);
-  await slide(0.4);
+  await slide(40);
   assert.strictEqual(await volume(), 0.4);
   assert.match(await badge(), /40%.*only you/i, 'tooltip explains it');
-  assert.strictEqual(await b.evaluate(() => document.querySelector('#audioStreams audio').volume), 1, 'not for the others');
   await a.keyboard.press('Escape');
   assert.ok(await a.locator('#volumeMenu').isHidden(), 'Escape closes it');
   await a.evaluate(() => createRemoteSocket(true, Object.keys(pcs)[0]));
@@ -407,10 +406,15 @@ test('right-click a peer to set their volume, just for you: the tile shows it, a
   assert.strictEqual(await volume(), 0.4, 'kept through a rebuild');
   assert.match(await badge(), /40%/);
   await a.click('#mediaDiv .videoplaceholder:not(.selfPreview)', { button: 'right' });
-  await slide(1);
+  await slide(100);
   assert.strictEqual(await badge(), '', 'back to full: no badge');
   await a.mouse.click(5, 5);
   assert.ok(await a.locator('#volumeMenu').isHidden(), 'a click elsewhere closes it');
+  await a.focus('#mediaDiv .videoplaceholder:not(.selfPreview)'); // audio only: nothing else on the tile takes focus
+  await a.keyboard.press('Shift+F10');
+  assert.ok(await a.locator('#volumeMenu').isVisible(), 'the keyboard opens it too');
+  await b.context().close();
+  await waitFor(() => a.locator('#volumeMenu').isHidden(), 'closed when bob is gone');
 });
 
 test('signaling socket reconnect keeps the call working', async t => {

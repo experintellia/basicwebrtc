@@ -501,6 +501,7 @@ function removePeer(UUID) {
   allUserStreams[UUID]?.audio?.remove();
   delete allUserStreams[UUID];
   updateUserLayout();
+  if (UUID == volumeFor) $("#volumeMenu").hidden = true; // ponytail: a rebuild closes it too
 }
 
 function gotRemoteStream(stream, UUID) {
@@ -573,9 +574,12 @@ function updateUserLayout() {
       }
     }
 
-    if (i != MY_UUID) userDiv.oncontextmenu = e => { e.preventDefault(); volumeMenu(i, e); };
+    if (i != MY_UUID) { // the context menu key works too: focusable, for tiles without video
+      userDiv.tabIndex = 0;
+      userDiv.oncontextmenu = e => { if (!document.fullscreenElement) e.preventDefault(), volumeMenu(i, e); }; // fullscreen: the menu would open behind it
+    }
     if (volumes[i] < 1) { // turned down by us: a badge, its tooltip says why
-      const badge = fromHTML(`<div class="volumeSet" role="img">${icon(volumes[i] ? "volume-down" : "volume-mute")}</div>`);
+      const badge = fromHTML(`<div class="volumeSet" role="img">${icon("volume-down")}</div>`);
       badge.title = `You set ${name ? name + "'s" : "their"} volume to ${Math.round(volumes[i] * 100)}%: only you hear them that way. Right-click to change it.`;
       (userDiv.querySelector(".userCont") || userDiv).append(badge);
     }
@@ -600,20 +604,21 @@ let volumeFor;
 function volumeMenu(UUID, e) {
   const m = $("#volumeMenu");
   volumeFor = UUID;
-  $("#volumeRange").value = volumes[UUID] ?? 1;
+  $("#volumeRange").value = (volumes[UUID] ?? 1) * 100; // 0-100: a screen reader says "40", not "0.4"
   showVolume();
   m.hidden = false;
-  m.style.left = Math.min(e.clientX, innerWidth - m.offsetWidth) + "px";
-  m.style.top = Math.min(e.clientY, innerHeight - m.offsetHeight) + "px";
+  m.style.left = m.style.top = 0; // measured where it has the most room: a long name wraps less
+  m.style.left = Math.max(0, Math.min(e.clientX, innerWidth - m.offsetWidth - 16)) + "px";
+  m.style.top = Math.max(0, Math.min(e.clientY, innerHeight - m.offsetHeight - 16)) + "px";
   $("#volumeRange").focus();
 }
-const showVolume = () => $("#volumeMenu span").textContent = `Volume${nameOf(volumeFor) ? " of " + nameOf(volumeFor) : ""}: ${Math.round($("#volumeRange").value * 100)}%`;
+const showVolume = () => $("#volumeMenu span").textContent = `Volume${nameOf(volumeFor) ? " of " + nameOf(volumeFor) : ""}: ${$("#volumeRange").value}%`;
 $("#volumeRange").oninput = function () {
-  volumes[volumeFor] = +this.value;
-  if (allUserStreams[volumeFor]?.audio) allUserStreams[volumeFor].audio.volume = this.value;
+  volumes[volumeFor] = this.value / 100;
+  if (allUserStreams[volumeFor]?.audio) allUserStreams[volumeFor].audio.volume = volumes[volumeFor];
   showVolume();
-  updateUserLayout();
 };
+$("#volumeRange").onchange = updateUserLayout; // the badge, once let go: not every tile rebuilt while dragging
 // Not a popover: its light dismiss closes it again on the pointerup after a right-click (Linux, macOS open the menu on pointerdown)
 addEventListener("pointerdown", e => $("#volumeMenu").contains(e.target) || ($("#volumeMenu").hidden = true));
 $("#volumeMenu").onkeydown = e => e.key == "Escape" && ($("#volumeMenu").hidden = true);

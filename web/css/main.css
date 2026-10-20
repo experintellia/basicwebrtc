@@ -368,6 +368,7 @@ video.mirror {
 #volumeMenu { /* at the right-click */
   position: fixed;
   z-index: 50;
+  max-width: calc(100vw - 32px);
   display: grid;
   gap: 8px;
   padding: 12px 14px;
