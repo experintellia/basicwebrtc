@@ -42,6 +42,7 @@ var webRTCConfig = {};
 // A UUID is never an element id ("Streams" would be #audioStreams): each entry holds its .tile and .audio.
 var allUserStreams = Object.create(null);
 var pcs = Object.create(null); //Peer connections to all remotes
+const volumes = Object.create(null); // UUID -> 0..1: outlives a rebuilt connection. ponytail: a peer's reload (new UUID) resets it
 var micMuted = false;
 var camActive = false;
 var screenActive = false;
@@ -508,6 +509,7 @@ function gotRemoteStream(stream, UUID) {
   if (!allUserStreams[UUID].audio) { // not in updateUserLayout: that skips while fullscreen
     const audio = allUserStreams[UUID].audio = fromHTML('<audio autoplay hidden></audio>');
     audio.srcObject = stream;
+    audio.volume = volumes[UUID] ?? 1;
     $("#audioStreams").append(audio);
   }
   updateUserLayout();
@@ -571,6 +573,13 @@ function updateUserLayout() {
       }
     }
 
+    if (i != MY_UUID) userDiv.oncontextmenu = e => { e.preventDefault(); volumeMenu(i, e); };
+    if (volumes[i] < 1) { // turned down by us: a badge, its tooltip says why
+      const badge = fromHTML(`<div class="volumeSet" role="img">${icon(volumes[i] ? "volume-down" : "volume-mute")}</div>`);
+      badge.title = `You set ${name ? name + "'s" : "their"} volume to ${Math.round(volumes[i] * 100)}%: only you hear them that way. Right-click to change it.`;
+      (userDiv.querySelector(".userCont") || userDiv).append(badge);
+    }
+
     tiles.push(userDiv);
   }
 
@@ -585,6 +594,29 @@ function updateUserLayout() {
   for (const i in allUserStreams) if (allUserStreams[i].muted) setAudioLevel(i, -1);
 }
 document.addEventListener("fullscreenchange", updateUserLayout); // redo what was skipped while fullscreen
+
+// Right-click a peer: their volume, for us only. ponytail: audio.volume, so 0-100% and none on iOS (read-only there); a GainNode would boost and work there
+let volumeFor;
+function volumeMenu(UUID, e) {
+  const m = $("#volumeMenu");
+  volumeFor = UUID;
+  $("#volumeRange").value = volumes[UUID] ?? 1;
+  showVolume();
+  m.hidden = false;
+  m.style.left = Math.min(e.clientX, innerWidth - m.offsetWidth) + "px";
+  m.style.top = Math.min(e.clientY, innerHeight - m.offsetHeight) + "px";
+  $("#volumeRange").focus();
+}
+const showVolume = () => $("#volumeMenu span").textContent = `Volume${nameOf(volumeFor) ? " of " + nameOf(volumeFor) : ""}: ${Math.round($("#volumeRange").value * 100)}%`;
+$("#volumeRange").oninput = function () {
+  volumes[volumeFor] = +this.value;
+  if (allUserStreams[volumeFor]?.audio) allUserStreams[volumeFor].audio.volume = this.value;
+  showVolume();
+  updateUserLayout();
+};
+// Not a popover: its light dismiss closes it again on the pointerup after a right-click (Linux, macOS open the menu on pointerdown)
+addEventListener("pointerdown", e => $("#volumeMenu").contains(e.target) || ($("#volumeMenu").hidden = true));
+$("#volumeMenu").onkeydown = e => e.key == "Escape" && ($("#volumeMenu").hidden = true);
 
 var retryJoin = null; // at a locked room's door: joins again once let in
 function joinRoom(onJoined) {

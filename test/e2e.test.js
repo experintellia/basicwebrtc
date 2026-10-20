@@ -387,6 +387,32 @@ test('peer leaves: the other side cleans up', async t => {
   await waitFor(async () => (await a.locator('#audioStreams audio').count()) === 0, 'audio element removed');
 });
 
+test('right-click a peer to set their volume, just for you: the tile shows it, a rebuild keeps it', async t => {
+  const [a, b] = await call(t);
+  const volume = () => a.evaluate(() => document.querySelector('#audioStreams audio').volume);
+  const badge = () => a.evaluate(() => document.querySelector('#mediaDiv .volumeSet')?.title || '');
+  const slide = v => a.$eval('#volumeRange', (r, v) => { r.value = v; r.dispatchEvent(new Event('input')); }, v);
+  assert.strictEqual(await badge(), '', 'no badge at full volume');
+  await a.click('#mediaDiv .videoplaceholder:not(.selfPreview)', { button: 'right' });
+  assert.ok(await a.locator('#volumeMenu').isVisible(), 'menu at the click');
+  assert.match(await a.textContent('#volumeMenu'), /bob/);
+  await slide(0.4);
+  assert.strictEqual(await volume(), 0.4);
+  assert.match(await badge(), /40%.*only you/i, 'tooltip explains it');
+  assert.strictEqual(await b.evaluate(() => document.querySelector('#audioStreams audio').volume), 1, 'not for the others');
+  await a.keyboard.press('Escape');
+  assert.ok(await a.locator('#volumeMenu').isHidden(), 'Escape closes it');
+  await a.evaluate(() => createRemoteSocket(true, Object.keys(pcs)[0]));
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up again');
+  assert.strictEqual(await volume(), 0.4, 'kept through a rebuild');
+  assert.match(await badge(), /40%/);
+  await a.click('#mediaDiv .videoplaceholder:not(.selfPreview)', { button: 'right' });
+  await slide(1);
+  assert.strictEqual(await badge(), '', 'back to full: no badge');
+  await a.mouse.click(5, 5);
+  assert.ok(await a.locator('#volumeMenu').isHidden(), 'a click elsewhere closes it');
+});
+
 test('signaling socket reconnect keeps the call working', async t => {
   const [a, b] = await call(t);
   await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
