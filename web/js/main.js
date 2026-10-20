@@ -120,6 +120,20 @@ var callStart = 0; // first join, for the end screen. ponytail: an own reload st
 const met = new Map(); // everyone the call reached: UUID -> name, for the end screen
 const nameOf = UUID => realName(allUserStreams[UUID]?.username);
 
+let sfx; // one AudioContext for every chime: browsers cap how many a page may open
+function chime(...hz) { // short notes, made here: no sound files
+  const ctx = sfx ||= new AudioContext();
+  hz.forEach((f, i) => {
+    const o = new OscillatorNode(ctx, { frequency: f }), g = new GainNode(ctx, { gain: 0 }), t = ctx.currentTime + i * .12;
+    g.gain.linearRampToValueAtTime(.15, t + .01);
+    g.gain.exponentialRampToValueAtTime(.001, t + .25);
+    o.connect(g).connect(ctx.destination);
+    o.start(t);
+    o.stop(t + .25);
+  });
+}
+const present = new Set(); // peers we chimed in: a rebuild of their connection is no new join
+
 function setAudioLevel(UUID, level) {
   if (allUserStreams[UUID]) allUserStreams[UUID].muted = level < 0; // re-shown by updateUserLayout
   const tile = allUserStreams[UUID]?.tile;
@@ -470,6 +484,7 @@ function createRemoteSocket(initiator, UUID) {
   // Else SCTP gave up in a long outage (#58), so the initiator rebuilds; its reset replaces the answerer's pc.
   pc.on("close", () => pcs[UUID] === pc && (pc.left || pc.iceUp() ? removePeer(UUID) : initiator && createRemoteSocket(true, UUID)));
   pc.on("rebuild", () => pcs[UUID] === pc && createRemoteSocket(true, UUID));
+  pc.on("open", () => present.has(UUID) || (present.add(UUID), chime(660, 880)));
   pc.on("open", () => pc.send({ username: username, audioLvl: micMuted ? -1 : 0, video: !!allUserStreams[MY_UUID]["videostream"] }));
   pc.on("message", function (msg) { // from the peer: untrusted
     if (typeof msg.username == "string") {
@@ -500,6 +515,7 @@ function removePeer(UUID) {
   allUserStreams[UUID]?.audio?.remove();
   delete allUserStreams[UUID];
   updateUserLayout();
+  setTimeout(() => !pcs[UUID] && present.delete(UUID) && chime(880, 660), 2000); // a rebuilt connection is back by then: no leave
 }
 
 function gotRemoteStream(stream, UUID) {

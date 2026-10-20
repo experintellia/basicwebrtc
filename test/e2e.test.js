@@ -387,6 +387,23 @@ test('peer leaves: the other side cleans up', async t => {
   await waitFor(async () => (await a.locator('#audioStreams audio').count()) === 0, 'audio element removed');
 });
 
+// Init script: records the pitch of every note played, in window.__notes.
+const trackNotes = () => { window.__notes = []; const s = OscillatorNode.prototype.start; OscillatorNode.prototype.start = function (...a) { __notes.push(this.frequency.value); return s.apply(this, a); }; };
+const notes = p => p.evaluate(() => __notes.join(','));
+
+test('a chime rises when someone joins and falls when they leave, once each', async t => {
+  const a = await join(t, 'alice', trackNotes);
+  await waitFor(async () => (await selfStatus(a)) === '', 'alice joined');
+  assert.strictEqual(await notes(a), '', 'alone: no chime');
+  const b = await join(t, 'bob', trackNotes);
+  await waitFor(async () => (await notes(a)) === '660,880', 'alice hears bob join');
+  await waitFor(async () => (await notes(b)) === '660,880', 'bob hears alice is there');
+  await a.evaluate(() => createRemoteSocket(true, Object.keys(pcs)[0])); // a rebuild is no leave and join
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up again');
+  await b.context().close();
+  await waitFor(async () => (await notes(a)) === '660,880,880,660', 'alice hears bob leave');
+});
+
 test('signaling socket reconnect keeps the call working', async t => {
   const [a, b] = await call(t);
   await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');
