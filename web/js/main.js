@@ -499,6 +499,7 @@ function removePeer(UUID) {
   if (pcs[UUID]) pcs[UUID].destroy();
   delete pcs[UUID];
   allUserStreams[UUID]?.audio?.remove();
+  allUserStreams[UUID]?.boost?.src.disconnect(); // else it stays alive, connected to the gain
   allUserStreams[UUID]?.boost?.disconnect();
   delete allUserStreams[UUID];
   updateUserLayout();
@@ -606,12 +607,13 @@ function setVolume(UUID) {
   const u = allUserStreams[UUID], v = volumes[UUID] ?? 1;
   if (!u?.audio) return;
   if (v > 1 && !u.boost) { // above 100%: a gain, the element stops at 1. The stream stays on the element, muted: Chromium only hands it to Web Audio then
-    const ctx = boostCtx ||= new AudioContext();
-    u.boost = ctx.createMediaStreamSource(u.audiostream).connect(new GainNode(ctx));
+    const ctx = boostCtx ||= Object.assign(new AudioContext(), { onstatechange: () => { for (const id in allUserStreams) setVolume(id); } });
+    const src = ctx.createMediaStreamSource(u.audiostream);
+    u.boost = Object.assign(src.connect(new GainNode(ctx)), { src }); // ponytail: no limiter, 150% can clip a loud talker; a DynamicsCompressorNode before destination if it does
     u.boost.connect(ctx.destination);
   }
   if (v > 1) boostCtx.resume().catch(() => { }); // Safari suspends it after a phone call or Siri
-  u.audio.muted = v > 1;
+  u.audio.muted = v > 1 && boostCtx.state == "running"; // not running: the element at 100%, not silence
   u.audio.volume = Math.min(v, 1);
   if (u.boost) u.boost.gain.value = v > 1 ? v : 0;
 }
@@ -636,11 +638,11 @@ $("#volumeRange").oninput = function () {
   setVolume(volumeFor);
   showVolume();
 };
-$("#volumeReset").onclick = () => { $("#volumeRange").value = 100; $("#volumeRange").oninput(); updateUserLayout(); };
+$("#volumeReset").onclick = () => { $("#volumeRange").value = 100; $("#volumeRange").oninput(); updateUserLayout(); $("#volumeRange").focus(); }; // it hides itself: focus stays in the menu, for Escape
 $("#volumeRange").onchange = updateUserLayout; // the badge, once let go: not every tile rebuilt while dragging
 // Not a popover: its light dismiss closes it again on the pointerup after a right-click (Linux, macOS open the menu on pointerdown)
 addEventListener("pointerdown", e => $("#volumeMenu").contains(e.target) || ($("#volumeMenu").hidden = true));
-$("#volumeMenu").onkeydown = e => e.key == "Escape" && ($("#volumeMenu").hidden = true);
+$("#volumeMenu").onkeydown = e => { if (e.key == "Escape") $("#volumeMenu").hidden = true; }; // not a returned false: that cancels every other key
 
 var retryJoin = null; // at a locked room's door: joins again once let in
 function joinRoom(onJoined) {

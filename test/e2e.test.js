@@ -413,6 +413,14 @@ test('right-click a peer to set their volume, just for you: the tile shows it, a
   await a.focus('#mediaDiv .videoplaceholder:not(.selfPreview)'); // audio only: nothing else on the tile takes focus
   await a.keyboard.press('Shift+F10');
   assert.ok(await a.locator('#volumeMenu').isVisible(), 'the keyboard opens it too');
+  await a.keyboard.press('ArrowLeft');
+  assert.strictEqual(await a.inputValue('#volumeRange'), '95', 'arrows move the slider');
+  await a.keyboard.press('Tab');
+  await a.keyboard.press('Space');
+  assert.strictEqual(await a.inputValue('#volumeRange'), '100', 'Tab, Space: Reset');
+  await a.keyboard.press('Escape');
+  assert.ok(await a.locator('#volumeMenu').isHidden(), 'Escape still closes it after Reset');
+  await a.keyboard.press('Shift+F10');
   await b.context().close();
   await waitFor(() => a.locator('#volumeMenu').isHidden(), 'closed when bob is gone');
 });
@@ -424,7 +432,7 @@ test('volume goes up to 150%: louder through a gain; Reset brings it back to 100
   const out = () => a.evaluate(async () => { // what the peer's audio does now; peak: sound coming out of the gain
     const u = Object.values(allUserStreams).find(u => u.audio), g = u.boost;
     let peak = 0;
-    if (g) {
+    if (g?.gain.value) {
       const an = new AnalyserNode(g.context), d = new Float32Array(2048);
       g.connect(an);
       for (let i = 0; i < 60 && !peak; i++) { await new Promise(r => setTimeout(r, 50)); an.getFloatTimeDomainData(d); peak = Math.max(...d.map(Math.abs)); }
@@ -439,6 +447,15 @@ test('volume goes up to 150%: louder through a gain; Reset brings it back to 100
   assert.strictEqual(await a.inputValue('#volumeRange'), '150', 'at most 150%');
   assert.deepStrictEqual(await out(), { muted: true, volume: 1, gain: 1.5, peak: true }, 'the element is muted, the gain plays it at 150%');
   assert.match((await badge())[0], /150%.*only you/i);
+  const mutedWhen = st => a.evaluate(async st => {
+    if (st == 'suspend') boostCtx.resume = () => Promise.reject(new Error('no gesture')); // as Safari after a phone call: it stays suspended
+    else delete boostCtx.resume; // the real one again
+    await boostCtx[st]();
+    await new Promise(r => setTimeout(r, 100));
+    return document.querySelector('#audioStreams audio').muted;
+  }, st);
+  assert.strictEqual(await mutedWhen('suspend'), false, 'a suspended gain: the element plays, at 100%, not silence');
+  assert.strictEqual(await mutedWhen('resume'), true, 'running again: the gain');
   assert.strictEqual((await badge())[1], '#volume-up', 'louder: the louder icon');
   await slide(40);
   assert.deepStrictEqual(await out(), { muted: false, volume: 0.4, gain: 0, peak: false }, 'below 100%: the element again');
