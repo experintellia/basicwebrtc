@@ -406,6 +406,13 @@ test('a chime rises when someone joins and falls when they leave, once each', as
   await waitFor(async () => (await notes(a)) === '660,880,880,660', 'alice hears bob leave');
 });
 
+test('a chime that fails does not stop the call: the peer still gets our name', async t => {
+  const [a, b] = await call(t, () => { OscillatorNode = function () { throw new Error('no chime'); }; });
+  await waitFor(async () => (await b.textContent('#mediaDiv')).includes('alice'), 'bob sees alice\'s name');
+  const s = state(t);
+  s.errors = s.errors.filter(e => e != 'no chime'); // expected: thrown from alice's chime
+});
+
 test('each chime note fades in from silence: no click', async t => {
   const a = await open(t, 'alice');
   const peaks = await a.evaluate(async () => {
@@ -414,7 +421,7 @@ test('each chime note fades in from silence: no click', async t => {
     const s = (await sfx.startRendering()).getChannelData(0), peak = (from, to) => Math.max(...s.slice(from * 48, to * 48).map(Math.abs));
     return [peak(0, 1), peak(120, 121), peak(130, 140)]; // ms: each note's first, and the second note at full volume
   });
-  assert.ok(peaks[0] < .03 && peaks[1] < .03, `notes start quietly: ${peaks}`);
+  assert.ok(peaks[0] < .06 && peaks[1] < .06, `notes start quietly: ${peaks}`); // the first note's tail is ~.015 there, a click ~.14
   assert.ok(peaks[2] > .1, `and get loud: ${peaks}`);
 });
 

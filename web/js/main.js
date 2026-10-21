@@ -486,8 +486,8 @@ function createRemoteSocket(initiator, UUID) {
   // Else SCTP gave up in a long outage (#58), so the initiator rebuilds; its reset replaces the answerer's pc.
   pc.on("close", () => pcs[UUID] === pc && (pc.left || pc.iceUp() ? removePeer(UUID) : initiator && createRemoteSocket(true, UUID)));
   pc.on("rebuild", () => pcs[UUID] === pc && createRemoteSocket(true, UUID));
-  pc.on("open", () => present.has(UUID) || (present.add(UUID), chime(660, 880)));
   pc.on("open", () => pc.send({ username: username, audioLvl: micMuted ? -1 : 0, video: !!allUserStreams[MY_UUID]["videostream"] }));
+  pc.on("open", () => present.has(UUID) || (present.add(UUID), chime(660, 880))); // after the hello: a chime that throws must not stop it
   pc.on("message", function (msg) { // from the peer: untrusted
     if (typeof msg.username == "string") {
       allUserStreams[UUID] = allUserStreams[UUID] || {};
