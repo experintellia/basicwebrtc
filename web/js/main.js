@@ -121,6 +121,23 @@ var callStart = 0; // first join, for the end screen. ponytail: an own reload st
 const met = new Map(); // everyone the call reached: UUID -> name, for the end screen
 const nameOf = UUID => realName(allUserStreams[UUID]?.username);
 
+let audioOut; // one AudioContext for chimes and boosted peers: browsers cap how many a page may open
+const audioCtx = () => audioOut ||= Object.assign(new AudioContext(), { onstatechange: () => { for (const id in allUserStreams) setVolume(id); } });
+function chime(...hz) { // short notes, made here: no sound files
+  const ctx = audioCtx();
+  ctx.resume().catch(() => { }); // Safari suspends it after a phone call or Siri
+  hz.forEach((f, i) => {
+    const o = new OscillatorNode(ctx, { frequency: f }), g = new GainNode(ctx, { gain: 0 }), t = ctx.currentTime + i * .12;
+    g.gain.setValueAtTime(0, t); // else the fade-in starts now, and a later note starts loud: a click
+    g.gain.linearRampToValueAtTime(.15, t + .01);
+    g.gain.exponentialRampToValueAtTime(.001, t + .25);
+    o.connect(g).connect(ctx.destination);
+    o.start(t);
+    o.stop(t + .25);
+  });
+}
+const present = new Set(); // peers we chimed in: a rebuild of their connection is no new join
+
 function setAudioLevel(UUID, level) {
   if (allUserStreams[UUID]) allUserStreams[UUID].muted = level < 0; // re-shown by updateUserLayout
   const tile = allUserStreams[UUID]?.tile;
@@ -472,6 +489,7 @@ function createRemoteSocket(initiator, UUID) {
   pc.on("close", () => pcs[UUID] === pc && (pc.left || pc.iceUp() ? removePeer(UUID) : initiator && createRemoteSocket(true, UUID)));
   pc.on("rebuild", () => pcs[UUID] === pc && createRemoteSocket(true, UUID));
   pc.on("open", () => pc.send({ username: username, audioLvl: micMuted ? -1 : 0, video: !!allUserStreams[MY_UUID]["videostream"] }));
+  pc.on("open", () => present.has(UUID) || (present.add(UUID), chime(660, 880))); // after the hello: a chime that throws must not stop it
   pc.on("message", function (msg) { // from the peer: untrusted
     if (typeof msg.username == "string") {
       allUserStreams[UUID] = allUserStreams[UUID] || {};
@@ -504,6 +522,7 @@ function removePeer(UUID) {
   delete allUserStreams[UUID];
   updateUserLayout();
   if (UUID == volumeFor) $("#volumeMenu").hidden = true; // ponytail: a rebuild closes it too
+  setTimeout(() => !pcs[UUID] && present.delete(UUID) && chime(880, 660), 2000); // a rebuilt connection is back by then: no leave
 }
 
 function gotRemoteStream(stream, UUID) {
@@ -602,18 +621,17 @@ function updateUserLayout() {
 document.addEventListener("fullscreenchange", updateUserLayout); // redo what was skipped while fullscreen
 
 // Right-click a peer: their volume, for us only. ponytail: below 100% audio.volume, so not on iOS (read-only there); the gain could do that too
-let boostCtx;
 function setVolume(UUID) {
   const u = allUserStreams[UUID], v = volumes[UUID] ?? 1;
   if (!u?.audio) return;
   if (v > 1 && !u.boost) { // above 100%: a gain, the element stops at 1. The stream stays on the element, muted: Chromium only hands it to Web Audio then
-    const ctx = boostCtx ||= Object.assign(new AudioContext(), { onstatechange: () => { for (const id in allUserStreams) setVolume(id); } });
+    const ctx = audioCtx();
     const src = ctx.createMediaStreamSource(u.audiostream);
     u.boost = Object.assign(src.connect(new GainNode(ctx)), { src }); // ponytail: no limiter, 150% can clip a loud talker; a DynamicsCompressorNode before destination if it does
     u.boost.connect(ctx.destination);
   }
-  if (v > 1) boostCtx.resume().catch(() => { }); // Safari suspends it after a phone call or Siri
-  u.audio.muted = v > 1 && boostCtx.state == "running"; // not running: the element at 100%, not silence
+  if (v > 1) audioOut.resume().catch(() => { }); // Safari suspends it after a phone call or Siri
+  u.audio.muted = v > 1 && audioOut.state == "running"; // not running: the element at 100%, not silence
   u.audio.volume = Math.min(v, 1);
   if (u.boost) u.boost.gain.value = v > 1 ? v : 0;
 }
