@@ -42,6 +42,7 @@ var webRTCConfig = {};
 // A UUID is never an element id ("Streams" would be #audioStreams): each entry holds its .tile and .audio.
 var allUserStreams = Object.create(null);
 var pcs = Object.create(null); //Peer connections to all remotes
+const volumes = Object.create(null); // UUID -> 0..1.5: outlives a rebuilt connection. ponytail: a peer's reload (new UUID) resets it
 var micMuted = false;
 var camActive = false;
 var screenActive = false;
@@ -120,9 +121,10 @@ var callStart = 0; // first join, for the end screen. ponytail: an own reload st
 const met = new Map(); // everyone the call reached: UUID -> name, for the end screen
 const nameOf = UUID => realName(allUserStreams[UUID]?.username);
 
-let sfx; // one AudioContext for every chime: browsers cap how many a page may open
+let audioOut; // one AudioContext for chimes and boosted peers: browsers cap how many a page may open
+const audioCtx = () => audioOut ||= Object.assign(new AudioContext(), { onstatechange: () => { for (const id in allUserStreams) setVolume(id); } });
 function chime(...hz) { // short notes, made here: no sound files
-  const ctx = sfx ||= new AudioContext();
+  const ctx = audioCtx();
   ctx.resume().catch(() => { }); // Safari suspends it after a phone call or Siri
   hz.forEach((f, i) => {
     const o = new OscillatorNode(ctx, { frequency: f }), g = new GainNode(ctx, { gain: 0 }), t = ctx.currentTime + i * .12;
@@ -515,8 +517,11 @@ function removePeer(UUID) {
   if (pcs[UUID]) pcs[UUID].destroy();
   delete pcs[UUID];
   allUserStreams[UUID]?.audio?.remove();
+  allUserStreams[UUID]?.boost?.src.disconnect(); // else it stays alive, connected to the gain
+  allUserStreams[UUID]?.boost?.disconnect();
   delete allUserStreams[UUID];
   updateUserLayout();
+  if (UUID == volumeFor) $("#volumeMenu").hidden = true; // ponytail: a rebuild closes it too
   setTimeout(() => !pcs[UUID] && present.delete(UUID) && chime(880, 660), 2000); // a rebuilt connection is back by then: no leave
 }
 
@@ -527,6 +532,7 @@ function gotRemoteStream(stream, UUID) {
     const audio = allUserStreams[UUID].audio = fromHTML('<audio autoplay hidden></audio>');
     audio.srcObject = stream;
     $("#audioStreams").append(audio);
+    setVolume(UUID);
   }
   updateUserLayout();
 }
@@ -589,6 +595,16 @@ function updateUserLayout() {
       }
     }
 
+    if (i != MY_UUID) { // the context menu key works too: focusable, for tiles without video
+      userDiv.tabIndex = 0;
+      userDiv.oncontextmenu = e => { if (!document.fullscreenElement) e.preventDefault(), volumeMenu(i, e); }; // fullscreen: the menu would open behind it
+    }
+    if (volumes[i] != null && volumes[i] != 1) { // set by us: a badge, its tooltip says why
+      const badge = fromHTML(`<div class="volumeSet" role="img">${icon(volumes[i] > 1 ? "volume-up" : "volume-down")}</div>`);
+      badge.title = `You set ${name ? name + "'s" : "their"} volume to ${Math.round(volumes[i] * 100)}%: only you hear them that way. Right-click to change it.`;
+      (userDiv.querySelector(".userCont") || userDiv).append(badge);
+    }
+
     tiles.push(userDiv);
   }
 
@@ -603,6 +619,48 @@ function updateUserLayout() {
   for (const i in allUserStreams) if (allUserStreams[i].muted) setAudioLevel(i, -1);
 }
 document.addEventListener("fullscreenchange", updateUserLayout); // redo what was skipped while fullscreen
+
+// Right-click a peer: their volume, for us only. ponytail: below 100% audio.volume, so not on iOS (read-only there); the gain could do that too
+function setVolume(UUID) {
+  const u = allUserStreams[UUID], v = volumes[UUID] ?? 1;
+  if (!u?.audio) return;
+  if (v > 1 && !u.boost) { // above 100%: a gain, the element stops at 1. The stream stays on the element, muted: Chromium only hands it to Web Audio then
+    const ctx = audioCtx();
+    const src = ctx.createMediaStreamSource(u.audiostream);
+    u.boost = Object.assign(src.connect(new GainNode(ctx)), { src }); // ponytail: no limiter, 150% can clip a loud talker; a DynamicsCompressorNode before destination if it does
+    u.boost.connect(ctx.destination);
+  }
+  if (v > 1) audioOut.resume().catch(() => { }); // Safari suspends it after a phone call or Siri
+  u.audio.muted = v > 1 && audioOut.state == "running"; // not running: the element at 100%, not silence
+  u.audio.volume = Math.min(v, 1);
+  if (u.boost) u.boost.gain.value = v > 1 ? v : 0;
+}
+let volumeFor;
+function volumeMenu(UUID, e) {
+  const m = $("#volumeMenu");
+  volumeFor = UUID;
+  $("#volumeRange").value = (volumes[UUID] ?? 1) * 100; // in %: a screen reader says "40", not "0.4"
+  showVolume();
+  m.hidden = false;
+  m.style.left = m.style.top = 0; // measured where it has the most room: a long name wraps less
+  m.style.left = Math.max(0, Math.min(e.clientX, innerWidth - m.offsetWidth - 16)) + "px";
+  m.style.top = Math.max(0, Math.min(e.clientY, innerHeight - m.offsetHeight - 16)) + "px";
+  $("#volumeRange").focus();
+}
+function showVolume() {
+  $("#volumeMenu span").textContent = `Volume${nameOf(volumeFor) ? " of " + nameOf(volumeFor) : ""}: ${$("#volumeRange").value}%`;
+  $("#volumeReset").hidden = $("#volumeRange").value == 100;
+}
+$("#volumeRange").oninput = function () {
+  volumes[volumeFor] = this.value / 100;
+  setVolume(volumeFor);
+  showVolume();
+};
+$("#volumeReset").onclick = () => { $("#volumeRange").value = 100; $("#volumeRange").oninput(); updateUserLayout(); $("#volumeRange").focus(); }; // it hides itself: focus stays in the menu, for Escape
+$("#volumeRange").onchange = updateUserLayout; // the badge, once let go: not every tile rebuilt while dragging
+// Not a popover: its light dismiss closes it again on the pointerup after a right-click (Linux, macOS open the menu on pointerdown)
+addEventListener("pointerdown", e => $("#volumeMenu").contains(e.target) || ($("#volumeMenu").hidden = true));
+$("#volumeMenu").onkeydown = e => { if (e.key == "Escape") $("#volumeMenu").hidden = true; }; // not a returned false: that cancels every other key
 
 var retryJoin = null; // at a locked room's door: joins again once let in
 function joinRoom(onJoined) {

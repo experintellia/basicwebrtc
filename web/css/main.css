@@ -96,7 +96,7 @@ video {
   background: var(--ink-hover);
 }
 
-#copyChatBtn, .knock button + button {
+#copyChatBtn, .knock button + button, #volumeReset {
   border: 1px solid var(--hair);
   background: var(--soft);
   color: var(--ink);
@@ -260,7 +260,7 @@ video.mirror {
   transition: box-shadow .1s;
 }
 
-.userName, .peerStatus, .pipBtn, .audioMuted { /* small chips over a tile */
+.userName, .peerStatus, .pipBtn, .audioMuted, .volumeSet { /* small chips over a tile */
   position: absolute;
   z-index: 10;
   border-radius: 4px;
@@ -331,7 +331,7 @@ video.mirror {
   height: 22px;
 }
 
-.audioMuted { /* a badge on the circle's lower right edge */
+.audioMuted, .volumeSet { /* a badge on the circle's lower right edge */
   background: var(--surface);
   left: calc(50% + var(--disc) * .35 - 14px);
   top: calc(var(--mid) + var(--disc) * .35 - 14px);
@@ -349,6 +349,58 @@ video.mirror {
   top: 38px;
   border-radius: 4px;
   box-shadow: none;
+}
+
+.volumeSet { /* turned down by us: on the lower left edge, the tooltip (title) explains */
+  left: calc(50% - var(--disc) * .35 - 14px);
+  color: var(--dim);
+  cursor: help;
+}
+
+.userCont > .volumeSet { /* with video: under the PiP button */
+  left: auto;
+  right: 8px;
+  top: 44px;
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+#volumeMenu { /* at the right-click */
+  position: fixed;
+  z-index: 50;
+  max-width: calc(100vw - 32px);
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  font-size: 14px;
+}
+
+#volumeMenu[hidden] {
+  display: none;
+}
+
+#volumeMenu label {
+  display: grid;
+  gap: 8px;
+}
+
+#volumeRange {
+  accent-color: var(--live);
+}
+
+#volumeReset {
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  font-size: 14px;
+}
+
+#volumeReset[hidden] {
+  display: none;
 }
 
 /* the bar: wide equal cells with labels, floating clear of the edges and the safe areas */

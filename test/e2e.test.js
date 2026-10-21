@@ -387,6 +387,86 @@ test('peer leaves: the other side cleans up', async t => {
   await waitFor(async () => (await a.locator('#audioStreams audio').count()) === 0, 'audio element removed');
 });
 
+test('right-click a peer to set their volume, just for you: the tile shows it, a rebuild keeps it', async t => {
+  const [a, b] = await call(t);
+  const volume = () => a.evaluate(() => document.querySelector('#audioStreams audio').volume);
+  const badge = () => a.evaluate(() => document.querySelector('#mediaDiv .volumeSet')?.title || '');
+  const slide = v => a.$eval('#volumeRange', (r, v) => { r.value = v; r.dispatchEvent(new Event('input')); r.dispatchEvent(new Event('change')); }, v);
+  assert.strictEqual(await badge(), '', 'no badge at full volume');
+  await a.click('#mediaDiv .videoplaceholder:not(.selfPreview)', { button: 'right' });
+  assert.ok(await a.locator('#volumeMenu').isVisible(), 'menu at the click');
+  assert.match(await a.textContent('#volumeMenu'), /bob/);
+  await slide(40);
+  assert.strictEqual(await volume(), 0.4);
+  assert.match(await badge(), /40%.*only you/i, 'tooltip explains it');
+  await a.keyboard.press('Escape');
+  assert.ok(await a.locator('#volumeMenu').isHidden(), 'Escape closes it');
+  await a.evaluate(() => createRemoteSocket(true, Object.keys(pcs)[0]));
+  await waitFor(async () => (await callUp(a)) && (await callUp(b)), 'call up again');
+  assert.strictEqual(await volume(), 0.4, 'kept through a rebuild');
+  assert.match(await badge(), /40%/);
+  await a.click('#mediaDiv .videoplaceholder:not(.selfPreview)', { button: 'right' });
+  await slide(100);
+  assert.strictEqual(await badge(), '', 'back to full: no badge');
+  await a.mouse.click(5, 5);
+  assert.ok(await a.locator('#volumeMenu').isHidden(), 'a click elsewhere closes it');
+  await a.focus('#mediaDiv .videoplaceholder:not(.selfPreview)'); // audio only: nothing else on the tile takes focus
+  await a.keyboard.press('Shift+F10');
+  assert.ok(await a.locator('#volumeMenu').isVisible(), 'the keyboard opens it too');
+  await a.keyboard.press('ArrowLeft');
+  assert.strictEqual(await a.inputValue('#volumeRange'), '95', 'arrows move the slider');
+  await a.keyboard.press('Tab');
+  await a.keyboard.press('Space');
+  assert.strictEqual(await a.inputValue('#volumeRange'), '100', 'Tab, Space: Reset');
+  await a.keyboard.press('Escape');
+  assert.ok(await a.locator('#volumeMenu').isHidden(), 'Escape still closes it after Reset');
+  await a.keyboard.press('Shift+F10');
+  await b.context().close();
+  await waitFor(() => a.locator('#volumeMenu').isHidden(), 'closed when bob is gone');
+});
+
+test('volume goes up to 150%: louder through a gain; Reset brings it back to 100%', async t => {
+  const [a] = await call(t);
+  const slide = v => a.$eval('#volumeRange', (r, v) => { r.value = v; r.dispatchEvent(new Event('input')); r.dispatchEvent(new Event('change')); }, v);
+  const badge = () => a.evaluate(() => [document.querySelector('#mediaDiv .volumeSet')?.title || '', document.querySelector('#mediaDiv .volumeSet use')?.getAttribute('href')]);
+  const out = () => a.evaluate(async () => { // what the peer's audio does now; peak: sound coming out of the gain
+    const u = Object.values(allUserStreams).find(u => u.audio), g = u.boost;
+    let peak = 0;
+    if (g?.gain.value) {
+      const an = new AnalyserNode(g.context), d = new Float32Array(2048);
+      g.connect(an);
+      for (let i = 0; i < 60 && !peak; i++) { await new Promise(r => setTimeout(r, 50)); an.getFloatTimeDomainData(d); peak = Math.max(...d.map(Math.abs)); }
+      g.disconnect(an);
+    }
+    return { muted: u.audio.muted, volume: u.audio.volume, gain: g?.gain.value ?? null, peak: peak > 0 };
+  });
+  await a.click('#mediaDiv .videoplaceholder:not(.selfPreview)', { button: 'right' });
+  assert.strictEqual(await a.inputValue('#volumeRange'), '100', 'starts at 100%');
+  assert.ok(await a.locator('#volumeReset').isHidden(), 'nothing to reset at 100%');
+  await slide(400);
+  assert.strictEqual(await a.inputValue('#volumeRange'), '150', 'at most 150%');
+  assert.deepStrictEqual(await out(), { muted: true, volume: 1, gain: 1.5, peak: true }, 'the element is muted, the gain plays it at 150%');
+  assert.match((await badge())[0], /150%.*only you/i);
+  const mutedWhen = st => a.evaluate(async st => {
+    if (st == 'suspend') audioOut.resume = () => Promise.reject(new Error('no gesture')); // as Safari after a phone call: it stays suspended
+    else delete audioOut.resume; // the real one again
+    await audioOut[st]();
+    await new Promise(r => setTimeout(r, 100));
+    return document.querySelector('#audioStreams audio').muted;
+  }, st);
+  assert.strictEqual(await mutedWhen('suspend'), false, 'a suspended gain: the element plays, at 100%, not silence');
+  assert.strictEqual(await mutedWhen('resume'), true, 'running again: the gain');
+  assert.strictEqual((await badge())[1], '#volume-up', 'louder: the louder icon');
+  await slide(40);
+  assert.deepStrictEqual(await out(), { muted: false, volume: 0.4, gain: 0, peak: false }, 'below 100%: the element again');
+  assert.strictEqual((await badge())[1], '#volume-down');
+  await a.click('#volumeReset');
+  assert.strictEqual(await a.inputValue('#volumeRange'), '100', 'Reset: 100%');
+  assert.deepStrictEqual(await badge(), ['', undefined], 'no badge');
+  assert.deepStrictEqual(await out(), { muted: false, volume: 1, gain: 0, peak: false });
+  assert.ok(await a.locator('#volumeReset').isHidden());
+});
+
 // Init script: records the pitch of every note played, in window.__notes.
 const trackNotes = () => { window.__notes = []; const s = OscillatorNode.prototype.start; OscillatorNode.prototype.start = function (...a) { __notes.push(this.frequency.value); return s.apply(this, a); }; };
 const notes = p => p.evaluate(() => __notes.join(','));
@@ -416,9 +496,9 @@ test('a chime that fails does not stop the call: the peer still gets our name', 
 test('each chime note fades in from silence: no click', async t => {
   const a = await open(t, 'alice');
   const peaks = await a.evaluate(async () => {
-    sfx = new OfflineAudioContext(1, 24000, 48000); // renders chime() instead of playing it
+    audioOut = new OfflineAudioContext(1, 24000, 48000); // renders chime() instead of playing it
     chime(660, 880);
-    const s = (await sfx.startRendering()).getChannelData(0), peak = (from, to) => Math.max(...s.slice(from * 48, to * 48).map(Math.abs));
+    const s = (await audioOut.startRendering()).getChannelData(0), peak = (from, to) => Math.max(...s.slice(from * 48, to * 48).map(Math.abs));
     return [peak(0, 1), peak(120, 121), peak(130, 140)]; // ms: each note's first, and the second note at full volume
   });
   assert.ok(peaks[0] < .06 && peaks[1] < .06, `notes start quietly: ${peaks}`); // the first note's tail is ~.015 there, a click ~.14
