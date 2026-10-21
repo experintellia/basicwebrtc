@@ -417,6 +417,39 @@ test('right-click a peer to set their volume, just for you: the tile shows it, a
   await waitFor(() => a.locator('#volumeMenu').isHidden(), 'closed when bob is gone');
 });
 
+test('volume goes up to 150%: louder through a gain; Reset brings it back to 100%', async t => {
+  const [a] = await call(t);
+  const slide = v => a.$eval('#volumeRange', (r, v) => { r.value = v; r.dispatchEvent(new Event('input')); r.dispatchEvent(new Event('change')); }, v);
+  const badge = () => a.evaluate(() => [document.querySelector('#mediaDiv .volumeSet')?.title || '', document.querySelector('#mediaDiv .volumeSet use')?.getAttribute('href')]);
+  const out = () => a.evaluate(async () => { // what the peer's audio does now; peak: sound coming out of the gain
+    const u = Object.values(allUserStreams).find(u => u.audio), g = u.boost;
+    let peak = 0;
+    if (g) {
+      const an = new AnalyserNode(g.context), d = new Float32Array(2048);
+      g.connect(an);
+      for (let i = 0; i < 60 && !peak; i++) { await new Promise(r => setTimeout(r, 50)); an.getFloatTimeDomainData(d); peak = Math.max(...d.map(Math.abs)); }
+      g.disconnect(an);
+    }
+    return { muted: u.audio.muted, volume: u.audio.volume, gain: g?.gain.value ?? null, peak: peak > 0 };
+  });
+  await a.click('#mediaDiv .videoplaceholder:not(.selfPreview)', { button: 'right' });
+  assert.strictEqual(await a.inputValue('#volumeRange'), '100', 'starts at 100%');
+  assert.ok(await a.locator('#volumeReset').isHidden(), 'nothing to reset at 100%');
+  await slide(400);
+  assert.strictEqual(await a.inputValue('#volumeRange'), '150', 'at most 150%');
+  assert.deepStrictEqual(await out(), { muted: true, volume: 1, gain: 1.5, peak: true }, 'the element is muted, the gain plays it at 150%');
+  assert.match((await badge())[0], /150%.*only you/i);
+  assert.strictEqual((await badge())[1], '#volume-up', 'louder: the louder icon');
+  await slide(40);
+  assert.deepStrictEqual(await out(), { muted: false, volume: 0.4, gain: 0, peak: false }, 'below 100%: the element again');
+  assert.strictEqual((await badge())[1], '#volume-down');
+  await a.click('#volumeReset');
+  assert.strictEqual(await a.inputValue('#volumeRange'), '100', 'Reset: 100%');
+  assert.deepStrictEqual(await badge(), ['', undefined], 'no badge');
+  assert.deepStrictEqual(await out(), { muted: false, volume: 1, gain: 0, peak: false });
+  assert.ok(await a.locator('#volumeReset').isHidden());
+});
+
 test('signaling socket reconnect keeps the call working', async t => {
   const [a, b] = await call(t);
   await waitFor(() => b.evaluate(() => Object.values(pcs)[0].send({})), 'data channel open');

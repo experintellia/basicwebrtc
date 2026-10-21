@@ -96,7 +96,7 @@ video {
   background: var(--ink-hover);
 }
 
-#copyChatBtn, .knock button + button {
+#copyChatBtn, .knock button + button, #volumeReset {
   border: 1px solid var(--hair);
   background: var(--soft);
   color: var(--ink);
@@ -384,8 +384,23 @@ video.mirror {
   display: none;
 }
 
+#volumeMenu label {
+  display: grid;
+  gap: 8px;
+}
+
 #volumeRange {
   accent-color: var(--live);
+}
+
+#volumeReset {
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  font-size: 14px;
+}
+
+#volumeReset[hidden] {
+  display: none;
 }
 
 /* the bar: wide equal cells with labels, floating clear of the edges and the safe areas */
