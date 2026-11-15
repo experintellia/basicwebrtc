@@ -38,7 +38,7 @@ jobs:
       - run: npm ci
       - run: sudo safaridriver --enable
       - run: sw_vers; defaults read /Applications/Safari.app/Contents/Info CFBundleShortVersionString
-      - run: for i in 1 2 3; do node --test --test-force-exit test/crossbrowser.test.js || f=1; done; exit ${f:-0} # DIAGNOSTIC: 3 rounds
+      - run: for i in 1; do node --test --test-force-exit test/crossbrowser.test.js || f=1; done; exit ${f:-0} # DIAGNOSTIC: 3 rounds
         env:
           SAFARI: 1
           CHROMIUM_PATH: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome

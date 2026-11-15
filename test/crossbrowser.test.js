@@ -180,6 +180,27 @@ async function safariCall(camAtStart) {
     await page.click('#joinBtn');
     await check('chromium connected', () => page.evaluate(CONNECTED), 30000);
     await check('safari connected', () => safari.evaluate(CONNECTED), 30000);
+    console.log('[PROBE]', await safari.evaluate(`(async () => { // DIAGNOSTIC: which way of making the element plays in Safari
+      const stream = Object.values(allUserStreams).find(u => u.audio).audiostream, out = {}, wait = ms => new Promise(r => setTimeout(r, ms));
+      const st = a => ({ paused: a.paused, ready: a.readyState, t: a.currentTime, doc: a.ownerDocument == document });
+      const make = { template: () => fromHTML('<audio autoplay hidden></audio>'), templateShown: () => fromHTML('<audio autoplay></audio>'),
+        div: () => { const d = document.createElement('div'); d.innerHTML = '<audio autoplay hidden></audio>'; return d.firstChild; },
+        created: () => Object.assign(document.createElement('audio'), { autoplay: true, hidden: true }) };
+      out.existing = st(document.querySelector('#audioStreams audio'));
+      for (const [k, f] of Object.entries(make)) for (const order of ['srcThenAppend', 'appendThenSrc']) {
+        const a = f();
+        if (order == 'srcThenAppend') { a.srcObject = stream; document.body.append(a); } else { document.body.append(a); a.srcObject = stream; }
+        await wait(1500); out[k + ':' + order] = st(a); a.remove();
+      }
+      const p = fromHTML('<audio autoplay hidden></audio>'); p.srcObject = stream; document.body.append(p);
+      out['template:play()'] = await p.play().then(() => 'resolved', e => e.name + ': ' + e.message); await wait(1500); out['template:afterPlay'] = st(p); p.remove();
+      const v = document.querySelector('#mediaDiv video'); let emptied = 0; v.addEventListener('emptied', () => emptied++);
+      const t0 = performance.now(); updateUserLayout(); const el = document.querySelector('#mediaDiv video');
+      while (el.readyState < 2 && performance.now() - t0 < 5000) await wait(10);
+      out.layout = { same: el == v, emptied, msUntilFrame: Math.round(performance.now() - t0), ready: el.readyState };
+      const e = document.querySelector('#audioStreams audio'); out['existing:play()'] = await e.play().then(() => 'resolved', x => x.name + ': ' + x.message); await wait(1500); out['existing:afterPlay'] = st(e);
+      return JSON.stringify(out);
+    })()`).catch(String));
     await check("safari plays the peer's audio", () => plays(safari, '#audioStreams audio'));
     await check('safari receives sound', () => safari.evaluate(AUDIO_IN));
     await check('chromium receives sound', () => page.evaluate(AUDIO_IN));
