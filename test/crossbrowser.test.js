@@ -196,9 +196,6 @@ async function safariCall(camAtStart) {
     await safari.leave();
   }
 }
-for (const camAtStart of [false, true]) test('Safari: own camera and sound, camera ' + (camAtStart ? 'on from the last call' : 'picked in the lobby'),
-  { skip: !process.env.SAFARI && 'set SAFARI=1 (macOS)' }, () => safariCall(camAtStart));
-
 for (const otherFirst of [false, true]) {
   const order = otherFirst ? ' (joins first)' : ' (joins second)';
   test('Firefox calls Chromium' + order, { skip: !process.env.FIREFOX && 'set FIREFOX=1 (npx playwright-core install firefox; not as root)' },
@@ -206,3 +203,6 @@ for (const otherFirst of [false, true]) {
   test('Safari calls Chromium' + order, { skip: !process.env.SAFARI && 'set SAFARI=1 (macOS)' },
     () => call(safari, otherFirst));
 }
+// After the calls above: these leave the camera on in Safari's one tab, and the first call there turns it on in a running call (#57).
+for (const camAtStart of [false, true]) test('Safari: own camera and sound, camera ' + (camAtStart ? 'on from the last call' : 'picked in the lobby'),
+  { skip: !process.env.SAFARI && 'set SAFARI=1 (macOS)' }, () => safariCall(camAtStart));
