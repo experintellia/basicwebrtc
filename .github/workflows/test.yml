@@ -37,7 +37,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: sudo safaridriver --enable
-      - run: sw_vers; /Applications/Safari.app/Contents/MacOS/Safari --version || defaults read /Applications/Safari.app/Contents/Info CFBundleShortVersionString
+      - run: sw_vers; defaults read /Applications/Safari.app/Contents/Info CFBundleShortVersionString
       - run: for i in 1 2 3; do node --test --test-force-exit test/crossbrowser.test.js || f=1; done; exit ${f:-0} # DIAGNOSTIC: 3 rounds
         env:
           SAFARI: 1
