@@ -45,6 +45,19 @@ const STATE = `Promise.all((window.__raw || []).map(async p => ({ sig: p.signali
 // The peer's ICE username once ICE is up and nothing is being negotiated: an ICE restart changes it.
 const ICE_UP = `(p => p.signalingState == 'stable' && ['connected', 'completed'].includes(p.iceConnectionState) && p.remoteDescription.sdp.match(/a=ice-ufrag:(\\S+)/)[1])(__raw.at(-1))`;
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+// The element's clock while it plays (a video: with frames), else -1.
+const clock = sel => `(m => m && !m.paused && (m.tagName == 'AUDIO' || m.videoWidth > 0) ? m.currentTime : -1)(document.querySelector(${JSON.stringify(sel)}))`;
+const plays = async (b, sel) => { const t = await b.evaluate(clock(sel)); await sleep(400); return t >= 0 && await b.evaluate(clock(sel)) > t; };
+// Sound arrives: RTP packets with energy in them, not silence.
+const AUDIO_IN = `Promise.all(__raw.map(p => p.getStats())).then(rs => { let n = 0, e = 0; for (const r of rs) r.forEach(s => { if (s.type == 'inbound-rtp' && s.kind == 'audio') n += s.packetsReceived, e += s.totalAudioEnergy || 0; }); return n > 0 && e > 0; })`;
+const MEDIA = `Promise.all((window.__raw || []).map(p => p.getStats())).then(rs => JSON.stringify({
+  els: [...document.querySelectorAll('video, audio')].map(m => ({ tag: m.tagName, id: m.id, cls: m.className, shown: !!m.offsetParent, paused: m.paused, muted: m.muted, vol: m.volume, w: m.videoWidth, ready: m.readyState, t: m.currentTime, err: m.error?.message,
+    tracks: m.srcObject?.getTracks().map(t => [t.kind, t.readyState, t.muted ? 'muted' : '', t.enabled ? '' : 'disabled'].join(' ')) })),
+  mic: webRTCConfig.stream?.getTracks().map(t => [t.label, t.readyState, t.muted ? 'muted' : '', t.enabled ? '' : 'disabled'].join(' ')),
+  meter: document.getElementById('micMeter').value, chimeCtx: typeof audioOut == 'undefined' ? null : audioOut?.state, camActive,
+  rtp: rs.flatMap(r => [...r.values()]).filter(s => /^(in|out)bound-rtp$|^media-source$/.test(s.type)).map(s => ({ type: s.type, kind: s.kind, mid: s.mid, sent: s.packetsSent, recv: s.packetsReceived, energy: s.totalAudioEnergy, level: s.audioLevel, frames: s.framesDecoded ?? s.framesEncoded, active: s.active })),
+}))`;
 before(async () => {
   if (!process.env.FIREFOX && !process.env.SAFARI) return;
   require('./boot')({ listen_port: PORT });
@@ -118,8 +131,7 @@ async function call(other, otherFirst) {
     console.log(log.concat(other.log || []).join('\n'));
     console.log('[chromium state]', await page.evaluate(STATE).catch(String));
     console.log('[other state]', await other.evaluate(STATE).catch(String));
-    console.log('[other videos]', await other.evaluate(`JSON.stringify([...document.querySelectorAll('#mediaDiv video')].map(v =>
-      ({ paused: v.paused, muted: v.muted, w: v.videoWidth, ready: v.readyState, tracks: v.srcObject?.getTracks().map(t => t.readyState) })))`).catch(String));
+    console.log('[other media]', await other.evaluate(MEDIA).catch(String)); // elements, mic track and RTP counters (#118)
     throw e;
   } finally {
     await page.context().close();
@@ -141,19 +153,6 @@ const safari = {
 
 // What a Safari user sees and hears, as reported from real calls: the own camera in the lobby and in the call, the peer's voice, and the peer hears Safari.
 // Every step is checked even after one failed, so a single (expensive) macOS run names all of them.
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-// The element's clock while it plays (a video: with frames), else -1.
-const clock = sel => `(m => m && !m.paused && (m.tagName == 'AUDIO' || m.videoWidth > 0) ? m.currentTime : -1)(document.querySelector(${JSON.stringify(sel)}))`;
-const plays = async (b, sel) => { const t = await b.evaluate(clock(sel)); await sleep(400); return t >= 0 && await b.evaluate(clock(sel)) > t; };
-// Sound arrives: RTP packets with energy in them, not silence.
-const AUDIO_IN = `Promise.all(__raw.map(p => p.getStats())).then(rs => { let n = 0, e = 0; for (const r of rs) r.forEach(s => { if (s.type == 'inbound-rtp' && s.kind == 'audio') n += s.packetsReceived, e += s.totalAudioEnergy || 0; }); return n > 0 && e > 0; })`;
-const MEDIA = `Promise.all((window.__raw || []).map(p => p.getStats())).then(rs => JSON.stringify({
-  els: [...document.querySelectorAll('video, audio')].map(m => ({ tag: m.tagName, id: m.id, cls: m.className, shown: !!m.offsetParent, paused: m.paused, muted: m.muted, vol: m.volume, w: m.videoWidth, ready: m.readyState, t: m.currentTime, err: m.error?.message,
-    tracks: m.srcObject?.getTracks().map(t => [t.kind, t.readyState, t.muted ? 'muted' : '', t.enabled ? '' : 'disabled'].join(' ')) })),
-  mic: webRTCConfig.stream?.getTracks().map(t => [t.label, t.readyState, t.muted ? 'muted' : '', t.enabled ? '' : 'disabled'].join(' ')),
-  meter: document.getElementById('micMeter').value, chimeCtx: typeof audioOut == 'undefined' ? null : audioOut?.state, camActive,
-  rtp: rs.flatMap(r => [...r.values()]).filter(s => /^(in|out)bound-rtp$|^media-source$/.test(s.type)).map(s => ({ type: s.type, kind: s.kind, mid: s.mid, sent: s.packetsSent, recv: s.packetsReceived, energy: s.totalAudioEnergy, level: s.audioLevel, frames: s.framesDecoded ?? s.framesEncoded, active: s.active })),
-}))`;
 async function safariCall(camAtStart) {
   const room = 'y' + Date.now(), log = [], failed = [];
   const page = await (await chrome.newContext()).newPage();
@@ -180,27 +179,6 @@ async function safariCall(camAtStart) {
     await page.click('#joinBtn');
     await check('chromium connected', () => page.evaluate(CONNECTED), 30000);
     await check('safari connected', () => safari.evaluate(CONNECTED), 30000);
-    console.log('[PROBE]', await safari.evaluate(`(async () => { // DIAGNOSTIC: which way of making the element plays in Safari
-      const stream = Object.values(allUserStreams).find(u => u.audio).audiostream, out = {}, wait = ms => new Promise(r => setTimeout(r, ms));
-      const st = a => ({ paused: a.paused, ready: a.readyState, t: a.currentTime, doc: a.ownerDocument == document });
-      const make = { template: () => fromHTML('<audio autoplay hidden></audio>'), templateShown: () => fromHTML('<audio autoplay></audio>'),
-        div: () => { const d = document.createElement('div'); d.innerHTML = '<audio autoplay hidden></audio>'; return d.firstChild; },
-        created: () => Object.assign(document.createElement('audio'), { autoplay: true, hidden: true }) };
-      out.existing = st(document.querySelector('#audioStreams audio'));
-      for (const [k, f] of Object.entries(make)) for (const order of ['srcThenAppend', 'appendThenSrc']) {
-        const a = f();
-        if (order == 'srcThenAppend') { a.srcObject = stream; document.body.append(a); } else { document.body.append(a); a.srcObject = stream; }
-        await wait(1500); out[k + ':' + order] = st(a); a.remove();
-      }
-      const p = fromHTML('<audio autoplay hidden></audio>'); p.srcObject = stream; document.body.append(p);
-      out['template:play()'] = await p.play().then(() => 'resolved', e => e.name + ': ' + e.message); await wait(1500); out['template:afterPlay'] = st(p); p.remove();
-      const v = document.querySelector('#mediaDiv video'); let emptied = 0; v.addEventListener('emptied', () => emptied++);
-      const t0 = performance.now(); updateUserLayout(); const el = document.querySelector('#mediaDiv video');
-      while (el.readyState < 2 && performance.now() - t0 < 5000) await wait(10);
-      out.layout = { same: el == v, emptied, msUntilFrame: Math.round(performance.now() - t0), ready: el.readyState };
-      const e = document.querySelector('#audioStreams audio'); out['existing:play()'] = await e.play().then(() => 'resolved', x => x.name + ': ' + x.message); await wait(1500); out['existing:afterPlay'] = st(e);
-      return JSON.stringify(out);
-    })()`).catch(String));
     await check("safari plays the peer's audio", () => plays(safari, '#audioStreams audio'));
     await check('safari receives sound', () => safari.evaluate(AUDIO_IN));
     await check('chromium receives sound', () => page.evaluate(AUDIO_IN));

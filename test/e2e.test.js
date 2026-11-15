@@ -1564,6 +1564,13 @@ const mediaSettled = page => waitFor(() => page.evaluate(() => !__pending && !me
 test('camera on from last time, but no working camera: still joins with audio', t =>
   call(t, `(${noCamera})(); sessionStorage.camOn ||= '1';`));
 
+test('camera on from last time: the mic is opened once and kept, not stopped and opened again (#118)', async t => {
+  const a = await open(t, null, `(${slowMedia})(); sessionStorage.camOn ||= '1';`);
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby');
+  assert.strictEqual(await a.evaluate(() => __streams.filter(s => s.getAudioTracks().length).length), 1, 'streams with a mic track');
+  assert.strictEqual(await a.evaluate(() => webRTCConfig.stream.getTracks().map(t => t.kind + ' ' + t.readyState).join()), 'audio live');
+});
+
 test('rapid camera/screen clicks leave no live stream behind', async t => {
   const a = await join(t, 'alice', slowMedia);
   await waitFor(() => a.evaluate(() => !!allUserStreams[MY_UUID].audiostream), 'mic ready');

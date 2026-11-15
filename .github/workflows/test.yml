@@ -28,7 +28,7 @@ jobs:
     # ponytail: macOS minutes cost 10x; push only (not again for the PR) and capped
     if: github.event_name == 'push'
     runs-on: macos-latest
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -37,8 +37,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: sudo safaridriver --enable
-      - run: sw_vers; defaults read /Applications/Safari.app/Contents/Info CFBundleShortVersionString
-      - run: for i in 1; do node --test --test-force-exit test/crossbrowser.test.js || f=1; done; exit ${f:-0} # DIAGNOSTIC: 3 rounds
+      - run: sw_vers; defaults read /Applications/Safari.app/Contents/Info CFBundleShortVersionString # which Safari a failure was seen on
+      - run: node --test --test-force-exit test/crossbrowser.test.js
         env:
           SAFARI: 1
           CHROMIUM_PATH: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
