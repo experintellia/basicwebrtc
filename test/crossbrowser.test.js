@@ -139,6 +139,67 @@ const safari = {
   leave: () => wd('POST', `/session/${session}/url`, { url: 'about:blank' }), // hang up before the next call
 };
 
+// What a Safari user sees and hears, as reported from real calls: the own camera in the lobby and in the call, the peer's voice, and the peer hears Safari.
+// Every step is checked even after one failed, so a single (expensive) macOS run names all of them.
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+// The element's clock while it plays (a video: with frames), else -1.
+const clock = sel => `(m => m && !m.paused && (m.tagName == 'AUDIO' || m.videoWidth > 0) ? m.currentTime : -1)(document.querySelector(${JSON.stringify(sel)}))`;
+const plays = async (b, sel) => { const t = await b.evaluate(clock(sel)); await sleep(400); return t >= 0 && await b.evaluate(clock(sel)) > t; };
+// Sound arrives: RTP packets with energy in them, not silence.
+const AUDIO_IN = `Promise.all(__raw.map(p => p.getStats())).then(rs => { let n = 0, e = 0; for (const r of rs) r.forEach(s => { if (s.type == 'inbound-rtp' && s.kind == 'audio') n += s.packetsReceived, e += s.totalAudioEnergy || 0; }); return n > 0 && e > 0; })`;
+const MEDIA = `Promise.all((window.__raw || []).map(p => p.getStats())).then(rs => JSON.stringify({
+  els: [...document.querySelectorAll('video, audio')].map(m => ({ tag: m.tagName, id: m.id, cls: m.className, shown: !!m.offsetParent, paused: m.paused, muted: m.muted, vol: m.volume, w: m.videoWidth, ready: m.readyState, t: m.currentTime, err: m.error?.message,
+    tracks: m.srcObject?.getTracks().map(t => [t.kind, t.readyState, t.muted ? 'muted' : '', t.enabled ? '' : 'disabled'].join(' ')) })),
+  mic: webRTCConfig.stream?.getTracks().map(t => [t.label, t.readyState, t.muted ? 'muted' : '', t.enabled ? '' : 'disabled'].join(' ')),
+  meter: document.getElementById('micMeter').value, chimeCtx: typeof audioOut == 'undefined' ? null : audioOut?.state, camActive,
+  rtp: rs.flatMap(r => [...r.values()]).filter(s => /^(in|out)bound-rtp$|^media-source$/.test(s.type)).map(s => ({ type: s.type, kind: s.kind, mid: s.mid, sent: s.packetsSent, recv: s.packetsReceived, energy: s.totalAudioEnergy, level: s.audioLevel, frames: s.framesDecoded ?? s.framesEncoded, active: s.active })),
+}))`;
+async function safariCall(camAtStart) {
+  const room = 'y' + Date.now(), log = [], failed = [];
+  const page = await (await chrome.newContext()).newPage();
+  page.on('console', m => log.push('[chromium] ' + m.text()));
+  await page.addInitScript(trackPcs);
+  const check = async (what, fn, ms = 10000) => {
+    const end = Date.now() + ms;
+    while (Date.now() < end) { if (await fn().catch(e => (log.push(`[${what}] ${e.message}`), false))) return; await sleep(250); }
+    failed.push(what);
+    console.log(`FAILED: ${what}\n[safari media]`, await safari.evaluate(MEDIA).catch(String));
+  };
+  try {
+    await safari.go(BASE + 'endcall.html'); // same origin, no call: set what the tab remembers
+    await safari.evaluate(`(sessionStorage.clear(), sessionStorage.camOn = '${camAtStart ? 1 : ''}')`);
+    await safari.go(`${BASE}#roomname=${room}`);
+    await waitFor(() => safari.evaluate("!document.getElementById('lobby').hidden"), 'safari in the lobby');
+    await safari.evaluate(`(${trackPcs})()`);
+    if (!camAtStart) await safari.evaluate("pick('#lobbyCamera', document.getElementById('lobbyCamera').options[1].value)");
+    await check('own camera in the lobby', () => plays(safari, '#lobbyVideo'));
+    await check('mic meter moves in the lobby', () => safari.evaluate("document.getElementById('micMeter').value > 0"));
+    await safari.evaluate("document.getElementById('joinBtn').click()");
+    await check('own camera in the call, alone', () => plays(safari, '#mediaDiv video'));
+    await page.goto(`${BASE}#roomname=${room}`);
+    await page.click('#joinBtn');
+    await check('chromium connected', () => page.evaluate(CONNECTED), 30000);
+    await check('safari connected', () => safari.evaluate(CONNECTED), 30000);
+    await check("safari plays the peer's audio", () => plays(safari, '#audioStreams audio'));
+    await check('safari receives sound', () => safari.evaluate(AUDIO_IN));
+    await check('chromium receives sound', () => page.evaluate(AUDIO_IN));
+    await check('own camera in the call, with a peer', () => plays(safari, '.selfPreview video'));
+    await check("chromium shows safari's camera", () => plays(page, '.videoplaceholder:not(.selfPreview) video'));
+    await page.click('#addRemoveCameraBtn');
+    await check("safari shows the peer's camera", () => plays(safari, '.videoplaceholder:not(.selfPreview) video'));
+    await check("own camera beside the peer's", () => plays(safari, '.selfPreview video'));
+    await check("safari still plays the peer's audio", () => plays(safari, '#audioStreams audio'));
+    console.log('[safari media at the end]', await safari.evaluate(MEDIA).catch(String));
+    if (failed.length) console.log(log.join('\n'));
+    assert.deepEqual(failed, []);
+  } finally {
+    await page.context().close();
+    await safari.leave();
+  }
+}
+for (const camAtStart of [false, true]) test('Safari: own camera and sound, camera ' + (camAtStart ? 'on from the last call' : 'picked in the lobby'),
+  { skip: !process.env.SAFARI && 'set SAFARI=1 (macOS)' }, () => safariCall(camAtStart));
+
 for (const otherFirst of [false, true]) {
   const order = otherFirst ? ' (joins first)' : ' (joins second)';
   test('Firefox calls Chromium' + order, { skip: !process.env.FIREFOX && 'set FIREFOX=1 (npx playwright-core install firefox; not as root)' },
