@@ -125,7 +125,7 @@ async function call(other, otherFirst) {
     const ufrags = [await page.evaluate(ICE_UP), await other.evaluate(ICE_UP)]; // #88: the initiator restarts ICE, as after an outage
     await (otherFirst ? other : page).evaluate('__raw.at(-1).restartIce()');
     await waitFor(async () => [await page.evaluate(ICE_UP), await other.evaluate(ICE_UP)].every((u, i) => u && u != ufrags[i]), 'ICE restarted and up on both sides');
-    const OWN_CLOCK = "document.querySelector('#mediaDiv video.mirror').currentTime", clock = await other.evaluate(OWN_CLOCK);
+    const OWN_CLOCK = "document.querySelector('.selfPreview video').currentTime", clock = await other.evaluate(OWN_CLOCK);
     await page.click('#addRemoveCameraBtn');
     await waitFor(() => other.evaluate(VIDEOS_PLAYING), 'other browser shows both videos');
     assert.ok(await other.evaluate(OWN_CLOCK) > clock, 'own camera played on through the new layout, not loaded again');
