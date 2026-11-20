@@ -206,3 +206,44 @@ for (const otherFirst of [false, true]) {
 // After the calls above: these leave the camera on in Safari's one tab, and the first call there turns it on in a running call (#57).
 for (const camAtStart of [false, true]) test('Safari: own camera and sound, camera ' + (camAtStart ? 'on from the last call' : 'picked in the lobby'),
   { skip: !process.env.SAFARI && 'set SAFARI=1 (macOS)' }, () => safariCall(camAtStart));
+
+// DIAGNOSTIC (Firefox): the own preview goes black when the peer turns its camera on, and stays black after own camera off/on.
+const LOOK = async () => { const out = [];
+  for (const v of document.querySelectorAll('#mediaDiv video, #lobbyVideo')) {
+    const c = document.createElement('canvas'); c.width = 32; c.height = 24;
+    const g = c.getContext('2d'); let lum = -1;
+    try { g.drawImage(v, 0, 0, 32, 24); const d = g.getImageData(0, 0, 32, 24).data; let sum = 0; for (let i = 0; i < d.length; i += 4) sum += d[i] + d[i + 1] + d[i + 2]; lum = Math.round(sum / (32 * 24 * 3)); } catch (e) { lum = String(e); }
+    const r = v.getBoundingClientRect(), cs = getComputedStyle(v), q = v.getVideoPlaybackQuality?.();
+    out.push({ self: !!v.closest('.selfPreview') || v.classList.contains('mirror'), id: v.id, lum, paused: v.paused, ready: v.readyState, w: v.videoWidth, h: v.videoHeight, t: +v.currentTime.toFixed(2), frames: q?.totalVideoFrames,
+      box: [r.x | 0, r.y | 0, r.width | 0, r.height | 0], vis: cs.visibility + '/' + cs.display + '/' + cs.opacity, ar: v.parentElement.style.getPropertyValue('--ar'), err: v.error?.message,
+      tracks: v.srcObject?.getTracks().map(t => [t.kind, t.readyState, t.muted ? 'muted' : '', t.enabled ? '' : 'disabled', JSON.stringify(t.getSettings())].join(' ')) });
+  }
+  return JSON.stringify({ n: Object.keys(allUserStreams).length, camActive, videos: out }); };
+for (const foxFirst of [false, true]) test('DIAGNOSTIC Firefox own preview, firefox joins ' + (foxFirst ? 'first' : 'second'), { skip: !process.env.FIREFOX && 'set FIREFOX=1' }, async () => {
+  const room = 'z' + Date.now();
+  const page = await (await chrome.newContext()).newPage();
+  const fp = await (await fox.newContext()).newPage();
+  fp.on('console', m => console.log('[firefox console]', m.text()));
+  fp.on('pageerror', e => console.log('[firefox pageerror]', e.message));
+  const shot = async sel => { const b = await fp.locator(sel).first().screenshot().catch(e => null); return b ? b.length : 'no shot'; };
+  const join = async p => { await p.goto(`${BASE}#roomname=${room}`); await p.click('#joinBtn'); };
+  if (foxFirst) { await join(fp); await join(page); } else { await join(page); await join(fp); }
+  await waitFor(() => fp.evaluate(CONNECTED), 'firefox connected');
+  await fp.click('#addRemoveCameraBtn');
+  await waitFor(() => fp.evaluate(() => document.querySelectorAll('#mediaDiv video').length == 1), 'firefox own video');
+  await sleep(1500);
+  console.log('[fox before]', await fp.evaluate(LOOK), 'shot', await shot('#mediaDiv video'));
+  for (let i = 0; i < 8; i++) {
+    await page.click('#addRemoveCameraBtn'); // peer camera on, then off, ...
+    await sleep(i % 2 ? 600 : 1500);
+    console.log(`[fox peer cam ${i % 2 ? 'off' : 'on'} #${i}]`, await fp.evaluate(LOOK), 'shot', await shot('.selfPreview video'));
+    if (i == 3) await fp.evaluate(() => { for (let k = 0; k < 5; k++) updateUserLayout(); }); // a burst, as on a join
+  }
+  await page.evaluate("camActive || document.getElementById('addRemoveCameraBtn').click()");
+  await sleep(1500);
+  console.log('[fox peer cam on, final]', await fp.evaluate(LOOK), 'shot', await shot('.selfPreview video'));
+  await fp.click('#addRemoveCameraBtn'); await sleep(500); await fp.click('#addRemoveCameraBtn'); await sleep(2000);
+  console.log('[fox own cam off/on]', await fp.evaluate(LOOK), 'shot', await shot('.selfPreview video'));
+  console.log('[chromium sees]', await page.evaluate(LOOK));
+  await page.context().close(); await fp.context().close();
+});
