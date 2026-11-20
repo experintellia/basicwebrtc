@@ -579,7 +579,7 @@ function updateUserLayout() {
         video = old;
       }
       video.classList.toggle("mirror", mirror);
-      if (video.srcObject != userStream["videostream"]) video.srcObject = userStream["videostream"]; // not again: that loads it anew, black until a frame comes
+      if (video.srcObject != userStream["videostream"] || video.ended) video.srcObject = userStream["videostream"]; // not again while it plays: that loads it anew, black until a frame comes. Ended: a camera switch stopped its track
       video.onresize = () => video.videoHeight && video.parentElement.style.setProperty("--ar", video.videoWidth / video.videoHeight); // the frame's shape: main.css fits it in the tile
       video.onresize();
       userDiv.querySelector(".userPlaceholderContainer").hidden = true;
