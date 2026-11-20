@@ -1564,6 +1564,13 @@ const mediaSettled = page => waitFor(() => page.evaluate(() => !__pending && !me
 test('camera on from last time, but no working camera: still joins with audio', t =>
   call(t, `(${noCamera})(); sessionStorage.camOn ||= '1';`));
 
+test('camera on from last time: the mic is opened once and kept, not stopped and opened again (#118)', async t => {
+  const a = await open(t, null, `(${slowMedia})(); sessionStorage.camOn ||= '1';`);
+  await waitFor(() => a.locator('#lobby').isVisible(), 'lobby');
+  assert.strictEqual(await a.evaluate(() => __streams.filter(s => s.getAudioTracks().length).length), 1, 'streams with a mic track');
+  assert.strictEqual(await a.evaluate(() => webRTCConfig.stream.getTracks().map(t => t.kind + ' ' + t.readyState).join()), 'audio live');
+});
+
 test('rapid camera/screen clicks leave no live stream behind', async t => {
   const a = await join(t, 'alice', slowMedia);
   await waitFor(() => a.evaluate(() => !!allUserStreams[MY_UUID].audiostream), 'mic ready');
@@ -1768,6 +1775,16 @@ test('picture-in-picture survives a re-layout (#27)', async t => {
   await join(t, 'carol'); // peer joins: re-layout on bob
   await waitFor(async () => (await connectedPeers(b)) === 2, 'carol connected');
   assert.ok(await b.evaluate(() => document.pictureInPictureElement?.isConnected && !document.pictureInPictureElement.paused), 'still in PiP and playing');
+});
+
+test('own camera keeps playing when a peer turns its camera on: the video is not loaded again', async t => {
+  const [a, b] = await call(t);
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => a.evaluate(() => document.querySelector('#mediaDiv video')?.readyState == 4), 'own video on alice');
+  await a.evaluate(() => { window.__own = document.querySelector('#mediaDiv video'); window.__emptied = 0; __own.addEventListener('emptied', () => __emptied++); });
+  await b.click('#addRemoveCameraBtn'); // re-layout on alice
+  await waitFor(() => remoteVideoShown(a), 'remote video on alice');
+  assert.deepStrictEqual(await a.evaluate(() => [__own.isConnected, __own.readyState, __emptied]), [true, 4, 0], 'same element, still loaded, never emptied');
 });
 
 test('lobby: nobody joins until Join, then with the name typed there', async t => {

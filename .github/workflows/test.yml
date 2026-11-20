@@ -37,6 +37,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: sudo safaridriver --enable
+      - run: sw_vers; defaults read /Applications/Safari.app/Contents/Info CFBundleShortVersionString # which Safari a failure was seen on
       - run: node --test --test-force-exit test/crossbrowser.test.js
         env:
           SAFARI: 1
