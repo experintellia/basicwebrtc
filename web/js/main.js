@@ -551,12 +551,12 @@ function updateUserLayout() {
     var userStream = allUserStreams[i];
     var name = userStream["username"] && userStream["username"] != "NA" ? userStream["username"] : "";
 
-    var userDiv = fromHTML(`<div class="videoplaceholder">
+    var userDiv = document.adoptNode(fromHTML(`<div class="videoplaceholder">
       <div class="userPlaceholderContainer">
         <div class="userPlaceholder"></div>
         <div class="discName"></div>
       </div>
-    </div>`);
+    </div>`)); // into this page before a playing video moves in: in the <template>'s document it would be reset and load again
     userStream.tile = userDiv;
     if (name) userDiv.style.setProperty("--person", personColor(name)); // circle and name tag, like the chat name. Not before the name is known: a UUID would take a color
     if (count == 2 && i == MY_UUID) userDiv.classList.add("selfPreview"); // 1:1 call: the other one fills the screen
@@ -579,7 +579,7 @@ function updateUserLayout() {
         video = old;
       }
       video.classList.toggle("mirror", mirror);
-      video.srcObject = userStream["videostream"];
+      if (video.srcObject != userStream["videostream"]) video.srcObject = userStream["videostream"]; // not again: that loads it anew, black until a frame comes
       video.onresize = () => video.videoHeight && video.parentElement.style.setProperty("--ar", video.videoWidth / video.videoHeight); // the frame's shape: main.css fits it in the tile
       video.onresize();
       userDiv.querySelector(".userPlaceholderContainer").hidden = true;
