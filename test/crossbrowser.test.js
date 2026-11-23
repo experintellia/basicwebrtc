@@ -17,12 +17,13 @@ async function wd(method, path, body) {
   return value;
 }
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function waitFor(fn, what, ms = 30000) {
   const end = Date.now() + ms;
   let last;
   while (Date.now() < end) {
     if ((last = await fn())) return last;
-    await new Promise(r => setTimeout(r, 250));
+    await sleep(250);
   }
   assert.fail(`timed out waiting for ${what} (last=${last})`);
 }
@@ -45,7 +46,6 @@ const STATE = `Promise.all((window.__raw || []).map(async p => ({ sig: p.signali
 // The peer's ICE username once ICE is up and nothing is being negotiated: an ICE restart changes it.
 const ICE_UP = `(p => p.signalingState == 'stable' && ['connected', 'completed'].includes(p.iceConnectionState) && p.remoteDescription.sdp.match(/a=ice-ufrag:(\\S+)/)[1])(__raw.at(-1))`;
 
-const sleep = ms => new Promise(r => setTimeout(r, ms));
 // The element's clock while it plays (a video: with frames), else -1.
 const clock = sel => `(m => m && !m.paused && (m.tagName == 'AUDIO' || m.videoWidth > 0) ? m.currentTime : -1)(document.querySelector(${JSON.stringify(sel)}))`;
 const plays = async (b, sel) => { const t = await b.evaluate(clock(sel)); await sleep(400); return t >= 0 && await b.evaluate(clock(sel)) > t; };
@@ -88,7 +88,7 @@ before(async () => {
     // ponytail: one retry of the session only (never of a test): on CI, launching Safari sometimes times out (#82)
     ({ sessionId: session } = await wd('POST', '/session', caps).catch(async e => {
       console.log('webdriver session failed, retrying once:', e.message);
-      await new Promise(r => setTimeout(r, 2000));
+      await sleep(2000);
       return wd('POST', '/session', caps);
     }));
   }
@@ -125,10 +125,11 @@ async function call(other, otherFirst) {
     const ufrags = [await page.evaluate(ICE_UP), await other.evaluate(ICE_UP)]; // #88: the initiator restarts ICE, as after an outage
     await (otherFirst ? other : page).evaluate('__raw.at(-1).restartIce()');
     await waitFor(async () => [await page.evaluate(ICE_UP), await other.evaluate(ICE_UP)].every((u, i) => u && u != ufrags[i]), 'ICE restarted and up on both sides');
-    const OWN_CLOCK = "document.querySelector('.selfPreview video').currentTime", clock = await other.evaluate(OWN_CLOCK);
+    const OWN_CLOCK = "document.querySelector('.selfPreview video').currentTime"; // loaded again, it would start over at 0: let it run for longer than the wait below takes
+    const before = await waitFor(async () => { const t = await other.evaluate(OWN_CLOCK); return t > 3 && t; }, 'own camera playing for 3s');
     await page.click('#addRemoveCameraBtn');
     await waitFor(() => other.evaluate(VIDEOS_PLAYING), 'other browser shows both videos');
-    assert.ok(await other.evaluate(OWN_CLOCK) > clock, 'own camera played on through the new layout, not loaded again');
+    assert.ok(await other.evaluate(OWN_CLOCK) > before, 'own camera played on through the new layout, not loaded again');
   } catch (e) {
     console.log(log.concat(other.log || []).join('\n'));
     console.log('[chromium state]', await page.evaluate(STATE).catch(String));
@@ -190,7 +191,6 @@ async function safariCall(camAtStart) {
     await check("safari shows the peer's camera", () => plays(safari, '.videoplaceholder:not(.selfPreview) video'));
     await check("own camera beside the peer's", () => plays(safari, '.selfPreview video'));
     await check("safari still plays the peer's audio", () => plays(safari, '#audioStreams audio'));
-    console.log('[safari media at the end]', await safari.evaluate(MEDIA).catch(String));
     if (failed.length) console.log(log.join('\n'));
     assert.deepEqual(failed, []);
   } finally {
