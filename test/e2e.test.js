@@ -1787,6 +1787,11 @@ test('own camera keeps playing when a peer turns its camera on: the video is not
   assert.deepStrictEqual(await a.evaluate(() => [__own.isConnected, __own.readyState, __emptied]), [true, 4, 0], 'same element, still loaded, never emptied');
 });
 
+test('tiles and audio elements are made in the page\'s own document: Safari never paints a video born in a <template>', async t => {
+  const a = await open(t, null);
+  assert.ok(await a.evaluate(() => fromHTML('<video></video>').ownerDocument == document));
+});
+
 test('lobby: nobody joins until Join, then with the name typed there', async t => {
   const a = await join(t, 'alice');
   const b = await open(t, null);

@@ -530,16 +530,17 @@ function gotRemoteStream(stream, UUID) {
   if (!allUserStreams[UUID].audio) { // not in updateUserLayout: that skips while fullscreen
     const audio = allUserStreams[UUID].audio = fromHTML('<audio autoplay hidden></audio>');
     $("#audioStreams").append(audio);
-    audio.srcObject = stream; // after the append: Safari never loads a stream set while the element is still the <template>'s, not even on play()
+    audio.srcObject = stream;
+    audio.play().catch(() => { }); // Safari does not autoplay a hidden element by itself
     setVolume(UUID);
   }
   updateUserLayout();
 }
 
-function fromHTML(html) {
-  const t = document.createElement("template");
-  t.innerHTML = html.trim();
-  return t.content.firstChild;
+function fromHTML(html) { // made in this page's document, not in a <template>'s: Safari never paints a <video> born there, whenever its stream is set
+  const d = document.createElement("div");
+  d.innerHTML = html.trim();
+  return d.firstChild;
 }
 
 function updateUserLayout() {
@@ -551,12 +552,12 @@ function updateUserLayout() {
     var userStream = allUserStreams[i];
     var name = userStream["username"] && userStream["username"] != "NA" ? userStream["username"] : "";
 
-    var userDiv = document.adoptNode(fromHTML(`<div class="videoplaceholder">
+    var userDiv = fromHTML(`<div class="videoplaceholder">
       <div class="userPlaceholderContainer">
         <div class="userPlaceholder"></div>
         <div class="discName"></div>
       </div>
-    </div>`)); // into this page before a playing video moves in: in the <template>'s document it would be reset and load again
+    </div>`);
     userStream.tile = userDiv;
     if (name) userDiv.style.setProperty("--person", personColor(name)); // circle and name tag, like the chat name. Not before the name is known: a UUID would take a color
     if (count == 2 && i == MY_UUID) userDiv.classList.add("selfPreview"); // 1:1 call: the other one fills the screen

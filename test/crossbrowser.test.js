@@ -3,6 +3,7 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
 const { spawn } = require('node:child_process');
+const zlib = require('node:zlib');
 const { chromium, firefox } = require('playwright-core');
 
 const PORT = 3100 + Math.floor(Math.random() * 500);
@@ -154,6 +155,27 @@ const safari = {
   leave: () => wd('POST', `/session/${session}/url`, { url: 'about:blank' }), // hang up before the next call
 };
 
+// What is on screen in the middle half of an element (clear of the name tag and buttons), from a WebDriver screenshot: the brightest and the mean channel value, 0 is black.
+// A video can play (clock running, frames decoded) and still be painted black: only a screenshot sees that.
+async function painted(sel) {
+  const el = Object.values(await wd('POST', `/session/${session}/element`, { using: 'css selector', value: sel }))[0];
+  const png = Buffer.from(await wd('GET', `/session/${session}/element/${el}/screenshot`), 'base64');
+  let w, h, bpp, idat = []; // 8-bit RGB or RGBA, not interlaced
+  for (let p = 8; p < png.length;) {
+    const len = png.readUInt32BE(p), type = png.toString('latin1', p + 4, p + 8), d = png.subarray(p + 8, p + 8 + len);
+    if (type == 'IHDR') { w = d.readUInt32BE(0); h = d.readUInt32BE(4); bpp = d[9] == 6 ? 4 : 3; }
+    if (type == 'IDAT') idat.push(d);
+    p += 12 + len;
+  }
+  const raw = zlib.inflateSync(Buffer.concat(idat)), n = w * bpp, px = Buffer.alloc(n * h);
+  for (let y = 0; y < h; y++) for (let x = 0, f = raw[y * (n + 1)]; x < n; x++) { // undo the PNG row filters
+    const a = x >= bpp ? px[y * n + x - bpp] : 0, b = y ? px[(y - 1) * n + x] : 0, c = x >= bpp && y ? px[(y - 1) * n + x - bpp] : 0, pa = Math.abs(b - c), pb = Math.abs(a - c), pc = Math.abs(a + b - 2 * c);
+    px[y * n + x] = raw[y * (n + 1) + 1 + x] + [0, a, b, (a + b) >> 1, pa <= pb && pa <= pc ? a : pb <= pc ? b : c][f];
+  }
+  let max = 0, sum = 0, count = 0;
+  for (let y = h >> 2; y < h - (h >> 2); y++) for (let x = w >> 2; x < w - (w >> 2); x++) for (let k = 0; k < 3; k++) { const v = px[y * n + x * bpp + k]; max = Math.max(max, v); sum += v; count++; }
+  return { w, h, max, mean: Math.round(sum / count) };
+}
 // What a Safari user sees and hears, as reported from real calls: the own camera in the lobby and in the call, the peer's voice, and the peer hears Safari.
 // Every step is checked even after one failed, so a single (expensive) macOS run names all of them.
 async function safariCall(camAtStart) {
@@ -190,6 +212,8 @@ async function safariCall(camAtStart) {
     await page.click('#addRemoveCameraBtn');
     await check("safari shows the peer's camera", () => plays(safari, '.videoplaceholder:not(.selfPreview) video'));
     await check("own camera beside the peer's", () => plays(safari, '.selfPreview video'));
+    for (const [what, sel] of [["the peer's camera", '.videoplaceholder:not(.selfPreview) video'], ['own camera', '.selfPreview video']]) await check(what + ' is painted, not black',
+      async () => { const p = await painted(sel); console.log('[painted]', what, JSON.stringify(p)); return p.max > 80; }, 3000);
     await check("safari still plays the peer's audio", () => plays(safari, '#audioStreams audio'));
     if (failed.length) console.log(log.join('\n'));
     assert.deepEqual(failed, []);
