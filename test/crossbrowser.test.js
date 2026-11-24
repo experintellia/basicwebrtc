@@ -155,8 +155,6 @@ const safari = {
   leave: () => wd('POST', `/session/${session}/url`, { url: 'about:blank' }), // hang up before the next call
 };
 
-// What a Safari user sees and hears, as reported from real calls: the own camera in the lobby and in the call, the peer's voice, and the peer hears Safari.
-// Every step is checked even after one failed, so a single (expensive) macOS run names all of them.
 // What is on screen in the middle half of an element (clear of the name tag and buttons), from a WebDriver screenshot: the brightest and the mean channel value, 0 is black.
 // A video can play (clock running, frames decoded) and still be painted black: only a screenshot sees that.
 async function painted(sel) {
@@ -178,6 +176,8 @@ async function painted(sel) {
   for (let y = h >> 2; y < h - (h >> 2); y++) for (let x = w >> 2; x < w - (w >> 2); x++) for (let k = 0; k < 3; k++) { const v = px[y * n + x * bpp + k]; max = Math.max(max, v); sum += v; count++; }
   return { w, h, max, mean: Math.round(sum / count) };
 }
+// What a Safari user sees and hears, as reported from real calls: the own camera in the lobby and in the call, the peer's voice, and the peer hears Safari.
+// Every step is checked even after one failed, so a single (expensive) macOS run names all of them.
 async function safariCall(camAtStart) {
   const room = 'y' + Date.now(), log = [], failed = [];
   const page = await (await chrome.newContext()).newPage();
