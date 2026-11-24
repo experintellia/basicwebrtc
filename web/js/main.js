@@ -530,33 +530,34 @@ function gotRemoteStream(stream, UUID) {
   if (!allUserStreams[UUID].audio) { // not in updateUserLayout: that skips while fullscreen
     const audio = allUserStreams[UUID].audio = fromHTML('<audio autoplay hidden></audio>');
     $("#audioStreams").append(audio);
-    audio.srcObject = stream; // after the append: Safari never loads a stream set while the element is still the <template>'s, not even on play()
+    audio.srcObject = stream;
+    audio.play().catch(() => { }); // Safari does not autoplay a hidden element by itself
     setVolume(UUID);
   }
   updateUserLayout();
 }
 
-function fromHTML(html) {
-  const t = document.createElement("template");
-  t.innerHTML = html.trim();
-  return t.content.firstChild;
+function fromHTML(html) { // made in this page's document, not in a <template>'s: Safari never paints a <video> born there, whenever its stream is set
+  const d = document.createElement("div");
+  d.innerHTML = html.trim();
+  return d.firstChild;
 }
 
 function updateUserLayout() {
   if (document.fullscreenElement) { //Dont do things on fullscreen
     return;
   }
-  const tiles = [], streams = new Map(), count = Object.keys(allUserStreams).length;
+  const tiles = [], count = Object.keys(allUserStreams).length;
   for (var i in allUserStreams) {
     var userStream = allUserStreams[i];
     var name = userStream["username"] && userStream["username"] != "NA" ? userStream["username"] : "";
 
-    var userDiv = document.adoptNode(fromHTML(`<div class="videoplaceholder">
+    var userDiv = fromHTML(`<div class="videoplaceholder">
       <div class="userPlaceholderContainer">
         <div class="userPlaceholder"></div>
         <div class="discName"></div>
       </div>
-    </div>`)); // into this page before a playing video moves in: in the <template>'s document it would be reset and load again
+    </div>`);
     userStream.tile = userDiv;
     if (name) userDiv.style.setProperty("--person", personColor(name)); // circle and name tag, like the chat name. Not before the name is known: a UUID would take a color
     if (count == 2 && i == MY_UUID) userDiv.classList.add("selfPreview"); // 1:1 call: the other one fills the screen
@@ -579,7 +580,7 @@ function updateUserLayout() {
         video = old;
       }
       video.classList.toggle("mirror", mirror);
-      streams.set(video, userStream["videostream"]); // set below, once the video is in the page
+      if (video.srcObject != userStream["videostream"] || video.ended) video.srcObject = userStream["videostream"]; // not again while it plays: that loads it anew, black until a frame comes. Ended: a camera switch stopped its track
       video.onresize = () => video.videoHeight && video.parentElement.style.setProperty("--ar", video.videoWidth / video.videoHeight); // the frame's shape: main.css fits it in the tile
       video.onresize();
       userDiv.querySelector(".userPlaceholderContainer").hidden = true;
@@ -612,9 +613,7 @@ function updateUserLayout() {
   mediaDiv.style.setProperty("--cols", Math.ceil(inGrid / rows));
   mediaDiv.replaceChildren(...tiles);
   for (const video of mediaDiv.querySelectorAll("video")) {
-    // In the page, not before: Safari paints a stream set earlier black, though it plays. Not again while it plays: that loads it anew
-    // (Firefox: from 0:00). Ended: a camera switch stopped its track. No readyState: Safari doesn't reload a stream after the element was moved
-    if (video.srcObject != streams.get(video) || video.ended || !video.readyState) video.srcObject = streams.get(video);
+    if (!video.readyState) video.srcObject = video.srcObject; // Safari doesn't reload a stream after the element was moved: start it again in place
     video.play().catch(() => { });
   }
   for (const i in allUserStreams) if (allUserStreams[i].muted) setAudioLevel(i, -1);
