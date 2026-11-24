@@ -50,8 +50,8 @@ var selectedCameraId = stored("camera") || null;
 const camOnAtStart = !!stored("camOn"); // camera on or off as last time in this tab
 const MIC = { echoCancellation: true, noiseSuppression: true };
 // The chosen device, or the browser's pick if it is gone: Chromium ignores a deviceId that is only "ideal"
-const getDevice = (kind, c, id) => navigator.mediaDevices.getUserMedia({ [kind]: id ? { ...c, deviceId: { exact: id } } : c })
-  .catch(e => id && ["OverconstrainedError", "NotFoundError"].includes(e.name) ? getDevice(kind, c) : Promise.reject(e)); // a "no" is not asked twice
+const getDevice = (kind, c, id, more) => navigator.mediaDevices.getUserMedia({ ...more, [kind]: id ? { ...c, deviceId: { exact: id } } : c })
+  .catch(e => id && ["OverconstrainedError", "NotFoundError"].includes(e.name) ? getDevice(kind, c, null, more) : Promise.reject(e)); // a "no" is not asked twice
 
 async function updateDeviceLists() { //Show a picker only if there is more than one device
   const devices = await navigator.mediaDevices.enumerateDevices();
@@ -184,10 +184,9 @@ var mediaReady = (async function () {
   allUserStreams[MY_UUID] = { username: username };
   updateUserLayout();
   try {
-    if (camOnAtStart) { // ask for both permissions at once
-      (await navigator.mediaDevices.getUserMedia({ video: true, audio: true }).catch(() => null))?.getTracks().forEach(t => t.stop()); // no camera: still join with the mic
-    }
-    var stream = await getDevice("audio", MIC, stored("mic"));
+    // Camera on last time: ask for both permissions at once, and keep that mic: stopped and opened again right away, Safari's can stay silent (#118)
+    var stream = camOnAtStart && await getDevice("audio", MIC, stored("mic"), { video: true }).catch(() => null) || await getDevice("audio", MIC, stored("mic")); // no camera: still join with the mic
+    stream.getVideoTracks().forEach(t => { t.stop(); stream.removeTrack(t); });
   } catch (error) {
     $("#micError").hidden = false;
     console.log('getUserMedia error! Got this error: ', error);
@@ -530,8 +529,8 @@ function gotRemoteStream(stream, UUID) {
   allUserStreams[UUID]["audiostream"] = stream;
   if (!allUserStreams[UUID].audio) { // not in updateUserLayout: that skips while fullscreen
     const audio = allUserStreams[UUID].audio = fromHTML('<audio autoplay hidden></audio>');
-    audio.srcObject = stream;
     $("#audioStreams").append(audio);
+    audio.srcObject = stream; // after the append: Safari never loads a stream set while the element is still the <template>'s, not even on play()
     setVolume(UUID);
   }
   updateUserLayout();
@@ -552,12 +551,12 @@ function updateUserLayout() {
     var userStream = allUserStreams[i];
     var name = userStream["username"] && userStream["username"] != "NA" ? userStream["username"] : "";
 
-    var userDiv = fromHTML(`<div class="videoplaceholder">
+    var userDiv = document.adoptNode(fromHTML(`<div class="videoplaceholder">
       <div class="userPlaceholderContainer">
         <div class="userPlaceholder"></div>
         <div class="discName"></div>
       </div>
-    </div>`);
+    </div>`)); // into this page before a playing video moves in: in the <template>'s document it would be reset and load again
     userStream.tile = userDiv;
     if (name) userDiv.style.setProperty("--person", personColor(name)); // circle and name tag, like the chat name. Not before the name is known: a UUID would take a color
     if (count == 2 && i == MY_UUID) userDiv.classList.add("selfPreview"); // 1:1 call: the other one fills the screen
@@ -580,7 +579,7 @@ function updateUserLayout() {
         video = old;
       }
       video.classList.toggle("mirror", mirror);
-      video.srcObject = userStream["videostream"];
+      if (video.srcObject != userStream["videostream"] || video.ended) video.srcObject = userStream["videostream"]; // not again while it plays: that loads it anew, black until a frame comes. Ended: a camera switch stopped its track
       video.onresize = () => video.videoHeight && video.parentElement.style.setProperty("--ar", video.videoWidth / video.videoHeight); // the frame's shape: main.css fits it in the tile
       video.onresize();
       userDiv.querySelector(".userPlaceholderContainer").hidden = true;
