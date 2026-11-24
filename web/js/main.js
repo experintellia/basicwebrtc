@@ -546,7 +546,7 @@ function updateUserLayout() {
   if (document.fullscreenElement) { //Dont do things on fullscreen
     return;
   }
-  const tiles = [], count = Object.keys(allUserStreams).length;
+  const tiles = [], streams = new Map(), count = Object.keys(allUserStreams).length;
   for (var i in allUserStreams) {
     var userStream = allUserStreams[i];
     var name = userStream["username"] && userStream["username"] != "NA" ? userStream["username"] : "";
@@ -579,7 +579,7 @@ function updateUserLayout() {
         video = old;
       }
       video.classList.toggle("mirror", mirror);
-      if (video.srcObject != userStream["videostream"] || video.ended) video.srcObject = userStream["videostream"]; // not again while it plays: that loads it anew, black until a frame comes. Ended: a camera switch stopped its track
+      streams.set(video, userStream["videostream"]); // set below, once the video is in the page
       video.onresize = () => video.videoHeight && video.parentElement.style.setProperty("--ar", video.videoWidth / video.videoHeight); // the frame's shape: main.css fits it in the tile
       video.onresize();
       userDiv.querySelector(".userPlaceholderContainer").hidden = true;
@@ -612,7 +612,9 @@ function updateUserLayout() {
   mediaDiv.style.setProperty("--cols", Math.ceil(inGrid / rows));
   mediaDiv.replaceChildren(...tiles);
   for (const video of mediaDiv.querySelectorAll("video")) {
-    if (!video.readyState) video.srcObject = video.srcObject; // Safari doesn't reload a stream after the element was moved: start it again in place
+    // In the page, not before: Safari paints a stream set earlier black, though it plays. Not again while it plays: that loads it anew
+    // (Firefox: from 0:00). Ended: a camera switch stopped its track. No readyState: Safari doesn't reload a stream after the element was moved
+    if (video.srcObject != streams.get(video) || video.ended || !video.readyState) video.srcObject = streams.get(video);
     video.play().catch(() => { });
   }
   for (const i in allUserStreams) if (allUserStreams[i].muted) setAudioLevel(i, -1);

@@ -1787,6 +1787,20 @@ test('own camera keeps playing when a peer turns its camera on: the video is not
   assert.deepStrictEqual(await a.evaluate(() => [__own.isConnected, __own.readyState, __emptied]), [true, 4, 0], 'same element, still loaded, never emptied');
 });
 
+// Safari loads, but paints black, a stream that was set before its element is in the page (audio: never plays). Seen only in real Safari, so the rule is checked here.
+const countDetachedSets = () => {
+  const d = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'srcObject');
+  window.__detachedSets = 0;
+  Object.defineProperty(HTMLMediaElement.prototype, 'srcObject', { ...d, set(v) { if (v && !this.isConnected) __detachedSets++; d.set.call(this, v); } });
+};
+test('a stream is only set on a video or audio element that is in the page', async t => {
+  const a = await join(t, 'alice', countDetachedSets), b = await join(t, 'bob');
+  await a.click('#addRemoveCameraBtn'); await b.click('#addRemoveCameraBtn');
+  await waitFor(() => remoteVideoShown(a), 'remote video on alice');
+  await waitFor(() => a.evaluate(() => document.querySelectorAll('#mediaDiv video').length == 2 && !!document.querySelector('#audioStreams audio')?.srcObject), 'own video and audio on alice');
+  assert.strictEqual(await a.evaluate(() => __detachedSets), 0);
+});
+
 test('lobby: nobody joins until Join, then with the name typed there', async t => {
   const a = await join(t, 'alice');
   const b = await open(t, null);
