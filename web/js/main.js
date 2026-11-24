@@ -544,7 +544,7 @@ function fromHTML(html) { // made in this page's document, not in a <template>'s
 }
 
 function updateUserLayout() {
-  if (document.fullscreenElement) { //Dont do things on fullscreen
+  if (document.fullscreenElement || [...document.querySelectorAll("#mediaDiv video")].some(v => v.webkitDisplayingFullscreen)) { //Dont do things on fullscreen. webkit...: the iPhone's native player, not in fullscreenElement
     return;
   }
   const tiles = [], count = Object.keys(allUserStreams).length;
@@ -591,7 +591,8 @@ function updateUserLayout() {
 
       if (i != MY_UUID) {
         video.style.cursor = "pointer";
-        video.onclick = () => video.requestFullscreen();
+        video.onclick = () => (video.requestFullscreen || video.webkitEnterFullscreen).call(video); // iPhone: no fullscreen for elements, only the video's native player
+        video.addEventListener("webkitendfullscreen", updateUserLayout); // redo what was skipped; it also plays the video again, iOS pauses it on leaving
       }
     }
 

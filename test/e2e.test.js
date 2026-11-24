@@ -1694,6 +1694,24 @@ test('layout skipped in fullscreen is redone on exit', async t => {
   assert.strictEqual(await a.locator('#mediaDiv .videoplaceholder').count(), 1, 'bob\'s tile gone');
 });
 
+// iPhone: no element.requestFullscreen, only the video's own native player, which document.fullscreenElement does not show.
+test('iPhone: tapping a video opens its native fullscreen; layout waits until it closes', async t => {
+  const [a, b] = await call(t, null, () => {
+    delete Element.prototype.requestFullscreen;
+    HTMLVideoElement.prototype.webkitEnterFullscreen = function () { window.__fs = this; };
+    Object.defineProperty(HTMLVideoElement.prototype, 'webkitDisplayingFullscreen', { get() { return window.__fs == this; } });
+  });
+  await a.click('#addRemoveCameraBtn');
+  await waitFor(() => remoteVideoShown(b), 'remote video on bob');
+  await b.click('#mediaDiv .videoplaceholder:not(.selfPreview) video');
+  assert.ok(await b.evaluate(() => window.__fs?.isConnected), 'native fullscreen entered');
+  await a.context().close();
+  await waitFor(() => b.evaluate(() => !Object.keys(pcs).length), 'alice removed');
+  assert.ok(await b.evaluate(() => window.__fs.isConnected), 'video left in place while fullscreen');
+  await b.evaluate(() => { const v = window.__fs; window.__fs = null; v.dispatchEvent(new Event('webkitendfullscreen')); });
+  assert.strictEqual(await b.locator('#mediaDiv .videoplaceholder').count(), 1, 'alice\'s tile gone');
+});
+
 test('late signaling from a departed peer creates no connection', async t => {
   const a = await join(t, 'alice');
   await waitFor(() => a.evaluate(() => socket.connected), 'connected');
